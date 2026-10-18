@@ -1,0 +1,137 @@
+"""Shared step-recording machinery used by the LLM proxies, tools and agents."""
+
+from __future__ import annotations
+
+import time
+import traceback
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from typing import Any
+
+from ..context import RunContext, active_span, current, current_span_id
+from ..models import ErrorInfo, Operation, Step, utcnow
+from ..store.redact import get_redactor
+from .normalize import request_hash
+
+
+def error_info(exc: BaseException, *, is_tool_error: bool = False) -> ErrorInfo:
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    return ErrorInfo(
+        type=f"{type(exc).__module__}.{type(exc).__qualname__}".removeprefix("builtins."),
+        message=str(exc)[:4000],
+        is_tool_error=is_tool_error,
+        status_code=status if isinstance(status, int) else None,
+        traceback=tb[-8000:],
+    )
+
+
+@dataclass
+class PendingStep:
+    ctx: RunContext
+    idx: int
+    span_id: str
+    parent_span_id: str | None
+    operation: Operation
+    name: str
+    request: dict[str, Any]
+    request_hash: str
+    attributes: dict[str, Any] = field(default_factory=dict)
+    raw_request: dict[str, Any] | None = None
+    started_at: Any = field(default_factory=utcnow)
+    t0: float = field(default_factory=time.perf_counter)
+    done: bool = False
+
+    @contextmanager
+    def activate(self) -> Iterator[None]:
+        """Make this step the parent span for anything recorded inside it."""
+        with active_span(self.span_id):
+            yield
+
+    def _emit(self, response, raw_response, error, extra_attrs) -> Step:
+        if self.done:
+            raise RuntimeError("step already finished")
+        self.done = True
+        attrs = dict(self.attributes)
+        attrs.update(extra_attrs or {})
+        step = Step(
+            run_id=self.ctx.run.run_id,
+            idx=self.idx,
+            span_id=self.span_id,
+            parent_span_id=self.parent_span_id,
+            operation=self.operation,
+            name=self.name,
+            attributes=attrs,
+            request=self.request,
+            response=response,
+            raw_request=self.raw_request,
+            raw_response=raw_response,
+            error=error,
+            request_hash=self.request_hash,
+            started_at=self.started_at,
+            duration_ms=round((time.perf_counter() - self.t0) * 1000, 3),
+            source="live",
+        )
+        self.ctx.add_step(step)
+        return step
+
+    def finish(
+        self,
+        response: dict[str, Any] | None,
+        *,
+        raw_response: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
+    ) -> Step:
+        return self._emit(response, raw_response, None, attributes)
+
+    def fail(
+        self,
+        exc: BaseException,
+        *,
+        is_tool_error: bool = False,
+        attributes: dict[str, Any] | None = None,
+    ) -> Step:
+        attrs = {"error.type": type(exc).__qualname__}
+        attrs.update(attributes or {})
+        return self._emit(None, None, error_info(exc, is_tool_error=is_tool_error), attrs)
+
+
+def begin_step(
+    operation: Operation,
+    name: str,
+    request: dict[str, Any],
+    *,
+    attributes: dict[str, Any] | None = None,
+    raw_request: dict[str, Any] | None = None,
+    hash_input: Any = None,
+) -> PendingStep | None:
+    """Start a step in the active run, or return None when nothing is being recorded.
+
+    The request hash is computed over the redacted request (or ``hash_input``) so it can
+    be recomputed from the stored cassette.
+    """
+    ctx = current()
+    if ctx is None:
+        return None
+    from .._ids import new_span_id
+
+    redactor = get_redactor()
+    attrs = {"gen_ai.operation.name": operation}
+    attrs.update(attributes or {})
+    return PendingStep(
+        ctx=ctx,
+        idx=ctx.next_idx(),
+        span_id=new_span_id(),
+        parent_span_id=current_span_id(),
+        operation=operation,
+        name=name,
+        request=request,
+        request_hash=request_hash(
+            redactor.redact(hash_input if hash_input is not None else request)
+        ),
+        attributes=attrs,
+        raw_request=raw_request,
+    )
