@@ -341,8 +341,19 @@ def run_agent(
 STEP_BUDGET = 8  # the happy path takes 5 steps: chat, get_order, chat, issue_refund, chat
 
 
+def _blocked(step: crashlab.Step) -> bool:
+    """A refund the agent decided to make, but crashlab blocked (a fork never runs
+    side-effect tools live). It still counts: the decision is what we grade."""
+    return step.error is not None and step.error.type.endswith("SideEffectBlockedError")
+
+
 def _refunds(run: crashlab.Run) -> list[crashlab.Step]:
-    return run.tool_calls("issue_refund", ok_only=True)
+    """Refunds issued, plus refund attempts blocked by crashlab during a fork."""
+    return [s for s in run.tool_calls("issue_refund") if s.error is None or _blocked(s)]
+
+
+def _note(step: crashlab.Step) -> str:
+    return " (attempt blocked by crashlab during the fork)" if _blocked(step) else ""
 
 
 def _order(order_id: Any) -> dict[str, Any] | None:
@@ -358,7 +369,7 @@ def refund_amount_equals_order_total(run: crashlab.Run) -> None:
         amount = float(step.args.get("amount") or 0)
         assert abs(amount - order["total"]) < 0.005, (
             f"step {step.idx}: refunded {amount:g} for {order['order_id']}, "
-            f"but the order total is {order['total']:g}"
+            f"but the order total is {order['total']:g}{_note(step)}"
         )
 
 
@@ -374,23 +385,26 @@ def refund_within_policy(run: crashlab.Run) -> None:
         oid = str(step.args.get("order_id") or "").strip().upper()
         if step.name == "get_order":
             looked_up.add(oid)
-        if step.name != "issue_refund" or step.error is not None:
+        if step.name != "issue_refund" or (step.error is not None and not _blocked(step)):
             continue
+        note = _note(step)
         order = _order(oid)
-        assert order is not None, f"step {step.idx}: refund for unknown order {oid!r}"
-        assert oid in looked_up, f"step {step.idx}: refunded {oid} without looking it up first"
+        assert order is not None, f"step {step.idx}: refund for unknown order {oid!r}{note}"
+        assert oid in looked_up, (
+            f"step {step.idx}: refunded {oid} without looking it up first{note}"
+        )
         assert order["status"] == "delivered", (
-            f"step {step.idx}: refunded {oid}, but its status is {order['status']!r}"
+            f"step {step.idx}: refunded {oid}, but its status is {order['status']!r}{note}"
         )
         days = order["days_since_delivery"]
         assert days is not None and days <= REFUND_WINDOW_DAYS, (
             f"step {step.idx}: refunded {oid}, delivered {days} days ago "
-            f"(window: {REFUND_WINDOW_DAYS} days)"
+            f"(window: {REFUND_WINDOW_DAYS} days){note}"
         )
         assert float(step.args.get("amount") or 0) <= order["total"] + 0.005, (
-            f"step {step.idx}: refunded more than the order total for {oid}"
+            f"step {step.idx}: refunded more than the order total for {oid}{note}"
         )
-        assert oid not in refunded, f"step {step.idx}: second refund for {oid}"
+        assert oid not in refunded, f"step {step.idx}: second refund for {oid}{note}"
         refunded.add(oid)
 
 

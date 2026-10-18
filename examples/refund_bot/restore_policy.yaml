@@ -1,0 +1,7 @@
+# Restore the refund-window rule that FAULT_POLICY_DROP removes.
+#   crashlab fork <run> --at 0 --patch examples/refund_bot/restore_policy.yaml
+patches:
+  - kind: system_prompt
+    op: insert_line
+    after: Always look up the order
+    text: '- Only refund orders whose status is "delivered" and that were delivered at most 30 days ago.'

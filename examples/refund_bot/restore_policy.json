@@ -1,0 +1,10 @@
+{
+  "patches": [
+    {
+      "kind": "system_prompt",
+      "op": "insert_line",
+      "text": "- Only refund orders whose status is \"delivered\" and that were delivered at most 30 days ago.",
+      "after": "Always look up the order"
+    }
+  ]
+}
