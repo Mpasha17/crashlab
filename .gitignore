@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# crashlab local run store and dev venv
+.crashlab/
+.venv/
