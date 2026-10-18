@@ -35,9 +35,11 @@ dependencies = [
 openai = ["openai>=1.40"]
 anthropic = ["anthropic>=0.30"]
 litellm = ["litellm>=1.40"]
+yaml = ["pyyaml>=6"]  # YAML patch files for `crashlab fork --patch fix.yaml`
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
+    "pyyaml>=6",
     "ruff>=0.6",
 ]
 

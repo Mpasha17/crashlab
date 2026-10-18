@@ -116,7 +116,7 @@ def test_request_divergence_has_readable_diff():
     err = ei.value
     assert err.kind == "request" and err.step_idx == 0
     assert err.fields == ["system"]
-    assert '\n-"be brief"\n+"be verbose"' in err.diff
+    assert "\n-be brief\n+be verbose" in err.diff  # raw lines, no quoting
     assert "--- recorded step 0 system" in err.diff
     text = str(err)
     assert "step 0 (chat 'fake-model')" in text and "differing fields: system" in text
@@ -316,7 +316,7 @@ def test_cli_replay_success_divergence_and_errors():
     res = runner.invoke(app, ["replay", src.run_id], env=env)
     assert res.exit_code == 1
     assert "replay diverged" in res.plain and "differing fields: system" in res.plain
-    assert '+"be verbose"' in res.plain and "Diverged replay stored as" in res.plain
+    assert "+be verbose" in res.plain and "Diverged replay stored as" in res.plain
 
     with crashlab.record("no-entrypoint"):
         pass

@@ -2,7 +2,8 @@
 
 Each provider supplies a :class:`ChatAdapter`; :func:`invoke` is the single interception
 point used by every proxy (OpenAI chat + responses, Anthropic, LiteLLM). In replay mode it
-serves the recorded response from the cassette instead of calling ``fn``.
+serves the recorded response from the cassette instead of calling ``fn``; in a fork it
+applies the fork's patches to the outgoing request first.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ..context import current
 from ..models import Step
 from . import normalize as N
 from ._steps import begin_step
@@ -103,6 +105,8 @@ class ChatCall:
         *,
         server: str | None = None,
         stream: bool | None = None,
+        idx: int | None = None,
+        patches: list[str] | None = None,
     ) -> None:
         self.adapter = adapter
         self.stream = bool(kwargs.get("stream") is True) if stream is None else stream
@@ -114,9 +118,13 @@ class ChatCall:
             normalized,
             attributes=_request_attributes(adapter, normalized, server, self.stream),
             raw_request=N.strip_binary(N.to_jsonable(kwargs)),
+            idx=idx,
         )
         if self.pending is None:
             _warn_outside_run()
+        elif patches:
+            self.pending.source = "patched"
+            self.pending.attributes["crashlab.fork.patches"] = list(patches)
 
     @property
     def active(self) -> bool:
@@ -209,6 +217,20 @@ async def _return_later(value: Any) -> Any:
     return value
 
 
+def prepare_request(
+    adapter: ChatAdapter, kwargs: dict[str, Any]
+) -> tuple[dict[str, Any], int | None, list[str]]:
+    """In a fork past its fork step: allocate the step index and apply the patches to the
+    outgoing request. Returns ``(kwargs, idx or None, descriptions of applied patches)``."""
+    ctx = current()
+    rp = ctx.replayer if ctx is not None else None
+    if rp is None or not rp.edits_requests:
+        return kwargs, None, []
+    idx = ctx.next_idx()  # type: ignore[union-attr]
+    new, applied = rp.patch_chat(idx, adapter.api, kwargs)
+    return new, idx, applied
+
+
 def invoke(
     adapter: ChatAdapter,
     fn: Callable[..., Any],
@@ -233,7 +255,10 @@ def invoke(
             call_kwargs.update(call_kwargs.pop("kwargs", {}) or {})
         except (TypeError, ValueError):
             pass
-    call = ChatCall(adapter, call_kwargs, server=server)
+    call_kwargs, idx, applied = prepare_request(adapter, call_kwargs)
+    if applied:  # call the SDK with the patched request
+        args, kwargs = (), call_kwargs
+    call = ChatCall(adapter, call_kwargs, server=server, idx=idx, patches=applied)
     src = call.replay_source()
     if src is not None:
         if is_async is None:

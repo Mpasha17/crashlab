@@ -113,8 +113,10 @@ class record:
                 "not supported (nested @crashlab.agent calls are recorded as invoke_agent steps)"
             )
         replayer = take_pending_replay()
-        if self.mode == "replay" and replayer is None:
-            raise RuntimeError("replay runs are started with crashlab.replay(run), not record()")
+        if self.mode in ("replay", "fork") and replayer is None:
+            raise RuntimeError(
+                f"{self.mode} runs are started with crashlab.{self.mode}(run, ...), not record()"
+            )
         run = Run(
             run_id=new_ulid(),
             name=self.name,
@@ -124,18 +126,21 @@ class record:
             started_at=utcnow(),
             code_version=git_version(),
             env=_env(),
-            tags=self.tags + (["replay"] if replayer else []),
+            tags=list(self.tags),
             span_id=new_span_id(),
-            replay_of=replayer.source.run_id if replayer else None,
         )
         store_dir = self.store_dir
         if replayer is not None:
+            replayer.prepare_run(run)  # replay_of / forked_from, fork_step, patch, tags
             replayer.replay_run_id = run.run_id
             store_dir = store_dir or replayer.store_dir
         store = Store(store_dir)
         store.begin_run(run)
         self.ctx = RunContext(
-            run=run, store=store, mode="replay" if replayer else self.mode, replayer=replayer
+            run=run,
+            store=store,
+            mode=replayer.mode if replayer else self.mode,  # type: ignore[arg-type]
+            replayer=replayer,
         )
         self._token = set_current(self.ctx)
         self._t0 = time.perf_counter()
@@ -149,11 +154,14 @@ class record:
             run.usage.wall_time_ms = round((time.perf_counter() - self._t0) * 1000, 3)
             user_outcome = run.outcome != "unknown"
             if self.ctx.replayer is not None:
-                divergence = self.ctx.replayer.finalize(run, exc)
+                rp = self.ctx.replayer
+                divergence = rp.finalize(run, exc)
                 if divergence is not None:  # also when user code swallowed the error
                     exc = divergence if exc is None else exc
                     exc_type = type(exc)
-                    run.outcome_reason = f"replay diverged: {divergence.summary}"[:500]
+                    run.outcome_reason = f"{rp.mode} diverged: {divergence.summary}"[:500]
+                for flag in rp.flags:
+                    self.ctx.add_flag(flag)
             if exc is not None:
                 run.status = "error"
                 run.error = error_info(exc)

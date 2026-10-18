@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from .store import Store
 
 Mode = Literal["record", "replay", "fork"]
-SUPPORTED_MODES: tuple[Mode, ...] = ("record", "replay")
+SUPPORTED_MODES: tuple[Mode, ...] = ("record", "replay", "fork")
 
 
 @dataclass
@@ -39,7 +39,7 @@ class RunContext:
     # Tool calls requested by the most recent chat response that no tool step has
     # consumed yet; used to link execute_tool steps to gen_ai.tool.call.id.
     pending_tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    # Set in replay mode: serves LLM/tool calls from the source run's cassette.
+    # Set in replay / fork mode: serves LLM/tool calls from the source run's cassette.
     replayer: Replayer | None = None
     # Finished steps, kept in memory so @crashlab.check oracles can run at run end.
     steps: list[Step] = field(default_factory=list)
@@ -128,7 +128,7 @@ def check_mode(mode: str) -> Mode:
     if mode not in SUPPORTED_MODES:
         raise NotImplementedError(
             f"crashlab mode {mode!r} is not implemented yet; available: "
-            f"{', '.join(SUPPORTED_MODES)} (fork is on the roadmap)."
+            f"{', '.join(SUPPORTED_MODES)}."
         )
     return mode  # type: ignore[return-value]
 
@@ -156,9 +156,9 @@ def pending_replay(rp: Replayer) -> Iterator[None]:
 
 
 def is_replaying() -> bool:
-    """True inside a run that is being replayed from a cassette."""
+    """True inside a run that is being replayed from a cassette (strict replay or fork)."""
     ctx = _current_run.get()
-    return ctx is not None and ctx.mode == "replay"
+    return ctx is not None and ctx.mode in ("replay", "fork")
 
 
 def set_current(ctx: RunContext | None) -> contextvars.Token:

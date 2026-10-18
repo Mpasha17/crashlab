@@ -56,6 +56,14 @@ def _dump(value: Any) -> list[str]:
     return _render(value)
 
 
+def _dump_pair(a: Any, b: Any) -> tuple[list[str], list[str]]:
+    """Render two values for a line diff; two strings are compared raw, line by line (a
+    one-line and a multi-line prompt must not differ just by quoting)."""
+    if isinstance(a, str) and isinstance(b, str):
+        return a.split("\n"), b.split("\n")
+    return _dump(a), _dump(b)
+
+
 def _differing_paths(expected: Any, actual: Any, prefix: str, out: list[str], limit: int = 12):
     """Collect dotted paths where two JSON-like values differ (first ``limit`` only)."""
     if len(out) >= limit or expected == actual:
@@ -97,10 +105,11 @@ def diff_values(
     if isinstance(expected, dict) and isinstance(actual, dict):
         keys = [k for k in sorted(set(expected) | set(actual)) if expected.get(k) != actual.get(k)]
         for key in keys:
+            left, right = _dump_pair(expected.get(key), actual.get(key))
             chunks.extend(
                 difflib.unified_diff(
-                    _dump(expected.get(key)),
-                    _dump(actual.get(key)),
+                    left,
+                    right,
                     fromfile=f"{fromfile} {key}",
                     tofile=f"{tofile} {key}",
                     lineterm="",
@@ -108,10 +117,9 @@ def diff_values(
                 )
             )
     else:
+        left, right = _dump_pair(expected, actual)
         chunks.extend(
-            difflib.unified_diff(
-                _dump(expected), _dump(actual), fromfile=fromfile, tofile=tofile, lineterm="", n=2
-            )
+            difflib.unified_diff(left, right, fromfile=fromfile, tofile=tofile, lineterm="", n=2)
         )
     if len(chunks) > MAX_DIFF_LINES:
         hidden = len(chunks) - MAX_DIFF_LINES
@@ -173,3 +181,12 @@ class ReplayNetworkError(ConnectionRefusedError):
 
 class ReplayError(RuntimeError):
     """A run cannot be replayed (no entry point, missing cassette, ...)."""
+
+
+class ForkError(ReplayError):
+    """A run cannot be forked as asked (fork step out of range, patch does not apply ...)."""
+
+
+class PatchedToolError(RuntimeError):
+    """Raised by a tool whose result a :class:`~crashlab.patch.ToolResultPatch` replaced
+    with an error."""

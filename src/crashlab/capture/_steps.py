@@ -44,6 +44,7 @@ class PendingStep:
     started_at: Any = field(default_factory=utcnow)
     t0: float = field(default_factory=time.perf_counter)
     done: bool = False
+    source: StepSource = "live"  # "patched" when a fork patch changed this call
 
     @contextmanager
     def activate(self) -> Iterator[None]:
@@ -51,7 +52,7 @@ class PendingStep:
         with active_span(self.span_id):
             yield
 
-    def _emit(self, response, raw_response, error, extra_attrs, source="live") -> Step:
+    def _emit(self, response, raw_response, error, extra_attrs, source=None) -> Step:
         if self.done:
             raise RuntimeError("step already finished")
         self.done = True
@@ -73,14 +74,15 @@ class PendingStep:
             request_hash=self.request_hash,
             started_at=self.started_at,
             duration_ms=round((time.perf_counter() - self.t0) * 1000, 3),
-            source=source,
+            source=source or self.source,
         )
         self.ctx.add_step(step)
         return step
 
     # replay ----------------------------------------------------------------------------
     def replay_source(self) -> Step | None:
-        """In replay mode, the recorded step this call must reproduce (else None).
+        """In replay / fork mode, the recorded step this call must reproduce; None when it
+        runs live (record mode, or a fork past its fork step).
 
         A mismatch is recorded as this step's error and raised as ``DivergenceError``.
         """
@@ -88,9 +90,7 @@ class PendingStep:
         if replayer is None:
             return None
         try:
-            return replayer.match(
-                self.idx, self.operation, self.name, self.request, self.request_hash
-            )
+            return replayer.source_for(self)
         except BaseException as exc:
             if not self.done:
                 self.fail(exc)
@@ -110,8 +110,9 @@ class PendingStep:
         *,
         raw_response: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
+        source: StepSource | None = None,
     ) -> Step:
-        return self._emit(response, raw_response, None, attributes)
+        return self._emit(response, raw_response, None, attributes, source)
 
     def fail(
         self,
@@ -121,11 +122,12 @@ class PendingStep:
         response: dict[str, Any] | None = None,
         raw_response: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
+        source: StepSource | None = None,
     ) -> Step:
         attrs = {"error.type": type(exc).__qualname__}
         attrs.update(attributes or {})
         err = error_info(exc, is_tool_error=is_tool_error)
-        return self._emit(response, raw_response, err, attrs)
+        return self._emit(response, raw_response, err, attrs, source)
 
 
 def begin_step(
@@ -136,11 +138,13 @@ def begin_step(
     attributes: dict[str, Any] | None = None,
     raw_request: dict[str, Any] | None = None,
     hash_input: Any = None,
+    idx: int | None = None,
 ) -> PendingStep | None:
     """Start a step in the active run, or return None when nothing is being recorded.
 
     The request hash is computed over the redacted request (or ``hash_input``) so it can
-    be recomputed from the stored cassette.
+    be recomputed from the stored cassette. ``idx`` is a step index already allocated
+    with ``ctx.next_idx()`` (a fork patches the request before the step starts).
     """
     ctx = current()
     if ctx is None:
@@ -152,7 +156,7 @@ def begin_step(
     attrs.update(attributes or {})
     return PendingStep(
         ctx=ctx,
-        idx=ctx.next_idx(),
+        idx=ctx.next_idx() if idx is None else idx,
         span_id=new_span_id(),
         parent_span_id=current_span_id(),
         operation=operation,

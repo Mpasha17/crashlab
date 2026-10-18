@@ -1,4 +1,4 @@
-"""Strict offline replay.
+"""Strict offline replay and fork-at-step-N.
 
 ``crashlab.replay(run)`` re-invokes the recorded entry point with the recorded input. Every
 LLM call (through the single capture point, :func:`crashlab.capture._chat.invoke`) and
@@ -12,6 +12,9 @@ every ``@crashlab.tool`` call is served from the source run's cassette instead o
   replay needs no API key and no network.
 
 The replay is stored as a new run with ``replay_of`` set to the source run id.
+
+``crashlab.fork(run, at_step=N, patch=...)`` uses the same machinery with a
+:class:`Forker` policy: strict replay below N, patched live calls from N on.
 """
 
 from __future__ import annotations
@@ -27,13 +30,20 @@ import sys
 import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ..context import pending_replay, run_in_thread
-from ..models import Run, Step
+from ..models import Flag, Run, Step
+from ..patch import PatchError, PatchSet, as_patchset, preview_patches
 from ..store import Store
 from ..store.redact import get_redactor
-from .divergence import DivergenceError, ReplayError, ReplayNetworkError, diff_values
+from .divergence import (
+    DivergenceError,
+    ForkError,
+    ReplayError,
+    ReplayNetworkError,
+    diff_values,
+)
 
 PLACEHOLDER_KEY = "crashlab-replay-offline"
 # SDK constructors that refuse to build a client without a key; nothing is ever sent.
@@ -45,7 +55,16 @@ def _describe(step: Step) -> str:
 
 
 class Replayer:
-    """Serves one source run's steps, in order, and records the first divergence."""
+    """Serves one source run's steps, in order, and records the first divergence.
+
+    The capture layer talks to it through a small policy interface, which
+    :class:`Forker` overrides: :meth:`source_for` (the recorded step a call must
+    reproduce, or None to run live), :meth:`tool_decision`, :meth:`patch_chat` and
+    :meth:`prepare_run`.
+    """
+
+    mode = "replay"
+    edits_requests = False  # True when patch_chat() may change outgoing requests
 
     def __init__(self, source: Run, *, store_dir: str | os.PathLike[str] | None = None) -> None:
         self.source = source
@@ -54,7 +73,29 @@ class Replayer:
         self.consumed: set[int] = set()
         self.divergence: DivergenceError | None = None
         self.replay_run_id: str | None = None
+        self.flags: list[Flag] = []  # added to the new run when it ends
         self._lock = threading.Lock()
+
+    # policy ----------------------------------------------------------------------------
+    def prepare_run(self, run: Run) -> None:
+        run.replay_of = self.source.run_id
+        run.tags.append("replay")
+
+    def source_for(self, pending: Any) -> Step | None:
+        """The recorded step this call must reproduce (strict: always one, or raise)."""
+        return self.match(
+            pending.idx, pending.operation, pending.name, pending.request, pending.request_hash
+        )
+
+    def tool_decision(self, pending: Any, side_effects: bool) -> tuple[str, Any]:
+        """``("cassette", step)`` | ``("patched", ToolResultPatch)`` | ``("live", None)``
+        | ``("blocked", reason)``. Strict replay never runs a tool."""
+        return "cassette", pending.replay_source()
+
+    def patch_chat(
+        self, idx: int, api: str, kwargs: dict[str, Any]
+    ) -> tuple[dict[str, Any], list[str]]:
+        return kwargs, []
 
     # matching ------------------------------------------------------------------------
     def _diverge(self, kind: str, summary: str, **kw: Any) -> DivergenceError:
@@ -164,6 +205,163 @@ class Replayer:
                 fields=fields,
                 diff=diff,
             )
+        return None
+
+
+ToolsMode = Literal["cassette_if_match", "live"]
+
+
+def _numbers(value: Any) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {k: _numbers(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_numbers(v) for v in value]
+    return value
+
+
+def _args_key(args: Any) -> str:
+    import json
+
+    redacted = get_redactor().redact(args or {})
+    return json.dumps(_numbers(redacted), sort_keys=True, ensure_ascii=False, default=str)
+
+
+class Forker(Replayer):
+    """Fork policy: steps ``< at_step`` are a strict replay; from ``at_step`` on, LLM calls
+    go live (to whatever client the agent uses) with ``patches`` applied, and tools follow
+    ``tools``:
+
+    - ``"cassette_if_match"`` (default): the recorded result when the parent made the same
+      call (same tool and arguments), otherwise run live if the tool has no side effects;
+    - ``"live"``: tools without side effects always run live.
+
+    ``side_effects=True`` tools never run live unless ``allow_live_side_effects``: they
+    get the recorded result of an identical parent call (each used once) or raise
+    :class:`SideEffectBlockedError`.
+    """
+
+    mode = "fork"
+
+    def __init__(
+        self,
+        source: Run,
+        *,
+        at_step: int,
+        patches: PatchSet,
+        tools: ToolsMode = "cassette_if_match",
+        allow_live_side_effects: bool = False,
+        store_dir: str | os.PathLike[str] | None = None,
+    ) -> None:
+        super().__init__(source, store_dir=store_dir)
+        self.at_step = at_step
+        self.patches = patches
+        self.tools = tools
+        self.allow_live_side_effects = allow_live_side_effects
+        self.edits_requests = patches.edits_requests
+        self.applied: dict[int, int] = {}  # patch index -> times applied
+        self._patch_state: dict[int, dict] = {}
+        self.max_idx = -1
+
+    def _seen(self, idx: int) -> None:
+        with self._lock:
+            self.max_idx = max(self.max_idx, idx)
+
+    def prepare_run(self, run: Run) -> None:
+        run.forked_from = self.source.run_id
+        run.fork_step = self.at_step
+        run.patch = self.patches
+        run.patch_description = self.patches.describe()
+        run.tags.append("fork")
+
+    def source_for(self, pending: Any) -> Step | None:
+        self._seen(pending.idx)
+        if pending.idx < self.at_step:
+            return super().source_for(pending)
+        if self.divergence is not None:
+            raise self.divergence
+        return None
+
+    def _cassette_match(self, pending: Any, side_effects: bool) -> Step | None:
+        """A parent call of the same tool with equal arguments (``120 == 120.0``)."""
+        key = _args_key(pending.request.get("args"))
+        hits = [
+            s
+            for s in self.source.steps
+            if s.operation == "execute_tool"
+            and s.name == pending.name
+            and (s.request_hash == pending.request_hash or _args_key(s.args) == key)
+        ]
+        with self._lock:
+            fresh = [s for s in hits if s.idx not in self.consumed]
+            pick = fresh[0] if fresh else (None if side_effects or not hits else hits[0])
+            if pick is not None:
+                self.consumed.add(pick.idx)
+        return pick
+
+    def tool_decision(self, pending: Any, side_effects: bool) -> tuple[str, Any]:
+        self._seen(pending.idx)
+        if pending.idx < self.at_step:
+            return "cassette", pending.replay_source()
+        if self.divergence is not None:
+            raise self.divergence
+        patch = self.patches.tool_result_for(pending.idx)
+        if patch is not None:
+            if patch.tool and patch.tool != pending.name:
+                raise PatchError(
+                    f"{patch.describe()}: step {pending.idx} of the fork calls {pending.name!r}"
+                )
+            i = self.patches.patches.index(patch)
+            with self._lock:
+                self.applied[i] = self.applied.get(i, 0) + 1
+            return "patched", patch
+        if side_effects and self.allow_live_side_effects:
+            return "live", None
+        if side_effects or self.tools == "cassette_if_match":
+            src = self._cassette_match(pending, side_effects)
+            if src is not None:
+                return "cassette", src
+        if not side_effects:
+            return "live", None
+        return "blocked", (
+            f"tool {pending.name!r} has side effects and crashlab fork never runs it live; "
+            "the parent run made no identical call to serve instead (pass "
+            "allow_live_side_effects=True / --allow-live-side-effects for a sandbox)"
+        )
+
+    def patch_chat(
+        self, idx: int, api: str, kwargs: dict[str, Any]
+    ) -> tuple[dict[str, Any], list[str]]:
+        self._seen(idx)
+        if idx < self.at_step:
+            return kwargs, []
+        new, applied = self.patches.apply_chat(
+            api, idx, kwargs, fork_step=self.at_step, state=self._patch_state
+        )
+        with self._lock:
+            for i in applied:
+                self.applied[i] = self.applied.get(i, 0) + 1
+        return new, [self.patches.patches[i].describe() for i in applied]
+
+    def finalize(self, run: Run, exc: BaseException | None) -> DivergenceError | None:
+        """Only the replayed prefix must match; what happens from the fork step on is the
+        experiment. Unreached fork points and unused patches become run flags."""
+        if self.divergence is not None:
+            return self.divergence
+        if self.max_idx < self.at_step:
+            self.flags.append(Flag(
+                detector="fork", step_idx=self.at_step, severity="warn",
+                message=f"the fork never reached step {self.at_step}; nothing was patched",
+            ))  # fmt: skip
+        for i, p in enumerate(self.patches.patches):
+            if not self.applied.get(i):
+                self.flags.append(Flag(
+                    detector="fork", step_idx=p.target_step(), severity="warn",
+                    message=f"patch {i + 1} was never applied: {p.describe()}",
+                ))  # fmt: skip
         return None
 
 
@@ -322,31 +520,10 @@ def replay(
     still stored with ``status="error"`` so ``crashlab show`` can display it.
     """
     store = Store(store_dir)
-    source = store.load_run(run.run_id if isinstance(run, Run) else run)
-    if not source.steps and not store.cassette_path(source.run_id).exists():
-        raise ReplayError(f"run {source.run_id} has no cassette at {store.root}")
-    target = fn if fn is not None else resolve_entrypoint(source.entrypoint)
-    is_agent = getattr(target, "__crashlab_agent__", None) is not None
-    data = dict(source.input) if (is_agent or fn is None) else {}
-    data.update(overrides or {})
-    args, kwargs = _call_kwargs(target, data)
-
+    source = _load_source(store, run)
+    target, args, kwargs = _target(source, fn, overrides)
     replayer = Replayer(source, store_dir=store.root)
-    guards = contextlib.ExitStack()
-    if offline:
-        guards.enter_context(placeholder_credentials())
-        guards.enter_context(block_network(replayer))
-    error: BaseException | None = None
-    with guards, pending_replay(replayer):
-        try:
-            _run_callable(target, args, kwargs)
-        except BaseException as exc:  # compared with the recording below
-            error = exc
-    if replayer.replay_run_id is None:
-        raise ReplayError(
-            f"{getattr(target, '__qualname__', target)!r} did not start a crashlab run; "
-            "replay needs an @crashlab.agent function or a `crashlab.record(...)` block"
-        ) from error
+    error = _execute(replayer, target, args, kwargs, offline=offline)
     if replayer.divergence is not None:
         raise replayer.divergence from (
             error if error is not None and error is not replayer.divergence else None
@@ -356,4 +533,119 @@ def replay(
         and source.error.type.rsplit(".", 1)[-1] == type(error).__name__
     ):  # fmt: skip
         raise error
-    return store.load_run(replayer.replay_run_id)
+    return store.load_run(replayer.replay_run_id)  # type: ignore[arg-type]
+
+
+def _load_source(store: Store, run: Run | str) -> Run:
+    source = store.load_run(run.run_id if isinstance(run, Run) else run)
+    if not source.steps and not store.cassette_path(source.run_id).exists():
+        raise ReplayError(f"run {source.run_id} has no cassette at {store.root}")
+    return source
+
+
+def _target(
+    source: Run, fn: Callable[..., Any] | None, overrides: dict[str, Any] | None
+) -> tuple[Callable[..., Any], list[Any], dict[str, Any]]:
+    target = fn if fn is not None else resolve_entrypoint(source.entrypoint)
+    is_agent = getattr(target, "__crashlab_agent__", None) is not None
+    data = dict(source.input) if (is_agent or fn is None) else {}
+    data.update(overrides or {})
+    args, kwargs = _call_kwargs(target, data)
+    return target, args, kwargs
+
+
+def _execute(
+    replayer: Replayer,
+    target: Callable[..., Any],
+    args: list[Any],
+    kwargs: dict[str, Any],
+    *,
+    offline: bool,
+) -> BaseException | None:
+    """Run the entry point under ``replayer``; return the exception it raised, if any."""
+    guards = contextlib.ExitStack()
+    if offline:
+        guards.enter_context(placeholder_credentials())
+        guards.enter_context(block_network(replayer))
+    error: BaseException | None = None
+    with guards, pending_replay(replayer):
+        try:
+            _run_callable(target, args, kwargs)
+        except BaseException as exc:  # compared with the recording by the caller
+            error = exc
+    if replayer.replay_run_id is None:
+        raise ReplayError(
+            f"{getattr(target, '__qualname__', target)!r} did not start a crashlab run; "
+            f"{replayer.mode} needs an @crashlab.agent function or a `crashlab.record(...)` "
+            "block"
+        ) from error
+    return error
+
+
+def fork(
+    run: Run | str = "last",
+    *,
+    at_step: int,
+    patch: Any = None,
+    fn: Callable[..., Any] | None = None,
+    overrides: dict[str, Any] | None = None,
+    client: Any = None,
+    tools: ToolsMode = "cassette_if_match",
+    allow_live_side_effects: bool = False,
+    store_dir: str | os.PathLike[str] | None = None,
+    raise_errors: bool = False,
+) -> Run:
+    """Re-run a recorded run up to step ``at_step`` from its cassette, then continue live
+    with ``patch`` applied: the "what if" experiment behind diagnosis and verification.
+
+    - Steps ``< at_step`` are a strict replay (same requests or :class:`DivergenceError`).
+    - From ``at_step`` on, LLM calls go to the agent's real client (or ``client`` /
+      ``overrides={"client": ...}`` when the entry point takes one), with every patch
+      applied to the outgoing request; tools follow ``tools`` (see :class:`Forker`) and
+      side-effect tools never run live unless ``allow_live_side_effects=True``.
+    - ``patch``: a patch, a list of patches, a :class:`~crashlab.patch.PatchSet`, a dict
+      or JSON text. Patches are checked against the recorded run first
+      (:class:`~crashlab.patch.PatchError` if one cannot apply).
+
+    Returns the new run (``forked_from``, ``fork_step``, ``patch``), graded by the run's
+    ``@crashlab.check`` oracles. An exception raised by the agent after the fork step is
+    the experiment's result: it is stored on the run (``status="error"``) and only
+    re-raised with ``raise_errors=True``.
+    """
+    store = Store(store_dir)
+    source = _load_source(store, run)
+    patches = as_patchset(patch)
+    n = len(source.steps)
+    if not isinstance(at_step, int) or isinstance(at_step, bool):
+        raise ForkError(f"at_step must be an int, not {at_step!r}")
+    if at_step < 0:
+        at_step += n
+    if not 0 <= at_step < max(n, 1):
+        raise ForkError(f"at_step {at_step} is out of range: run {source.run_id} has {n} steps")
+    early = [s for s in patches.bound_steps() if s < at_step]
+    if early:
+        raise ForkError(
+            f"patches target step(s) {early} before the fork step {at_step}; steps before "
+            "the fork are replayed from the cassette and cannot be patched"
+        )
+    preview_patches(patches, source, fork_step=at_step)  # PatchError early, before any call
+    data = dict(overrides or {})
+    if client is not None:
+        data["client"] = client
+    target, args, kwargs = _target(source, fn, data)
+    forker = Forker(
+        source,
+        at_step=at_step,
+        patches=patches,
+        tools=tools,
+        allow_live_side_effects=allow_live_side_effects,
+        store_dir=store.root,
+    )
+    error = _execute(forker, target, args, kwargs, offline=False)
+    if forker.divergence is not None:
+        raise forker.divergence from (
+            error if error is not None and error is not forker.divergence else None
+        )
+    if error is not None and (raise_errors or isinstance(error, (PatchError, KeyboardInterrupt))):
+        raise error
+    return store.load_run(forker.replay_run_id)  # type: ignore[arg-type]

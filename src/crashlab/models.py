@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated, Any, Literal, Union
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .patch import AnyPatch, PatchSet
 
 
 def utcnow() -> datetime:
@@ -33,7 +35,9 @@ class TaxonomyLabel(str, Enum):
 Operation = Literal["chat", "execute_tool", "invoke_agent", "custom"]
 RunStatus = Literal["running", "ok", "error"]
 Outcome = Literal["pass", "fail", "unknown"]
-StepSource = Literal["live", "cassette", "patched"]
+# live: really executed; cassette: served from a recording; patched: changed by a fork
+# patch; blocked: a side-effect tool a replay / fork refused to run
+StepSource = Literal["live", "cassette", "patched", "blocked"]
 
 
 class _Model(BaseModel):
@@ -72,21 +76,8 @@ class Flag(_Model):
 
 
 # --- Patches -------------------------------------------------------------------------
-# Placeholder union. The real patch types (SystemPrompt, ToolDescription, ToolResult,
-# InjectMessage, Model) arrive with the replay/fork engine.
-
-
-class NoopPatch(_Model):
-    kind: Literal["noop"] = "noop"
-    note: str | None = None
-
-
-class RawPatch(_Model):
-    kind: Literal["raw"] = "raw"
-    data: dict[str, Any] = Field(default_factory=dict)
-
-
-Patch = Annotated[Union[NoopPatch, RawPatch], Field(discriminator="kind")]  # noqa: UP007
+# The typed patch models live in crashlab.patch (SystemPromptPatch, MessagePatch, ...).
+Patch = AnyPatch
 
 
 # --- Steps and runs ------------------------------------------------------------------
@@ -143,10 +134,11 @@ class Run(_Model):
     outcome: Outcome = "unknown"
     outcome_reason: str | None = None
     error: ErrorInfo | None = None
-    parent_run_id: str | None = None
-    fork_at: int | None = None
     replay_of: str | None = None  # source run id when this run is a strict replay
-    patch: Patch | None = None
+    forked_from: str | None = None  # parent run id when this run is a fork
+    fork_step: int | None = None  # steps < fork_step were served from the parent's cassette
+    patch: PatchSet | None = None  # what the fork changed
+    patch_description: str | None = None
     flags: list[Flag] = Field(default_factory=list)
     checks: list[CheckResult] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=utcnow)
@@ -158,6 +150,27 @@ class Run(_Model):
     span_id: str | None = None
     # Populated by crashlab.load(); not stored in the run row (steps live in the cassette).
     steps: list[Step] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_fields(cls, data: Any) -> Any:
+        """Runs stored before forks existed used parent_run_id / fork_at / a stub patch."""
+        if isinstance(data, dict) and ("parent_run_id" in data or "fork_at" in data):
+            data = dict(data)
+            parent, at = data.pop("parent_run_id", None), data.pop("fork_at", None)
+            data.setdefault("forked_from", parent)
+            data.setdefault("fork_step", at)
+        if isinstance(data, dict) and isinstance(data.get("patch"), dict):
+            patch = data["patch"]
+            if patch.get("kind") in ("noop", "raw"):
+                data = {**data, "patch": None}
+            elif "kind" in patch:
+                data = {**data, "patch": {"patches": [patch]}}
+        return data
+
+    @property
+    def is_fork(self) -> bool:
+        return self.forked_from is not None
 
     def tool_steps(self, name: str | None = None) -> list[Step]:
         return [

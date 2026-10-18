@@ -108,8 +108,9 @@ class SQLiteIndex:
             "status": run["status"],
             "outcome": run["outcome"],
             "outcome_reason": run.get("outcome_reason"),
-            "parent_run_id": run.get("parent_run_id"),
-            "fork_at": run.get("fork_at"),
+            # index columns predate the Run field names forked_from / fork_step
+            "parent_run_id": run.get("forked_from"),
+            "fork_at": run.get("fork_step"),
             "replay_of": run.get("replay_of"),
             "started_at": run["started_at"],
             "ended_at": run.get("ended_at"),

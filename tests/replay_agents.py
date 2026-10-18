@@ -6,6 +6,7 @@ specific divergence; ``CALLS`` counts real tool executions (must stay 0 during r
 
 from __future__ import annotations
 
+import json
 import socket
 from typing import Any
 
@@ -14,11 +15,13 @@ from tests.fakes import FakeOpenAI, text_response, tool_call_response
 
 KNOBS: dict[str, Any] = {}
 CALLS: dict[str, int] = {"lookup": 0, "charge": 0}
+CLIENTS: list[Any] = []  # every fake client mini() built (to inspect live fork requests)
 
 
 def reset() -> None:
     KNOBS.clear()
     CALLS.update(lookup=0, charge=0)
+    CLIENTS.clear()
 
 
 @crashlab.tool()
@@ -45,8 +48,11 @@ def script() -> list[Any]:
 
 
 def _client() -> Any:
-    # A fresh fake per call: in replay it is never called (the cassette answers).
-    return crashlab.wrap(FakeOpenAI(KNOBS.get("script") or script()))
+    # A fresh fake per call: in replay it is never called (the cassette answers); in a
+    # fork it answers the live calls from the fork step on.
+    fake = FakeOpenAI(KNOBS.get("script") or script())
+    CLIENTS.append(fake)
+    return crashlab.wrap(fake)
 
 
 @crashlab.agent(name="mini")
@@ -55,10 +61,12 @@ def mini(task: str) -> str:
     client = _client()
     system = KNOBS.get("system", "be brief")
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": task}]
-    client.chat.completions.create(model="fake-model", messages=msgs)
+    first = client.chat.completions.create(model="fake-model", messages=msgs)
     if KNOBS.get("crash"):
         raise RuntimeError("agent crashed")
     key = KNOBS.get("key", "abc")
+    if KNOBS.get("key_from_model"):  # follow the model's tool call (fork tests)
+        key = json.loads(first.choices[0].message.tool_calls[0].function.arguments)["key"]
     try:  # user code that swallows every exception (DivergenceError included)
         res = lookup(key) if not KNOBS.get("other_tool") else charge(1.0)
     except Exception as exc:

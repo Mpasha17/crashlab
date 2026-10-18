@@ -7,13 +7,13 @@ from crashlab.models import (
     Evidence,
     Fix,
     Flag,
-    NoopPatch,
     Run,
     Step,
     TaxonomyLabel,
     Usage,
     Verification,
 )
+from crashlab.patch import PatchSet, SystemPromptPatch, ToolResultPatch
 
 
 def roundtrip(obj):
@@ -44,17 +44,26 @@ def test_run_roundtrip():
         status="ok",
         flags=[Flag(detector="loop", step_idx=3, message="same call 3x")],
         usage=Usage(input_tokens=10, output_tokens=5, total_tokens=15, steps=2),
-        patch=NoopPatch(note="x"),
+        forked_from="PARENT",
+        fork_step=2,
+        patch=PatchSet.of(
+            SystemPromptPatch(op="append", text="Be careful."),
+            ToolResultPatch(step=3, result={"total": 1}),
+        ),  # fmt: skip
     )
     again = roundtrip(run)
-    assert again.patch.kind == "noop"
+    assert [p.kind for p in again.patch] == ["system_prompt", "tool_result"]
 
 
-def test_patch_union_discriminates():
+def test_legacy_fork_fields_and_stub_patches_load():
     run = Run.model_validate(
-        {"run_id": "X", "name": "n", "patch": {"kind": "raw", "data": {"a": 1}}}
-    )
-    assert type(run.patch).__name__ == "RawPatch"
+        {"run_id": "X", "name": "n", "parent_run_id": "P", "fork_at": 3,
+         "patch": {"kind": "raw", "data": {"a": 1}}}
+    )  # fmt: skip
+    assert (run.forked_from, run.fork_step, run.patch) == ("P", 3, None)
+    one = Run.model_validate({"run_id": "X", "name": "n", "patch": {"kind": "model_params",
+                                                                  "model": "m"}})  # fmt: skip
+    assert one.patch.patches[0].model == "m"
 
 
 def test_step_roundtrip():

@@ -110,10 +110,12 @@ def test_nested_record_rejected():
         pass
 
 
-def test_fork_mode_not_implemented_and_replay_needs_replay_api():
+def test_replay_and_fork_modes_need_their_api():
     import pytest
 
     with pytest.raises(NotImplementedError):
-        crashlab.record("x", mode="fork")
+        crashlab.record("x", mode="bogus")
+    with pytest.raises(RuntimeError, match="crashlab.fork"), crashlab.record("x", mode="fork"):
+        pass
     with pytest.raises(RuntimeError, match="crashlab.replay"), crashlab.record("x", mode="replay"):
         pass

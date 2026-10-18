@@ -11,7 +11,7 @@ import inspect
 from typing import Any
 
 from . import normalize as N
-from ._chat import ChatAdapter, ChatCall, invoke
+from ._chat import ChatAdapter, ChatCall, invoke, prepare_request
 from ._proxy import Proxy, WrappedClient, server_address
 from .streams import (
     AnthropicAssembler,
@@ -44,7 +44,11 @@ class WrappedAnthropic(WrappedClient):
             return invoke(MESSAGES, messages.create, args, kwargs, server=server, is_async=is_async)
 
         def stream(*args: Any, **kwargs: Any) -> Any:
-            call = ChatCall(MESSAGES, kwargs, server=server, stream=True)
+            patched, idx, applied = prepare_request(MESSAGES, dict(kwargs))
+            if applied:
+                args, kwargs = (), patched
+            call = ChatCall(MESSAGES, kwargs, server=server, stream=True, idx=idx,
+                            patches=applied)  # fmt: skip
             src = call.replay_source()
             if src is not None:
                 return _replay_stream_manager(call, src, is_async)

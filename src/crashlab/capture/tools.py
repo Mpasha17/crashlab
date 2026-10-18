@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
-from ..replay.divergence import SideEffectBlockedError
+from ..replay.divergence import PatchedToolError, SideEffectBlockedError
 from ..replay.rebuild import rebuild_exception
 from ._steps import begin_step
 from ._util import bind_arguments, first_doc_line
@@ -48,25 +48,45 @@ def _begin(spec: ToolSpec, fn: Callable[..., Any], args: tuple, kwargs: dict):
 
 
 def _serve_replay(pending: Any, spec: ToolSpec) -> tuple[bool, Any]:
-    """In replay mode: ``(True, recorded result)`` or raise the recorded exception.
+    """Outside record mode: ``(True, value)`` when the call is served without running the
+    tool, ``(False, None)`` when it should run live; raises the served exception.
 
-    The tool function itself never runs in replay; ``side_effects=True`` tools are
-    additionally guarded so they can never run live in a non-record mode.
+    Strict replay serves every call from the cassette. A fork past its fork step serves a
+    ``ToolResultPatch``, an identical recorded call, or runs the tool live; tools with
+    ``side_effects=True`` are never run live there (``SideEffectBlockedError``) unless
+    the fork allows it.
     """
-    src = pending.replay_source()
-    if src is None:
+    rp = pending.ctx.replayer
+    if rp is None:
         if spec.side_effects and pending.ctx.mode != "record":
-            err = SideEffectBlockedError(
-                f"tool {spec.name!r} has side effects and is never run live during "
-                f"{pending.ctx.mode}"
-            )
-            pending.fail(err, is_tool_error=True)
-            raise err
+            _block(pending, f"tool {spec.name!r} has side effects and is never run live "
+                            f"during {pending.ctx.mode}")  # fmt: skip
         return False, None
-    pending.finish_from(src)
-    if src.error is not None:
-        raise rebuild_exception(src.error)
-    return True, (src.response or {}).get("result")
+    kind, payload = rp.tool_decision(pending, spec.side_effects)
+    if kind == "cassette":
+        src = payload
+        pending.finish_from(src)
+        if src.error is not None:
+            raise rebuild_exception(src.error)
+        return True, (src.response or {}).get("result")
+    if kind == "patched":
+        attrs = {"crashlab.fork.patches": [payload.describe()]}
+        if payload.error is not None:
+            err = PatchedToolError(payload.error)
+            pending.fail(err, is_tool_error=True, attributes=attrs, source="patched")
+            raise err
+        pending.finish({"result": to_jsonable(payload.result)}, attributes=attrs,
+                       source="patched")  # fmt: skip
+        return True, payload.result
+    if kind == "blocked":
+        _block(pending, payload)
+    return False, None
+
+
+def _block(pending: Any, message: str) -> None:
+    err = SideEffectBlockedError(message)
+    pending.fail(err, is_tool_error=True, source="blocked")
+    raise err
 
 
 def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
@@ -139,7 +159,9 @@ def tool(
 
     Use ``side_effects=True`` (alias ``side_effect=True``) for tools that change the world
     (payments, emails, writes). Such tools never run live outside record mode. In a strict
-    replay *no* tool runs: every result (or exception) is served from the cassette.
+    replay *no* tool runs: every result (or exception) is served from the cassette. In a
+    fork, a side-effect tool gets the result of an identical recorded call or raises
+    ``SideEffectBlockedError`` (unless the fork passes ``allow_live_side_effects=True``).
 
     Works as ``@crashlab.tool`` or ``@crashlab.tool(...)`` on sync and async functions.
     """
