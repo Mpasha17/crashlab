@@ -39,8 +39,8 @@ flowchart LR
 | 2 | `context.py` | `contextvars` current run, monotonic step counter, mode (`record` / `replay` / `fork`) |
 | 3 | `store/` | `sqlite.py` index (runs, steps metadata, flags, diagnoses), `cassette.py` JSONL read/write, `redact.py` strips keys/headers + user regex hook |
 | 4 | `capture/` | `normalize.py` (provider -> common request/response shape + request hash), `openai.py`, `anthropic.py`, `litellm.py` proxies, `_chat.py` (single LLM-call interception point), `streams.py` (pass-through stream wrappers + assemblers), `tools.py` (`@tool(side_effects=...)`), `agent.py` (`@agent`, `record()` context manager); `integrations/litellm.py` exposes `patch()` / `unpatch()` |
-| 5 | `cli.py` | Typer + Rich: `ls`, `show` first; later `replay`, `fork`, `diagnose`, `verify`, `export-test`, `report`, `bench` |
-| 6 | `replay/` | `engine.py` (strict replay; fork = cassette for steps < N, patch at N, live after), `patches.py` (`SystemPrompt`, `ToolDescription`, `ToolResult`, `InjectMessage`, `Model`), `divergence.py` (hash mismatch -> `DivergenceError` with diff) |
+| 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `fork`, `diff`; later `diagnose`, `verify`, `export-test`, `report`, `bench` |
+| 6 | `replay/`, `patch.py`, `compare.py` | `engine.py` (strict replay; fork = cassette for steps < N, patch from N, live after), `patch.py` (typed patches: `SystemPrompt`, `Message`, `InjectMessage`, `ToolResult`, `ToolDescription`, `ToolSchema`, `ModelParams`), `divergence.py` (hash mismatch -> `DivergenceError` with diff), `compare.py` (run diff) |
 | 7 | `checks/` | Inline flags: `loop` (same tool+args >= 3 in last 8 steps), `tool_error_streak` (>= 3), `bad_tool_args`, `suspicious_tool_result` (HTML/empty where JSON expected), `budget`, `length_cutoff` |
 | 8 | `diagnose/` | `compact.py` step table with truncation handles, `heuristics.py` candidate steps from flags/errors, `diagnoser.py` one LLM call returning JSON (failing_step, label, evidence, explanation, confidence), `evidence.py` drops quotes not found verbatim -> UNKNOWN if none, `fixes.py` separate LLM call producing 1-3 typed fixes, `taxonomy.py` enum + definitions |
 | 9 | `verify/` | `runner.py` k forks with fix + reruns of past passing runs, `oracles.py` (`@check` fns > "same failure didn't recur" > LLM judge, labelled weaker), `stats.py` pass^k + Wilson CI + verdict |
@@ -119,6 +119,40 @@ flowchart LR
   replays a dict). Runs recorded with `crashlab.record(...)` need `replay(run, fn=main)`.
   Strict order means concurrently started tool calls must start in the recorded order.
 
+## Fork, patches and diff (as built)
+
+- **Fork** (`replay/engine.py`, `Forker`). `crashlab.fork(run, at_step=N, patch=..., client=...)`
+  re-runs the recorded entry point (same path as replay) in `mode="fork"`. Steps `< N` must
+  match the cassette exactly, as in strict replay (a mismatch is a `DivergenceError`). From
+  `N` on, LLM calls go to the real SDK (or the `client=` / `fn=` you pass) and tools follow
+  `tools="cassette_if_match"` (a call with the same tool and equal arguments as an unused
+  parent call gets the recorded result; otherwise it runs) or `tools="live"`.
+  `side_effects=True` tools never run live unless `allow_live_side_effects=True`: an
+  identical parent call is served once, anything else raises `SideEffectBlockedError` and
+  the step is stored with `source="blocked"` so checks still see the attempt. The network is
+  not blocked. Agent exceptions after `N` are stored on the fork (`status="error"`), not
+  raised, unless `raise_errors=True`. The fork is stored with `forked_from`, `fork_step`,
+  `patch` and `patch_description`; flags note a fork point never reached or a patch never
+  applied. `at_step` can be negative (from the end); patches bound to steps before `N` and
+  patches that do not fit the recorded requests (unknown tool, no such message) fail with
+  `ForkError` / `PatchError` before anything runs.
+- **Patches** (`patch.py`). Pydantic models with a `kind` discriminator, combined in a
+  `PatchSet` (`a + b`, JSON/YAML via `crashlab.patch.load(path)`). Request-wide patches
+  (system prompt, tool description / schema, model params) apply to every LLM request with
+  `idx >= max(N, from_step)`; step-bound ones (`MessagePatch`, `InjectMessagePatch`: sticky,
+  so later requests that resend the history keep the edit; `ToolResultPatch`: replaces one
+  tool step's result or raises a `PatchedToolError`) bind to a step. They edit the native
+  SDK kwargs before the request is normalized and hashed, through one `RequestEditor` per
+  API family (chat / LiteLLM, Anthropic with `system` string or blocks, Responses
+  `instructions`); message indexes refer to the normalized `request.messages`. Patched
+  steps get `source="patched"` and the `crashlab.fork.patches` attribute.
+  `PatchSet.render_diff(run, N)` previews the change against the recorded requests.
+- **Diff** (`compare.py`). `crashlab.diff(a, b)` -> `RunDiff`: relation (fork / replay /
+  unrelated), outcome and per-check changes, usage deltas, and a per-step status (`same`,
+  `request`, `response`, `different` call, `only_a`, `only_b`) comparing the normalized
+  request and response with volatile fields (ids, signatures, usage) removed, plus the
+  first divergence with a field diff.
+
 ## Key design rules
 
 1. Never record secrets. Redact before writing.
@@ -152,6 +186,8 @@ def refund_not_above_total(run) -> bool: ...
 
 run = crashlab.load("last")
 crashlab.replay(run)                                    # offline, exact
+b = crashlab.fork(run, at_step=2, patch=crashlab.SystemPromptPatch(op="append", text="..."))
+crashlab.diff(run, b)                                   # checks, usage, step divergence
 d = crashlab.diagnose(run)                              # failing_step, label, evidence, fixes
 v = crashlab.verify(run, fix=d.fixes[0], k=3)           # verdict, pass^k, CI
 crashlab.export_test(run, fix=d.fixes[0])

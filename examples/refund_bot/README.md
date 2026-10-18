@@ -115,3 +115,38 @@ Every LLM call and every tool call (including `issue_refund`, which has side eff
 served from the cassette; the replay is stored as a new run with `replay_of` set. If the
 code now sends a different request (edit the system prompt and try again), the replay stops
 with a `DivergenceError` that shows the step and a diff of what changed.
+
+## Fork with a patch: "what if the rule were back?"
+
+`FAULT_POLICY_DROP=1` removes the 30-day refund-window rule from the system prompt, so the
+bot refunds C03 (delivered 45 days ago) and `refund_within_policy` fails. Fork that run at
+its first LLM call with the rule put back and run it live:
+
+```bash
+FAULT_POLICY_DROP=1 python -m examples.refund_bot "Please refund order C03, it fell apart"
+crashlab fork last --at 0 --patch examples/refund_bot/restore_policy.yaml
+# or with flags:
+# crashlab fork last --at 0 --system-insert-after "Always look up the order" \
+#   '- Only refund orders whose status is "delivered" and that were delivered at most 30 days ago.'
+crashlab diff last          # outcome fail -> pass, refund_within_policy changed, steps 5 -> 3
+```
+
+The fork re-sends the conversation with the patched prompt; `get_order("C03")` is served
+from the parent's cassette, and `issue_refund` never runs live (an identical refund gets the
+recorded result, a different one is blocked and still counts as an attempt for the checks).
+
+To count flips over several tries, with a control (unpatched forks of the same run):
+
+```bash
+python -m examples.refund_bot.fork_demo last -k 3 --control
+```
+
+Measured on 2026-10-18 (one recorded policy-drop run per model, forked at step 0):
+
+| model | patched forks | unpatched control forks |
+|---|---|---|
+| Groq `openai/gpt-oss-120b` | 4 / 4 pass (3 via `fork_demo`, 1 via the CLI), refund refused | 3 / 3 fail (refund issued again) |
+| Gemini `gemini-3.7-flash` | 3 / 3 pass, refund refused | 2 fail (refund issued); 1 hit the free-tier rate limit |
+
+This is a small sample, not a guarantee; the point is that the counterfactual is one
+command and each try is a stored run you can `crashlab show` and `crashlab diff`.

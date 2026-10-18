@@ -11,9 +11,10 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
 - **Export** the failure as a pytest regression test.
 
 > **Status: pre-alpha (0.0.1).** Today crashlab **records** runs, lets you inspect them,
-> **replays** them strictly offline and grades them with **`@crashlab.check`** oracles.
-> Fork, diagnose, verify and test export are in progress (see
-> [ARCHITECTURE.md](ARCHITECTURE.md)) and are not available yet. Not on PyPI yet.
+> **replays** them strictly offline, grades them with **`@crashlab.check`** oracles,
+> **forks** them at any step with typed **patches** and **diffs** two runs. Diagnose,
+> verify and test export are in progress (see [ARCHITECTURE.md](ARCHITECTURE.md)) and are
+> not available yet. Not on PyPI yet.
 
 ## What works today
 
@@ -52,10 +53,27 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
   pass (return `True` / `None`) or fail (`False`, a message string, or a failed `assert`).
   They run when a run ends and set `outcome` to `pass` / `fail`;
   `crashlab check <run_id>` re-runs them on a stored run.
-- **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab replay`, `crashlab check`;
-  in Python, `crashlab.load("last")`.
+- **Fork at step N with a patch:** `crashlab.fork(run, at_step=N, patch=...)` /
+  `crashlab fork <run> --at N ...` re-runs the agent with steps before N served strictly from
+  the cassette and step N onwards live (or against a client you pass), with the patch
+  applied to every LLM request from N on. Tool calls identical to the parent's are served
+  from the cassette; `side_effects=True` tools never run live (an identical call gets the
+  recorded result, anything else is blocked and recorded as an attempt). The fork is a new
+  run linked by `forked_from`, `fork_step` and the patch.
+- **Typed patches** (pydantic, JSON/YAML-serializable, composable with `+`, each renders a
+  human-readable diff): `SystemPromptPatch` (replace / append / prepend / insert, replace
+  or delete a line / substitute), `MessagePatch`, `InjectMessagePatch`, `ToolResultPatch`
+  (counterfactual tool result or error), `ToolDescriptionPatch`, `ToolSchemaPatch`,
+  `ModelParamPatch` (model and params). Work for OpenAI chat / Responses, Anthropic and
+  LiteLLM.
+- **`crashlab diff A B`** / `crashlab.diff(a, b)`: how the runs relate (fork / replay),
+  outcome and check changes, tokens / steps / time side by side, a step-by-step comparison
+  (same, different request, different response, only in A / B) and the first divergence
+  with a field diff. `B` defaults to `A`'s parent.
+- **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab replay`, `crashlab check`,
+  `crashlab fork`, `crashlab diff`; in Python, `crashlab.load("last")`.
 
-Not yet: fork, runtime checks (loop / error-streak flags), diagnosis, verification, test
+Not yet: runtime checks (loop / error-streak flags), diagnosis, verification, test
 export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response (same content, different chunk boundaries).
 Also not intercepted yet: Anthropic `client.beta.messages`, OpenAI
@@ -95,6 +113,11 @@ run_agent("Refund my order A17, it arrived broken")
 
 run = crashlab.load("last")                # Run with .steps (chat / execute_tool), .outcome
 replayed = crashlab.replay(run)            # offline; raises DivergenceError if it differs
+
+# what if the prompt had said so? fork at the first LLM call with a patch, run live
+branch = crashlab.fork(run, at_step=0, patch=crashlab.SystemPromptPatch(
+    op="append", text="Never refund more than the order total."))
+print(crashlab.diff(run, branch).summary())
 ```
 
 ```bash
@@ -102,6 +125,9 @@ crashlab ls            # runs: id, name, status, outcome, steps, tokens, started
 crashlab show last     # checks + step table: idx, op, name, args / result, error
 crashlab replay last   # offline re-run from the cassette; exit 1 + diff on divergence
 crashlab check last    # re-run the @crashlab.check oracles, store pass / fail
+crashlab fork last --at 0 --system-append "Never refund more than the order total."
+crashlab fork last --at 2 --patch fix.yaml --dry-run   # show the patch diff, run nothing
+crashlab diff last     # the fork vs its parent: checks, usage, steps, first divergence
 ```
 
 Try the bundled demo agent, free with a local model through Ollama:
