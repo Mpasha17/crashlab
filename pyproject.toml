@@ -67,7 +67,15 @@ extend-exclude = ["*.md"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# nested `with record(...)` blocks read better in tests than one combined statement
+"tests/**" = ["SIM117"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-q"
+filterwarnings = [
+    # noise from litellm's own pydantic models
+    "ignore:.*ReadOnly.*:UserWarning",
+]

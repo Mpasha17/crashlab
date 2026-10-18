@@ -1,7 +1,7 @@
 # refund-bot
 
-A ~150-line customer-support agent: a plain OpenAI tool-calling loop with two tools and a
-mock in-memory order DB, instrumented with crashlab.
+A small customer-support agent: a plain tool-calling loop (OpenAI-compatible or Anthropic)
+with two tools and a mock in-memory order DB, instrumented with crashlab.
 
 - `get_order(order_id)`: recorded tool, safe to re-run.
 - `issue_refund(order_id, amount)`: recorded with `side_effects=True` (it "moves money").
@@ -40,6 +40,19 @@ crashlab show last
 ```
 
 Small local models are less reliable at tool calling, so expect more interesting failures.
+
+### Anthropic
+
+```bash
+pip install -e ".[anthropic]"
+export PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-...
+MODEL=claude-haiku-4-5 python -m examples.refund_bot "Refund my order A17, it arrived broken"
+crashlab show last
+```
+
+The Anthropic loop uses `messages.create` with the same tools and system prompt; crashlab
+records it in the same common shape, so `crashlab show` looks the same for both providers.
+`--provider anthropic` works too.
 
 ## Inject a fault
 

@@ -105,29 +105,55 @@ def ls(
     console.print(table)
 
 
+def _part_text(part: dict[str, Any], width: int) -> str:
+    t = part.get("type")
+    if t == "text":
+        return _short(part.get("content"), width)
+    if t == "tool_call":
+        return f"→ {part.get('name')}({_short(part.get('arguments'), 40)})"
+    if t == "tool_call_response":
+        return _short(part.get("response"), width)
+    if t in ("image", "audio", "file"):
+        return f"[{t}]"
+    return f"[{t}]"
+
+
+def _message_text(msg: Any, width: int) -> str:
+    if not isinstance(msg, dict):
+        return _short(msg, width)
+    if "parts" not in msg:  # day-1 cassette shape
+        return f"{msg.get('role', '?')}: {_short(msg.get('content'), width)}"
+    body = " ".join(_part_text(p, width) for p in msg.get("parts") or [])
+    return f"{msg.get('role', '?')}: {_short(body, width)}"
+
+
 def _step_io(step: Step) -> tuple[str, str]:
     if step.operation == "chat":
         msgs = step.request.get("messages") or []
-        last = msgs[-1] if msgs else {}
-        if isinstance(last, dict):
-            content = last.get("content")
-            if last.get("role") == "tool":
-                inp = f"tool: {_short(content, 50)}"
-            else:
-                inp = f"{last.get('role', '?')}: {_short(content, 50)}"
-        else:
-            inp = _short(last, 50)
+        inp = _message_text(msgs[-1], 50) if msgs else ""
         resp = step.response or {}
         calls = resp.get("tool_calls") or []
         if calls:
             out = "; ".join(f"→ {c.get('name')}({_short(c.get('arguments'), 40)})" for c in calls)
         else:
-            content = next(
-                (m.get("content") for m in resp.get("messages") or [] if m.get("content")), None
+            out = ""
+            for m in resp.get("messages") or []:
+                if "parts" in m:
+                    out = _short(
+                        "".join(p.get("content") or "" for p in m["parts"] if p["type"] == "text"),
+                        60,
+                    )
+                else:
+                    out = _short(m.get("content"), 60)
+                if out:
+                    break
+            reason = resp.get("finish_reason")
+            if reason not in (None, "stop"):
+                out += f" [{reason}]"
+        if step.attributes.get("crashlab.stream"):
+            out += " (stream" + (
+                ")" if step.attributes.get("crashlab.stream.complete", True) else ", incomplete)"
             )
-            out = _short(content, 60)
-            if resp.get("finish_reason") not in (None, "stop"):
-                out += f" [{resp.get('finish_reason')}]"
         return inp, out
     if step.operation in ("execute_tool", "invoke_agent"):
         return _short(step.args, 50), _short(step.result, 60) if step.response else ""

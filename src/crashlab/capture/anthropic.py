@@ -1,14 +1,73 @@
-"""Anthropic client proxy (planned; not implemented in v0.0.1)."""
+"""Recording proxy for ``anthropic.Anthropic`` / ``anthropic.AsyncAnthropic``.
+
+Intercepts ``client.messages.create`` (plain and ``stream=True``) and
+``client.messages.stream(...)``. The ``anthropic`` package is never imported here.
+Not intercepted yet: ``client.beta.messages``, ``messages.batches``, ``count_tokens``.
+"""
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
+from . import normalize as N
+from ._chat import ChatAdapter, ChatCall, invoke
+from ._proxy import Proxy, WrappedClient, server_address
+from .streams import (
+    AnthropicAssembler,
+    AsyncRecordingMessageStreamManager,
+    RecordingMessageStreamManager,
+)
 
-def wrap_anthropic(client: Any) -> Any:
-    raise NotImplementedError(
-        "crashlab.wrap(): Anthropic clients are not supported yet in crashlab 0.0.1. "
-        "Support for anthropic.Anthropic / AsyncAnthropic messages.create is planned for the "
-        "next release. For now you can call Claude through an OpenAI-compatible endpoint and "
-        "wrap an openai client instead."
-    )
+MESSAGES = ChatAdapter(
+    provider="anthropic",
+    api="anthropic.messages",
+    normalize_request=N.normalize_anthropic_request,
+    normalize_response=N.normalize_anthropic_response,
+    new_assembler=AnthropicAssembler,
+)
+
+
+def _is_async_messages(messages: Any) -> bool:
+    if "Async" in type(messages).__name__:
+        return True
+    return inspect.iscoroutinefunction(getattr(messages, "create", None))
+
+
+class WrappedAnthropic(WrappedClient):
+    def __init__(self, client: Any) -> None:
+        server = server_address(client)
+        messages = client.messages
+        is_async = _is_async_messages(messages)
+
+        def create(*args: Any, **kwargs: Any) -> Any:
+            return invoke(MESSAGES, messages.create, args, kwargs, server=server)
+
+        def stream(*args: Any, **kwargs: Any) -> Any:
+            call = ChatCall(MESSAGES, kwargs, server=server, stream=True)
+            try:
+                manager = messages.stream(*args, **kwargs)
+            except BaseException as exc:
+                call.fail(exc)
+                raise
+            if not call.active:
+                return manager
+            if is_async or hasattr(manager, "__aenter__") and not hasattr(manager, "__enter__"):
+                return AsyncRecordingMessageStreamManager(manager, call)
+            return RecordingMessageStreamManager(manager, call)
+
+        overrides: dict[str, Any] = {"messages": Proxy(messages, create=create, stream=stream)}
+        super().__init__(client, **overrides)
+
+    def _rewrap(self, client: Any) -> WrappedAnthropic:
+        return WrappedAnthropic(client)
+
+
+def looks_like_anthropic(client: Any) -> bool:
+    return callable(getattr(getattr(client, "messages", None), "create", None))
+
+
+def wrap_anthropic(client: Any) -> WrappedAnthropic:
+    if not looks_like_anthropic(client):
+        raise TypeError(f"{type(client).__name__} has no messages.create method")
+    return WrappedAnthropic(client)

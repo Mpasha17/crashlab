@@ -1,19 +1,23 @@
 """Run context: which run is active, the monotonic step counter, and the capture mode.
 
 Uses ``contextvars`` so capture is thread- and asyncio-safe without changing user code.
-Note: plain ``threading.Thread`` / ``ThreadPoolExecutor`` workers do not inherit context
-vars automatically; use ``contextvars.copy_context().run`` if tools run in worker threads.
+asyncio tasks and ``asyncio.to_thread`` inherit the context automatically. Plain
+``threading.Thread`` and ``concurrent.futures`` workers do not; use
+:func:`copy_context_to_thread` (alias ``crashlab.bind_context``) or
+:class:`ContextThreadPoolExecutor` so tool / LLM calls in worker threads are recorded.
 """
 
 from __future__ import annotations
 
 import contextvars
+import functools
 import json
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from .models import Flag, Run, Step
 
@@ -75,10 +79,12 @@ class RunContext:
                     continue
                 if fallback is None:
                     fallback = i
-                try:
-                    parsed = json.loads(call.get("arguments") or "{}")
-                except (TypeError, ValueError):
-                    continue
+                parsed = call.get("arguments")
+                if isinstance(parsed, str):  # day-1 cassettes / invalid JSON
+                    try:
+                        parsed = json.loads(parsed or "{}")
+                    except ValueError:
+                        continue
                 if isinstance(parsed, dict) and all(args.get(k) == v for k, v in parsed.items()):
                     return self.pending_tool_calls.pop(i).get("id")
             if fallback is not None:
@@ -141,3 +147,60 @@ def active_span(span_id: str) -> Iterator[None]:
         yield
     finally:
         _current_span.reset(token)
+
+
+# --- threads ---------------------------------------------------------------------------
+
+T = TypeVar("T")
+
+
+def copy_context_to_thread(fn: Callable[..., T]) -> Callable[..., T]:
+    """Bind ``fn`` to a snapshot of the *current* context (active run, current span).
+
+    Call this in the thread that owns the run, then run the returned callable anywhere::
+
+        t = threading.Thread(target=crashlab.bind_context(worker), args=(order_id,))
+
+    Each call runs in its own copy of the snapshot, so the same bound callable can run
+    concurrently in several threads.
+    """
+    snapshot = contextvars.copy_context()
+
+    @functools.wraps(fn)
+    def bound(*args: Any, **kwargs: Any) -> T:
+        return snapshot.copy().run(fn, *args, **kwargs)
+
+    return bound
+
+
+bind_context = copy_context_to_thread
+
+
+class ContextThreadPoolExecutor(ThreadPoolExecutor):
+    """A ``ThreadPoolExecutor`` whose tasks run in the submitter's context.
+
+    Drop-in replacement: ``with crashlab.ContextThreadPoolExecutor() as pool:
+    pool.map(get_order, ids)`` records every ``get_order`` call in the active run.
+    """
+
+    def submit(self, fn: Callable[..., T], /, *args: Any, **kwargs: Any) -> Future[T]:
+        ctx = contextvars.copy_context()
+        return super().submit(ctx.run, fn, *args, **kwargs)
+
+
+def run_in_thread(fn: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
+    """Run ``fn`` in a new thread (in the current context) and return its result."""
+    result: dict[str, Any] = {}
+
+    def target() -> None:
+        try:
+            result["value"] = fn(*args, **kwargs)
+        except BaseException as exc:
+            result["error"] = exc
+
+    t = threading.Thread(target=copy_context_to_thread(target), daemon=True)
+    t.start()
+    t.join()
+    if "error" in result:
+        raise result["error"]
+    return result["value"]

@@ -1,9 +1,11 @@
-"""refund-bot: a small OpenAI-compatible tool-calling agent loop instrumented with crashlab.
+"""refund-bot: a small tool-calling agent loop instrumented with crashlab.
 
-Run it (from the repo root) against any OpenAI-compatible endpoint:
+Run it (from the repo root) against any OpenAI-compatible endpoint or Anthropic:
 
     OPENAI_API_KEY=sk-...            python -m examples.refund_bot "Refund order A17, it broke"
     OPENAI_BASE_URL=http://localhost:11434/v1 MODEL=qwen2.5:7b \
+                                     python -m examples.refund_bot "Refund order A17, it broke"
+    PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... \
                                      python -m examples.refund_bot "Refund order A17, it broke"
 
 Set FAULT_HTML_502=1 (or pass --fault-html-502) to make get_order return an HTML 502 page
@@ -115,11 +117,36 @@ TOOLS = [
 TOOL_FUNCS = {"get_order": get_order, "issue_refund": issue_refund}
 
 
+ANTHROPIC_TOOLS = [
+    {
+        "name": t["function"]["name"],
+        "description": t["function"]["description"],
+        "input_schema": t["function"]["parameters"],
+    }
+    for t in TOOLS
+]
+
+
 # --- client -------------------------------------------------------------------------
 
+DEFAULT_MODELS = {"openai": "gpt-4o-mini", "anthropic": "claude-haiku-4-5"}
 
-def make_client() -> Any:
-    """OpenAI client from OPENAI_BASE_URL / OPENAI_API_KEY, wrapped by crashlab."""
+
+def default_provider() -> str:
+    provider = os.environ.get("PROVIDER", "openai").strip().lower()
+    if provider not in DEFAULT_MODELS:
+        raise SystemExit(f"PROVIDER must be 'openai' or 'anthropic', not {provider!r}")
+    return provider
+
+
+def make_client(provider: str | None = None) -> Any:
+    """Client wrapped by crashlab. openai: OPENAI_BASE_URL / OPENAI_API_KEY (any
+    OpenAI-compatible server); anthropic: ANTHROPIC_API_KEY (ANTHROPIC_BASE_URL optional)."""
+    provider = provider or default_provider()
+    if provider == "anthropic":
+        from anthropic import Anthropic
+
+        return crashlab.wrap(Anthropic())
     from openai import OpenAI
 
     base_url = os.environ.get("OPENAI_BASE_URL") or None
@@ -127,11 +154,21 @@ def make_client() -> Any:
     return crashlab.wrap(OpenAI(base_url=base_url, api_key=api_key))
 
 
-def default_model() -> str:
-    return os.environ.get("MODEL", "gpt-4o-mini")
+def default_model(provider: str | None = None) -> str:
+    return os.environ.get("MODEL") or DEFAULT_MODELS[provider or default_provider()]
 
 
-# --- the agent loop (plain OpenAI tool calling; nothing crashlab-specific inside) -------
+def client_provider(client: Any) -> str:
+    """'anthropic' for Anthropic-style clients (messages.create), else 'openai'."""
+    inner = getattr(client, "unwrapped", client)
+    if type(inner).__module__.split(".")[0] == "anthropic":
+        return "anthropic"
+    if getattr(inner, "chat", None) is None and getattr(inner, "messages", None) is not None:
+        return "anthropic"
+    return "openai"
+
+
+# --- the agent loops (plain SDK tool calling; nothing crashlab-specific inside) --------
 
 
 def _assistant_message(msg: Any) -> dict[str, Any]:
@@ -148,27 +185,23 @@ def _assistant_message(msg: Any) -> dict[str, Any]:
     return out
 
 
-def _run_tool(name: str, arguments: str) -> str:
+def _run_tool(name: str, arguments: str | dict[str, Any]) -> str:
     fn = TOOL_FUNCS.get(name)
     if fn is None:
         return f"ERROR: unknown tool {name!r}"
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments or "{}")
+        except json.JSONDecodeError as exc:
+            return f"ERROR: arguments are not valid JSON: {exc}"
     try:
-        args = json.loads(arguments or "{}")
-    except json.JSONDecodeError as exc:
-        return f"ERROR: arguments are not valid JSON: {exc}"
-    try:
-        result = fn(**args)
+        result = fn(**arguments)
     except Exception as exc:  # the model sees the error and can recover
         return f"ERROR: {type(exc).__name__}: {exc}"
     return result if isinstance(result, str) else json.dumps(result)
 
 
-@crashlab.agent(name="refund-bot", ignore_args=("client",))
-def run_agent(
-    user_msg: str, *, client: Any = None, model: str | None = None, max_turns: int = 8
-) -> str:
-    client = client or make_client()
-    model = model or default_model()
+def _openai_loop(client: Any, model: str, user_msg: str, max_turns: int) -> str:
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_msg},
@@ -187,17 +220,74 @@ def run_agent(
     return "Sorry, I could not finish this request."
 
 
+def _anthropic_loop(client: Any, model: str, user_msg: str, max_turns: int) -> str:
+    messages: list[dict[str, Any]] = [{"role": "user", "content": user_msg}]
+    for _ in range(max_turns):
+        resp = client.messages.create(
+            model=model,
+            max_tokens=1024,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+            tools=ANTHROPIC_TOOLS,
+        )
+        blocks: list[dict[str, Any]] = []
+        for b in resp.content:
+            if b.type == "text":
+                blocks.append({"type": "text", "text": b.text})
+            elif b.type == "tool_use":
+                blocks.append({"type": "tool_use", "id": b.id, "name": b.name, "input": b.input})
+        messages.append({"role": "assistant", "content": blocks})
+        tool_uses = [b for b in resp.content if b.type == "tool_use"]
+        if not tool_uses:
+            return "".join(b.text for b in resp.content if b.type == "text")
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": b.id,
+                        "content": _run_tool(b.name, b.input),
+                    }
+                    for b in tool_uses
+                ],
+            }
+        )
+    return "Sorry, I could not finish this request."
+
+
+@crashlab.agent(name="refund-bot", ignore_args=("client",))
+def run_agent(
+    user_msg: str,
+    *,
+    client: Any = None,
+    model: str | None = None,
+    provider: str | None = None,
+    max_turns: int = 8,
+) -> str:
+    if client is None:
+        provider = provider or default_provider()
+        client = make_client(provider)
+    provider = provider or client_provider(client)
+    model = model or default_model(provider)
+    loop = _anthropic_loop if provider == "anthropic" else _openai_loop
+    return loop(client, model, user_msg, max_turns)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="refund-bot crashlab demo")
     parser.add_argument(
         "message", nargs="?", default="Hi, please refund order A17, it arrived broken."
     )
     parser.add_argument("--fault-html-502", action="store_true", help="get_order returns HTML 502")
-    parser.add_argument("--model", default=None, help="model name (default: $MODEL or gpt-4o-mini)")
+    parser.add_argument("--model", default=None, help="model name (default: $MODEL)")
+    parser.add_argument(
+        "--provider", choices=sorted(DEFAULT_MODELS), default=None, help="default: $PROVIDER"
+    )
     ns = parser.parse_args(argv)
     if ns.fault_html_502:
         os.environ["FAULT_HTML_502"] = "1"
-    answer = run_agent(ns.message, model=ns.model)
+    answer = run_agent(ns.message, model=ns.model, provider=ns.provider)
     print(answer)
     if REFUNDS:
         print(f"[refunds issued: {REFUNDS}]")

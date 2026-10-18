@@ -92,11 +92,14 @@ class PendingStep:
         exc: BaseException,
         *,
         is_tool_error: bool = False,
+        response: dict[str, Any] | None = None,
+        raw_response: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
     ) -> Step:
         attrs = {"error.type": type(exc).__qualname__}
         attrs.update(attributes or {})
-        return self._emit(None, None, error_info(exc, is_tool_error=is_tool_error), attrs)
+        err = error_info(exc, is_tool_error=is_tool_error)
+        return self._emit(response, raw_response, err, attrs)
 
 
 def begin_step(

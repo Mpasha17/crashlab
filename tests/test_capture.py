@@ -37,8 +37,12 @@ def test_full_refund_bot_run(crashlab_dir):
     assert run.name == "refund-bot"
     assert run.status == "ok"
     assert run.output == answer
-    assert run.input == {"user_msg": "Refund my order A17, it arrived broken", "model": "m1",
-                         "max_turns": 8}  # fmt: skip
+    assert run.input == {
+        "user_msg": "Refund my order A17, it arrived broken",
+        "model": "m1",
+        "provider": None,
+        "max_turns": 8,
+    }
     assert run.entrypoint == "examples.refund_bot.agent:run_agent"
     assert run.env["crashlab"] == crashlab.__version__
     # 3 chat calls + 2 tool calls, interleaved
@@ -57,9 +61,13 @@ def test_full_refund_bot_run(crashlab_dir):
     # chat request normalization
     assert chat0.request["system"] == refund.SYSTEM_PROMPT
     assert chat0.request["messages"] == [
-        {"role": "user", "content": "Refund my order A17, it arrived broken"}
+        {
+            "role": "user",
+            "parts": [{"type": "text", "content": "Refund my order A17, it arrived broken"}],
+        }
     ]
-    assert [t["function"]["name"] for t in chat0.request["tools"]] == ["get_order", "issue_refund"]
+    assert [t["name"] for t in chat0.request["tools"]] == ["get_order", "issue_refund"]
+    assert chat0.request["tools"][0]["parameters"]["required"] == ["order_id"]
     assert chat0.request["params"] == {"model": "m1", "temperature": 0}
     assert chat0.attributes["gen_ai.operation.name"] == "chat"
     assert chat0.attributes["gen_ai.request.model"] == "m1"
@@ -70,14 +78,26 @@ def test_full_refund_bot_run(crashlab_dir):
     assert chat0.response["finish_reason"] == "tool_calls"
     assert chat0.response["tool_calls"] == [
         {"id": "call_1", "type": "function", "name": "get_order",
-         "arguments": '{"order_id": "A17"}'}
+         "arguments": {"order_id": "A17"}}
     ]  # fmt: skip
     assert chat0.raw_response["id"] == "chatcmpl-1"
     assert chat4.response["finish_reason"] == "stop"
-    assert chat4.response["messages"][0]["content"].startswith("Your refund")
-    # later requests carry the tool results
-    assert chat2.request["messages"][-1]["role"] == "tool"
-    assert json.loads(chat2.request["messages"][-1]["content"])["total"] == 49.0
+    assert chat4.response["messages"][0]["parts"][0]["content"].startswith("Your refund")
+    # later requests carry the tool calls and results in the common shape
+    assert chat2.request["messages"][1] == {
+        "role": "assistant",
+        "parts": [
+            {
+                "type": "tool_call",
+                "id": "call_1",
+                "name": "get_order",
+                "arguments": {"order_id": "A17"},
+            }
+        ],
+    }
+    last = chat2.request["messages"][-1]
+    assert last["role"] == "tool" and last["parts"][0]["id"] == "call_1"
+    assert json.loads(last["parts"][0]["response"])["total"] == 49.0
 
     # tool steps: args, result, linkage to the tool call id, side-effect metadata
     assert tool1.args == {"order_id": "A17"}
@@ -150,7 +170,7 @@ def test_fault_html_502_is_recorded(monkeypatch):
     assert "<title>502 Bad Gateway</title>" in get_order.result
     assert get_order.error is None  # garbage result, not an exception
     # the HTML is what the model saw next
-    assert "502 Bad Gateway" in run.steps[2].request["messages"][-1]["content"]
+    assert "502 Bad Gateway" in run.steps[2].request["messages"][-1]["parts"][0]["response"]
 
 
 def test_tool_exception_recorded_and_agent_continues():
@@ -216,7 +236,9 @@ def test_secrets_are_redacted_everywhere(crashlab_dir):
     assert chat.raw_request["extra_headers"] == {"Authorization": "[REDACTED]", "X-Trace": "ok"}
     assert "extra_headers" not in chat.request["params"]  # transport-only kwargs not hashed
     assert "timeout" not in chat.request["params"]
-    assert chat.request["messages"][0]["content"] == "my key is [REDACTED], account [REDACTED]"
+    assert chat.request["messages"][0]["parts"][0]["content"] == (
+        "my key is [REDACTED], account [REDACTED]"
+    )
     assert chat.request_hash == request_hash(chat.request)
 
 
@@ -309,14 +331,14 @@ def test_wrap_detection():
         pass
 
     Anthropicish.__module__ = "anthropic._client"
-    with pytest.raises(NotImplementedError, match="Anthropic"):
+    with pytest.raises(TypeError, match="messages.create"):
         crashlab.wrap(Anthropicish())
     with pytest.raises(TypeError):
         crashlab.wrap(object())
 
 
 def test_call_outside_run_warns_and_passes_through(crashlab_dir):
-    import crashlab.capture.openai as cap
+    import crashlab.capture._chat as cap
 
     cap._warned_outside_run = False
     client = crashlab.wrap(FakeOpenAI([text_response(1, "hi")]))

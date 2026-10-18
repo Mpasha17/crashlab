@@ -74,3 +74,38 @@ def test_dir_option(tmp_path):
     result = runner.invoke(app, ["--dir", str(other), "ls"], env=ENV)
     assert result.exit_code == 0
     assert "No runs recorded yet" in result.output
+
+
+def _table_rows(output: str) -> list[str]:
+    """Step-table body rows with the model name blanked (it differs per provider)."""
+    rows = [ln for ln in output.splitlines() if "│ chat " in ln or "│ execute_tool " in ln]
+    cells = [[c.strip() for c in ln.strip("│").split("│")] for ln in rows]
+    return [" | ".join("MODEL" if c in ("claude-fake", "fake-model") else c for c in row)
+            for row in cells]  # fmt: skip
+
+
+def test_show_identical_for_openai_and_anthropic():
+    from tests.fakes import FakeAnthropic, anthropic_refund_script
+
+    refund.run_agent("Refund my order A17", client=crashlab.wrap(FakeOpenAI(refund_script())))
+    o = runner.invoke(app, ["show", "last"], env=ENV).output
+    refund.reset_db()
+    refund.run_agent(
+        "Refund my order A17", client=crashlab.wrap(FakeAnthropic(anthropic_refund_script()))
+    )
+    a = runner.invoke(app, ["show", "last"], env=ENV).output
+    o_rows, a_rows = _table_rows(o), _table_rows(a)
+    assert len(o_rows) == 5
+    # the Anthropic fake also says "Let me check." before each tool call; compare tool rows
+    assert [r for r in o_rows if "execute_tool" in r] == [r for r in a_rows if "execute_tool" in r]
+    assert "→ get_order" in a and "Your refund of $49.00" in a
+
+
+def test_show_marks_streamed_steps():
+    from tests.fakes import chunks_for_text
+
+    client = crashlab.wrap(FakeOpenAI([chunks_for_text("streamed!")]))
+    with crashlab.record("s"):
+        list(client.chat.completions.create(model="m", messages=[], stream=True))
+    out = runner.invoke(app, ["show", "last"], env=ENV).output
+    assert "streamed! (stream)" in out
