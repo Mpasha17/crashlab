@@ -203,7 +203,11 @@ def _ask(
     except DiagnoseError:
         raise
     except Exception as e:
-        raise DiagnoseError(f"the diagnoser call failed: {type(e).__name__}: {str(e)[:300]}") from e
+        text = str(e)
+        hint = " (daily quota exhausted)" if "PerDay" in text or "per day" in text.lower() else ""
+        raise DiagnoseError(
+            f"the diagnoser call failed{hint}: {type(e).__name__}: {text[:300]}"
+        ) from e
     u = drun.usage
     return reply, {
         "backend": api,

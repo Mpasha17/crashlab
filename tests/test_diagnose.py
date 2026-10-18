@@ -240,6 +240,13 @@ def test_api_failure_raises_diagnose_error():
         crashlab.diagnose(_policy_run(), "m", client=fake)
 
 
+def test_daily_quota_is_named_even_when_the_message_is_long():
+    msg = "429 You exceeded your current quota " + "x" * 400 + " GenerateRequestsPerDayPerProject"
+    fake = FakeOpenAI([FakeAPIError(msg, 429)])
+    with pytest.raises(DiagnoseError, match=r"failed \(daily quota exhausted\)"):
+        crashlab.diagnose(_policy_run(), "m", client=fake)
+
+
 def test_needs_a_model(monkeypatch):
     monkeypatch.delenv("CRASHLAB_DIAGNOSER_MODEL", raising=False)
     with pytest.raises(DiagnoseError, match="no diagnoser model"):
