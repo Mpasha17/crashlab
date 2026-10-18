@@ -19,9 +19,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
-from .models import Flag, Run, Step
+from .models import Finding, Run, Step
 
 if TYPE_CHECKING:
+    from .checks.engine import CheckEngine
     from .replay.engine import Replayer
     from .store import Store
 
@@ -43,6 +44,13 @@ class RunContext:
     replayer: Replayer | None = None
     # Finished steps, kept in memory so @crashlab.check oracles can run at run end.
     steps: list[Step] = field(default_factory=list)
+    # Runtime checks (detectors) and the opt-in circuit breaker.
+    checks: CheckEngine | None = None
+    circuit_breaker: bool = False
+    # replay: (step idx, finding) where the recording's circuit breaker stopped it
+    breaker_replay: tuple[int, Finding] | None = None
+    tripped: Finding | None = None
+    _cost_unknown: bool = False
 
     def next_idx(self) -> int:
         with self._lock:
@@ -55,11 +63,25 @@ class RunContext:
         return self._counter
 
     def add_step(self, step: Step) -> None:
+        if step.operation == "chat":
+            from .pricing import step_cost
+
+            # a step served from a cassette keeps the cost of the recorded call (the
+            # replay client points at a placeholder endpoint)
+            if not (step.source == "cassette" and "crashlab.usage.cost_usd" in step.attributes):
+                step.attributes["crashlab.usage.cost_usd"] = step_cost(step)
         with self._lock:
             u = self.run.usage
             u.steps += 1
             if step.operation == "chat":
                 u.llm_calls += 1
+                cost = step.attributes.get("crashlab.usage.cost_usd")
+                if cost is None:  # unknown model, or no usage reported: never guessed
+                    self._cost_unknown = True
+                else:
+                    u.cost_usd = round((u.cost_usd or 0.0) + cost, 8)
+                if self._cost_unknown:
+                    u.cost_usd = None
                 inp = int(step.attributes.get("gen_ai.usage.input_tokens") or 0)
                 out = int(step.attributes.get("gen_ai.usage.output_tokens") or 0)
                 total = step.attributes.get("crashlab.usage.total_tokens")
@@ -74,10 +96,46 @@ class RunContext:
                 u.errors += 1
             self.steps.append(step)
         self.store.add_step(step)
+        if self.checks is not None:
+            self.add_findings(self.checks.on_step(step))
+        if self.breaker_replay is not None and step.idx == self.breaker_replay[0]:
+            self._replay_trip(self.breaker_replay[1])
 
-    def add_flag(self, flag: Flag) -> None:
-        self.run.flags.append(flag)
-        self.store.add_flag(self.run.run_id, flag)
+    def _replay_trip(self, recorded: Finding) -> None:
+        """A strict replay stops where the recording's circuit breaker stopped it."""
+        mine = next(
+            (f for f in self.run.findings if (f.kind, f.key) == (recorded.kind, recorded.key)),
+            None,
+        )
+        if mine is None:
+            mine = recorded.model_copy(deep=True)
+            self.run.findings.append(mine)
+        mine.stopped_run = True
+        self._trip(mine)
+
+    def add_findings(self, findings: list[Finding]) -> None:
+        """Record new / upgraded findings; a critical one trips the circuit breaker."""
+        for f in findings:
+            if not any(f is g for g in self.run.findings):
+                self.run.findings.append(f)
+                self.store.add_flag(self.run.run_id, f)
+            if self.circuit_breaker and f.severity == "critical" and self.tripped is None:
+                f.stopped_run = True
+                self._trip(f)
+
+    def _trip(self, finding: Finding) -> None:
+        if self.tripped is None:
+            self.tripped = finding
+
+    def raise_if_tripped(self) -> None:
+        """Stop the agent: called after a step is recorded and before a new one starts."""
+        if self.tripped is not None:
+            from .checks.engine import CircuitBreakerError
+
+            raise CircuitBreakerError(self.tripped)
+
+    def add_flag(self, flag: Finding) -> None:  # older name
+        self.add_findings([flag])
 
     def claim_tool_call_id(self, tool_name: str, args: dict[str, Any]) -> str | None:
         """Pop the pending tool call that best matches this tool execution."""

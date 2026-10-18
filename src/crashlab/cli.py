@@ -1,4 +1,5 @@
-"""``crashlab`` command line: ``ls``, ``show``, ``replay``, ``check``, ``fork``, ``diff``."""
+"""``crashlab`` command line: ``ls``, ``show``, ``replay``, ``check``, ``fork``, ``diff``,
+``export``, ``import``."""
 
 from __future__ import annotations
 
@@ -9,14 +10,31 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
-from rich.table import Table
+from rich.table import Table as _RichTable
 from rich.text import Text
 
 from ._version import __version__
-from .models import CheckResult, Run, Step
+from .models import SEVERITY_RANK, CheckResult, Finding, Run, Step
 from .store import ENV_DIR, RunNotFoundError, Store
+
+
+class Table(_RichTable):
+    """Plain strings in cells are recorded data (tool output, LLM text, reasons), never
+    markup: Rich would eat ``[budget]`` or ``[/]`` in them."""
+
+    def add_row(self, *renderables, **kwargs):  # type: ignore[no-untyped-def,override]
+        cells = [Text(r) if isinstance(r, str) else r for r in renderables]
+        return super().add_row(*cells, **kwargs)
+
+
+def _e(value: object) -> str:
+    """Escape recorded data interpolated into a markup string."""
+    return escape(str(value))
+
 
 app = typer.Typer(
     name="crashlab",
@@ -29,6 +47,36 @@ app = typer.Typer(
 _STATUS_STYLE = {"ok": "green", "error": "red", "running": "yellow"}
 _OUTCOME_STYLE = {"pass": "green", "fail": "red", "unknown": "dim"}
 _CHECK_STYLE = {"pass": "green", "fail": "red", "error": "red"}
+_SEV_STYLE = {"info": "dim", "warn": "yellow", "error": "red", "critical": "bold red"}
+_SEVERITIES = ("info", "warn", "error", "critical")
+
+
+def _cost_text(value: float | None) -> str:
+    if value is None:
+        return "?"
+    return "$0" if value == 0 else f"${value:.4f}" if value >= 0.0001 else f"${value:.6f}"
+
+
+def _findings_table(findings: list[Finding], title: str = "runtime findings") -> Table:
+    table = Table(title=title, title_justify="left", show_header=False, box=None)
+    table.add_column("severity", no_wrap=True)
+    table.add_column("kind", style="bold", no_wrap=True)
+    table.add_column("steps", no_wrap=True, style="cyan")
+    table.add_column("message", overflow="fold")
+    for f in sorted(findings, key=lambda f: (-f.rank, f.step if f.step is not None else -1)):
+        steps = ",".join(str(i) for i in f.steps) if f.steps else ("-" if f.step is None
+                                                                  else str(f.step))  # fmt: skip
+        msg = Text(f.message)
+        if f.stopped_run:
+            msg = Text("STOPPED THE RUN: ", style="bold red") + msg
+        if f.evidence:
+            q = f.evidence[0]
+            quote = " ".join(q.quote.split())[:90]
+            msg += Text(f"\n  step {q.step_idx} {q.field}: ", style="dim") + Text(
+                repr(quote), style="dim"
+            )
+        table.add_row(Text(f.severity, style=_SEV_STYLE.get(f.severity, "")), f.kind, steps, msg)
+    return table
 
 
 def _console() -> Console:
@@ -78,33 +126,92 @@ def _short(value: Any, width: int = 60) -> str:
 def ls(
     limit: int = typer.Option(20, "--limit", "-n", help="Max runs to show (0 = all)."),
     name: str | None = typer.Option(None, "--name", help="Only runs of this agent name."),
+    flagged: bool = typer.Option(
+        False, "--flagged", "-f", help="Only runs with runtime-check findings."
+    ),
+    min_severity: str = typer.Option(
+        "warn", "--min-severity", help="With --flagged: info, warn, error or critical."
+    ),
 ) -> None:
     """List recorded runs, newest first."""
     console = _console()
     store = Store()
-    rows = store.list_runs(limit=limit or None, name=name)
+    if min_severity not in _SEVERITIES:
+        console.print(f"[red]--min-severity must be one of {', '.join(_SEVERITIES)}[/]")
+        raise typer.Exit(code=2)
+    rows = store.list_runs(
+        limit=limit or None, name=name, flagged=min_severity if flagged else None
+    )
     if not rows:
-        console.print(f"No runs recorded yet in [bold]{store.root}[/].")
+        what = "flagged runs" if flagged else "runs recorded yet"
+        console.print(f"No {what} in [bold]{_e(store.root)}[/].")
         return
-    table = Table(title=f"crashlab runs ({store.root})", title_justify="left")
+    narrow = console.width < 130
+    id_len = _unique_prefix_len(r["run_id"] for r in store.list_runs()) if narrow else 0
+    table = Table(
+        title=f"crashlab runs ({store.root})",
+        title_justify="left",
+        box=None if narrow else box.HEAVY_HEAD,
+        pad_edge=not narrow,
+        header_style="bold underline" if narrow else "table.header",
+    )
+    # id and the small columns never wrap; name wraps. On a narrow terminal the id is
+    # shortened to the shortest prefix unique in the store (any command accepts it) and
+    # the tokens column is dropped, so 80 columns stay readable.
     table.add_column("id", no_wrap=True, style="cyan")
-    table.add_column("name")
-    table.add_column("status")
-    table.add_column("outcome")
-    table.add_column("steps", justify="right")
-    table.add_column("tokens", justify="right")
+    table.add_column("name", min_width=8)
+    table.add_column("status", no_wrap=True)
+    table.add_column("outcome", no_wrap=True)
+    table.add_column("steps", justify="right", no_wrap=True)
+    if not narrow:
+        table.add_column("tokens", justify="right", no_wrap=True)
+    table.add_column("cost", justify="right", no_wrap=True)
+    table.add_column("findings", no_wrap=True)
     table.add_column("started", no_wrap=True)
     for r in rows:
-        table.add_row(
-            r["run_id"],
+        sev = r.get("max_severity")
+        found = (
+            Text(f"{r['flag_count']} {sev}", style=_SEV_STYLE.get(sev or "", ""))
+            if (r.get("flag_count"))
+            else Text("")
+        )
+        cells: list[Any] = [
+            r["run_id"][:id_len] if narrow else r["run_id"],
             r["name"] + _relation_suffix(r),
             Text(r["status"], style=_STATUS_STYLE.get(r["status"], "")),
             Text(r["outcome"], style=_OUTCOME_STYLE.get(r["outcome"], "")),
             str(r["steps"]),
-            str(r["total_tokens"]),
-            _local_time(r["started_at"]),
-        )
+        ]
+        if not narrow:
+            cells.append(str(r["total_tokens"]))
+        cells += [
+            _cost_text(r.get("cost_usd")) if r.get("cost_usd") is not None else "",
+            found,
+            # MM-DD HH:MM[:SS], local time
+            _local_time(r["started_at"])[5:16] if narrow else _local_time(r["started_at"])[5:],
+        ]
+        table.add_row(*cells)
     console.print(table)
+
+
+def _finding_diff_json(fd: Any) -> dict[str, Any]:
+    def side(fs: list[Finding]) -> list[dict[str, Any]]:
+        return [{"severity": f.severity, "steps": f.steps, "message": f.message} for f in fs]
+
+    return {"kind": fd.kind, "worst_a": fd.worst_a, "worst_b": fd.worst_b,
+            "changed": fd.changed, "a": side(fd.a), "b": side(fd.b)}  # fmt: skip
+
+
+def _unique_prefix_len(run_ids: Any, minimum: int = 10) -> int:
+    """Shortest prefix length (at least ``minimum``) that tells all ``run_ids`` apart."""
+    ids = sorted(set(run_ids))
+    need = minimum
+    for a, b in zip(ids, ids[1:], strict=False):
+        common = 0
+        while common < min(len(a), len(b)) and a[common] == b[common]:
+            common += 1
+        need = max(need, common + 1)
+    return need
 
 
 def _relation_suffix(row: dict[str, Any]) -> str:
@@ -177,7 +284,7 @@ def _resolve(store: Store, ref: str) -> Run:
     try:
         return store.load_run(ref)
     except RunNotFoundError as exc:
-        _console().print(f"[red]{exc}[/]")
+        _console().print(f"[red]{_e(exc)}[/]")
         raise typer.Exit(code=1) from exc
 
 
@@ -219,19 +326,27 @@ def show(
     if run.error:
         meta.add_row("error", Text(f"{run.error.type}: {_short(run.error.message, 90)}", "red"))
     meta.add_row("started", f"{_local_time(run.started_at)} (local)")
+    from .pricing import run_cost, step_cost
+
+    cost = run_cost(run)
     meta.add_row(
         "usage",
         f"{u.steps} steps · {u.llm_calls} llm · {u.tool_calls} tool · {u.errors} errors · "
         f"{u.input_tokens}+{u.output_tokens}={u.total_tokens} tokens"
-        + (f" · {u.wall_time_ms / 1000:.2f}s" if u.wall_time_ms is not None else ""),
+        + (f" · {u.wall_time_ms / 1000:.2f}s" if u.wall_time_ms is not None else "")
+        + (f" · est. {_cost_text(cost)}" if u.llm_calls else ""),
     )
     meta.add_row("code", run.code_version or "-")
     console.print(Panel(meta, title="crashlab run", title_align="left"))
     if run.checks:
         console.print(_checks_table(run.checks))
-    for flag in run.flags:
-        at = f" (step {flag.step_idx})" if flag.step_idx is not None else ""
-        console.print(f"[yellow]flag[/] {flag.detector}{at}: {flag.message}")
+    if run.findings:
+        console.print(_findings_table(run.findings))
+    marks: dict[int, Finding] = {}
+    for f in run.findings:
+        for i in f.steps or ([f.step] if f.step is not None else []):
+            if i not in marks or f.rank > marks[i].rank:
+                marks[i] = f
 
     table = Table(show_lines=False)
     table.add_column("idx", justify="right", style="cyan")
@@ -240,11 +355,18 @@ def show(
     table.add_column("args / input", overflow="fold")
     table.add_column("result / output", overflow="fold")
     table.add_column("error", style="red", overflow="fold")
+    table.add_column("$", justify="right", no_wrap=True, style="dim")
+    table.add_column("", no_wrap=True)
     for step in run.steps:
         inp, out = _step_io(step)
         err = f"{step.error.type}: {_short(step.error.message, 50)}" if step.error else ""
         op = step.operation + _SOURCE_MARK.get(step.source, "")
-        table.add_row(str(step.idx), op, step.name, inp, out, err)
+        c = step.attributes.get("crashlab.usage.cost_usd") if step.operation == "chat" else None
+        c = step_cost(step) if c is None and step.operation == "chat" else c
+        usd = _cost_text(c) if step.operation == "chat" else ""
+        mark = marks.get(step.idx)
+        flag = Text("⚑ " + mark.kind, style=_SEV_STYLE.get(mark.severity, "")) if mark else Text("")
+        table.add_row(str(step.idx), op, step.name, inp, out, err, usd, flag)
     if run.steps:
         console.print(table)
     else:
@@ -280,7 +402,7 @@ def replay_cmd(
     store = Store()
     source = _resolve(store, run_ref)
     console.print(
-        f"Replaying [cyan]{source.run_id}[/] ({source.name}, {len(source.steps)} steps)"
+        f"Replaying [cyan]{source.run_id}[/] ({_e(source.name)}, {len(source.steps)} steps)"
         + (" offline" if not allow_network else "")
         + " ..."
     )
@@ -293,13 +415,13 @@ def replay_cmd(
                           f"(crashlab show {err.replay_run_id})")  # fmt: skip
         raise typer.Exit(code=1) from err
     except ReplayError as err:
-        console.print(f"[red]cannot replay:[/] {err}")
+        console.print(f"[red]cannot replay:[/] {_e(err)}")
         raise typer.Exit(code=2) from err
     served = sum(1 for s in rep.steps if s.source == "cassette")
     console.print(
         f"[green]reproduced[/]: {served}/{len(rep.steps)} steps served from the cassette, "
         + (
-            f"same error as recorded ({rep.error.type})."
+            f"same error as recorded ({_e(rep.error.type)})."
             if rep.error
             else "identical requests and output."
         )
@@ -314,37 +436,134 @@ def replay_cmd(
 
 @app.command("check")
 def check_cmd(
-    run_ref: str = typer.Argument("last", help="Run id, unique id prefix, or 'last'."),
-    save: bool = typer.Option(True, "--save/--no-save", help="Store the new outcome."),
+    run_refs: list[str] = typer.Argument(  # noqa: B008
+        None, help="Run ids / prefixes / 'last' (default: last)."
+    ),
+    all_runs: bool = typer.Option(False, "--all", help="Check every stored run (newest first)."),
+    name: str | None = typer.Option(None, "--name", help="With --all: only this agent."),
+    save: bool = typer.Option(True, "--save/--no-save", help="Store outcome and findings."),
+    findings_only: bool = typer.Option(
+        False, "--findings-only", help="Only the runtime checks (skip @crashlab.check oracles)."
+    ),
+    oracles_only: bool = typer.Option(
+        False, "--oracles-only", help="Only the @crashlab.check oracles."
+    ),
+    max_steps: int | None = typer.Option(None, "--max-steps", help="Budget: steps."),
+    max_tokens: int | None = typer.Option(None, "--max-tokens", help="Budget: total tokens."),
+    max_cost: float | None = typer.Option(None, "--max-cost", help="Budget: USD."),
+    max_seconds: float | None = typer.Option(None, "--max-seconds", help="Budget: wall time."),
+    baseline: int | None = typer.Option(
+        None, "--baseline", help="Compare tool results with this many other runs (drift)."
+    ),
+    fail_on: str | None = typer.Option(
+        None, "--fail-on", help="Exit 1 if a finding is at least: info, warn, error, critical."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable results."),
 ) -> None:
-    """Run the registered @crashlab.check oracles on a stored run (exit 1 if any fails)."""
+    """Check stored runs: the @crashlab.check outcome oracles (pass / fail) and the
+    built-in runtime checks (findings). Exit 1 if an oracle fails (or --fail-on hits)."""
+    from .checks import evaluate, replace_findings, resolve_config
+
+    console = _console()
+    store = Store()
+    if fail_on is not None and fail_on not in _SEVERITIES:
+        console.print(f"[red]--fail-on must be one of {', '.join(_SEVERITIES)}[/]")
+        raise typer.Exit(code=2)
+    if all_runs:
+        refs = [r["run_id"] for r in store.list_runs(limit=None, name=name)]
+    else:
+        refs = list(run_refs or ["last"])
+    overrides: dict[str, Any] = {}
+    budget = {"max_steps": max_steps, "max_tokens": max_tokens, "max_cost_usd": max_cost,
+              "max_seconds": max_seconds}  # fmt: skip
+    if any(v is not None for v in budget.values()):
+        overrides["budget"] = {k: v for k, v in budget.items() if v is not None}
+    if baseline is not None:
+        overrides["suspicious_tool_result"] = {"baseline_runs": baseline}
+    many = len(refs) > 1
+    failed = False
+    report = []
+    summary = Table(title="crashlab check", title_justify="left") if many else None
+    if summary is not None:
+        for col in ("run", "name", "outcome", "findings"):
+            if col == "run":
+                summary.add_column(col, no_wrap=True, style="cyan")
+            else:
+                summary.add_column(col, overflow="fold")
+    for ref in refs:
+        run = _resolve(store, ref)
+        results = None if findings_only else _run_oracles(console, run, quiet=many or as_json)
+        found = None
+        if not oracles_only:
+            cfg = resolve_config(overrides or None, base=run.check_config)
+            found = evaluate(run, cfg, store=store)
+            replace_findings(run, found)
+            run.check_config = cfg.model_dump(mode="json")
+            from .pricing import run_cost
+
+            run.usage.cost_usd = run_cost(run)
+        if results is not None and run.outcome == "fail":
+            failed = True
+        if found and fail_on and any(f.rank >= SEVERITY_RANK[fail_on] for f in found):
+            failed = True
+        if save:
+            store.update_run(run)
+        report.append({
+            "run_id": run.run_id, "name": run.name, "outcome": run.outcome,
+            "outcome_reason": run.outcome_reason,
+            "checks": [c.model_dump() for c in run.checks],
+            "findings": [f.model_dump(mode="json") for f in (found or [])],
+            "cost_usd": run.usage.cost_usd,
+        })  # fmt: skip
+        if as_json:
+            continue
+        if summary is not None:
+            kinds = ", ".join(
+                f"{f.kind}:{f.severity}" for f in sorted(found or [], key=lambda f: -f.rank)
+            )
+            summary.add_row(run.run_id, run.name, Text(run.outcome,
+                            style=_OUTCOME_STYLE.get(run.outcome, "")), kinds or "-")  # fmt: skip
+            continue
+        if results:
+            console.print(_checks_table(results))
+            console.print(
+                f"outcome: [{_OUTCOME_STYLE.get(run.outcome, '')}]{run.outcome}[/]"
+                + (f"  ({run.outcome_reason})" if run.outcome_reason else "")
+            )
+        elif results is not None:
+            console.print(
+                f"No @crashlab.check oracles registered for runs named {_e(repr(run.name))}."
+            )
+        if found is not None:
+            if found:
+                console.print(_findings_table(found))
+            else:
+                console.print("runtime checks: no findings")
+    if as_json:
+        typer.echo(json.dumps(report if many else report[0], indent=2, default=str))
+    elif summary is not None:
+        console.print(summary)
+    if failed:
+        raise typer.Exit(code=1)
+
+
+def _run_oracles(console: Console, run: Run, *, quiet: bool) -> list[CheckResult]:
     from .replay.divergence import ReplayError
     from .replay.engine import resolve_entrypoint
     from .verify.oracles import apply_outcome, checks_for, run_checks
 
-    console = _console()
-    store = Store()
-    run = _resolve(store, run_ref)
     if run.entrypoint:  # importing the agent's module registers its checks
         try:
             resolve_entrypoint(run.entrypoint)
         except ReplayError as err:
-            console.print(f"[yellow]could not import {run.entrypoint}:[/] {err}")
+            if not quiet:
+                console.print(f"[yellow]could not import {_e(run.entrypoint)}:[/] {_e(err)}")
     specs = checks_for(run.name)
     if not specs:
-        console.print(f"No checks registered for runs named {run.name!r}.")
-        raise typer.Exit(code=0)
+        return []
     results = run_checks(run, specs)
     apply_outcome(run, results)
-    console.print(_checks_table(results))
-    console.print(
-        f"outcome: [{_OUTCOME_STYLE.get(run.outcome, '')}]{run.outcome}[/]"
-        + (f"  ({run.outcome_reason})" if run.outcome_reason else "")
-    )
-    if save:
-        store.update_run(run)
-    if run.outcome == "fail":
-        raise typer.Exit(code=1)
+    return results
 
 
 # --- fork ------------------------------------------------------------------------------
@@ -525,11 +744,11 @@ def fork_cmd(
         fork_step = at + n if at < 0 else at
         rendered = patches.render_diff(source, fork_step=fork_step)
     except (P.PatchError, ValueError, OSError) as err:
-        console.print(f"[red]bad patch:[/] {err}")
+        console.print(f"[red]bad patch:[/] {_e(err)}")
         raise typer.Exit(code=2) from err
     if save_patch:
         Path(save_patch).write_text(patches.to_json(indent=2) + "\n", encoding="utf-8")
-        console.print(f"patch written to {save_patch}")
+        console.print(f"patch written to {_e(save_patch)}")
     title = f"patch for {source.run_id} at step {fork_step}"
     body = rendered if patches else f"no patch: the fork re-runs live from step {fork_step}"
     console.print(Panel(Text(body), title=title, title_align="left"))
@@ -537,7 +756,7 @@ def fork_cmd(
         return
     prefix = f"steps 0..{fork_step - 1} from the cassette, " if fork_step else ""
     console.print(
-        f"Forking [cyan]{source.run_id}[/] ({source.name}) at step {fork_step}: "
+        f"Forking [cyan]{source.run_id}[/] ({_e(source.name)}) at step {fork_step}: "
         f"{prefix}live from step {fork_step} ..."
     )
     try:
@@ -554,14 +773,19 @@ def fork_cmd(
                             title_align="left"))  # fmt: skip
         raise typer.Exit(code=1) from err
     except (ReplayError, P.PatchError) as err:
-        console.print(f"[red]cannot fork:[/] {err}")
+        console.print(f"[red]cannot fork:[/] {_e(err)}")
         raise typer.Exit(code=2) from err
     if branch.error:
         console.print(
-            f"[red]the fork raised[/] {branch.error.type}: {_short(branch.error.message, 160)}"
+            f"[red]the fork raised[/] {_e(branch.error.type)}: "
+            f"{_e(_short(branch.error.message, 160))}"
         )
-    for flag in branch.flags:
-        console.print(f"[yellow]flag[/] {flag.detector}: {flag.message}")
+    notes = [f for f in branch.findings if f.kind == "fork"]
+    for note in notes:
+        console.print(f"[yellow]note[/] {_e(note.message)}")
+    found = [f for f in branch.findings if f.kind != "fork" and f.rank >= SEVERITY_RANK["warn"]]
+    if found:
+        console.print(_findings_table(found, "runtime findings in the fork"))
     _print_outcomes(console, source, branch)
     console.print(
         f"fork run [cyan]{branch.run_id}[/] (fork of {source.run_id} at step {fork_step})  "
@@ -640,9 +864,12 @@ def _usage_rows(a: Run, b: Run) -> list[tuple[str, str, str, str]]:
         ("tokens total", str(ua.total_tokens), str(ub.total_tokens),
          delta(ua.total_tokens, ub.total_tokens)),
     ]  # fmt: skip
-    if ua.cost_usd is not None or ub.cost_usd is not None:
-        rows.append(("cost", f"${ua.cost_usd or 0:.4f}", f"${ub.cost_usd or 0:.4f}",
-                     delta(ua.cost_usd, ub.cost_usd, "{:+.4f}")))  # fmt: skip
+    from .pricing import run_cost
+
+    ca, cb = run_cost(a), run_cost(b)
+    if ua.llm_calls or ub.llm_calls:
+        rows.append(("est. cost", _cost_text(ca), _cost_text(cb),
+                     delta(ca, cb, "{:+.6f}")))  # fmt: skip
     if ua.wall_time_ms is not None or ub.wall_time_ms is not None:
         wa, wb = (ua.wall_time_ms or 0) / 1000, (ub.wall_time_ms or 0) / 1000
         rows.append(("wall time", f"{wa:.2f}s", f"{wb:.2f}s", f"{wb - wa:+.2f}s"))
@@ -681,6 +908,7 @@ def diff_cmd(
             "checks": {c.name: [c.a.status if c.a else None, c.b.status if c.b else None]
                        for c in rd.checks},
             "steps": [{"idx": s.idx, "status": s.status, "fields": s.fields} for s in rd.steps],
+            "findings": [_finding_diff_json(f) for f in rd.findings],
             "usage": {"a": a.usage.model_dump(), "b": b.usage.model_dump()},
         }, indent=2))  # fmt: skip
         return
@@ -710,6 +938,21 @@ def diff_cmd(
     console.print(head)
     if rd.checks:
         console.print(_checks_diff_table(rd))
+    if rd.findings:
+        ft = Table(title="runtime findings", title_justify="left")
+        ft.add_column("kind", style="bold", no_wrap=True)
+        ft.add_column("A", overflow="fold")
+        ft.add_column("B", overflow="fold")
+        for fd in rd.findings:
+            cells = []
+            for fs, worst in ((fd.a, fd.worst_a), (fd.b, fd.worst_b)):
+                text = Text(f"{len(fs)} {worst}", style=_SEV_STYLE.get(worst or "", "")) if fs \
+                    else Text("-", style="dim")  # fmt: skip
+                if fs:
+                    text += Text(f" ({fs[0].message[:70]})", style="dim")
+                cells.append(text)
+            ft.add_row(fd.kind + (" *" if fd.changed else ""), *cells)
+        console.print(ft)
 
     steps = Table(title="steps", title_justify="left")
     steps.add_column("idx", justify="right", style="cyan")
@@ -729,6 +972,46 @@ def diff_cmd(
         console.print(Panel(Text(sd.detail()), title=f"step {sd.idx}: {_STEP_LABEL[sd.status]}",
                             title_align="left"))  # fmt: skip
     console.print(rd.summary())
+
+
+# --- export / import -------------------------------------------------------------------
+
+
+@app.command("export")
+def export_cmd(
+    run_ref: str = typer.Argument("last", help="Run id, unique id prefix, or 'last'."),
+    output: Path | None = typer.Option(  # noqa: B008
+        None, "--output", "-o", help="File to write (default: <run_id>.jsonl)."
+    ),
+) -> None:
+    """Write one run (metadata + cassette) to a portable JSONL file, e.g. to share a failing
+    run or check it into a repo. Redaction runs again on the way out."""
+    from .store import export_run
+
+    store = Store()
+    run_id = store.resolve_run_id(run_ref)
+    path = export_run(store, run_id, output or Path(f"{run_id}.jsonl"))
+    _console().print(f"exported {run_id} -> {_e(path)}")
+
+
+@app.command("import")
+def import_cmd(
+    paths: list[Path] = typer.Argument(..., help="Exported .jsonl files."),  # noqa: B008
+    replace: bool = typer.Option(False, "--replace", help="Overwrite runs that already exist."),
+) -> None:
+    """Add exported runs to the store (``$CRASHLAB_DIR`` or ./.crashlab)."""
+    from .store import import_run
+
+    console = _console()
+    store = Store()
+    for path in paths:
+        try:
+            run_id, added = import_run(store, path, replace=replace)
+        except (OSError, ValueError) as err:
+            console.print(f"[red]{_e(path)}: {_e(err)}[/]")
+            raise typer.Exit(code=2) from err
+        console.print(f"{'imported' if added else 'already there'}: {run_id}  ({_e(path)})")
+    console.print(f"store: {_e(store.root)}")
 
 
 if __name__ == "__main__":  # pragma: no cover

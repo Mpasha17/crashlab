@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from ..models import Flag, Run, Step
+from ..models import Finding, Run, Step
 from .cassette import CassetteWriter, read_cassette, step_to_line
 from .redact import get_redactor
 from .sqlite import SQLiteIndex
@@ -72,7 +72,7 @@ class Store:
         self._writer(step.run_id).append(step_to_line(data))
         self.index.insert_step(data)
 
-    def add_flag(self, run_id: str, flag: Flag) -> None:
+    def add_flag(self, run_id: str, flag: Finding) -> None:
         self.index.insert_flag(run_id, get_redactor().redact(flag.model_dump(mode="json")))
 
     def update_run(self, run: Run) -> None:
@@ -85,8 +85,10 @@ class Store:
             self._writers.pop(run.run_id, None)
 
     # reading -------------------------------------------------------------------------
-    def list_runs(self, limit: int | None = 20, name: str | None = None) -> list[dict[str, Any]]:
-        return self.index.list_runs(limit=limit, name=name)
+    def list_runs(
+        self, limit: int | None = 20, name: str | None = None, *, flagged: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.index.list_runs(limit=limit, name=name, flagged=flagged)
 
     def resolve_run_id(self, ref: str) -> str:
         """Resolve ``"last"``, a full run id or a unique id prefix to a run id."""
@@ -112,9 +114,60 @@ class Store:
         return run
 
 
+EXPORT_HEADER = "crashlab.run"
+EXPORT_VERSION = 1
+
+
+def export_run(store: Store, run_id: str, path: str | os.PathLike[str]) -> Path:
+    """Write ``run_id`` as JSONL: a header line with the run, then its cassette lines."""
+    run = store.load_run(run_id)
+    red = get_redactor()
+    head = {"type": EXPORT_HEADER, "version": EXPORT_VERSION, "run": store._run_dict(run)}
+    lines = [head] + [step_to_line(red.redact(s.model_dump(mode="json"))) for s in run.steps]
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        "".join(json.dumps(x, ensure_ascii=False, default=str) + "\n" for x in lines), "utf-8"
+    )
+    return out
+
+
+def import_run(
+    store: Store, path: str | os.PathLike[str], *, replace: bool = False
+) -> tuple[str, bool]:
+    """Add an exported run to ``store``. Returns ``(run_id, added)``; an existing run is
+    left alone unless ``replace``."""
+    from .cassette import line_to_step, read_lines
+
+    lines = read_lines(Path(path))
+    if not lines or lines[0].get("type") != EXPORT_HEADER:
+        raise ValueError("not a crashlab export (first line must be the run header)")
+    if int(lines[0].get("version", 0)) > EXPORT_VERSION:
+        raise ValueError(f"export version {lines[0].get('version')} is newer than supported")
+    run = Run.model_validate(lines[0]["run"])
+    steps = [line_to_step(line) for line in lines[1:]]
+    if store.index.get_run_json(run.run_id) is not None and not replace:
+        return run.run_id, False
+    cassette = store.cassette_path(run.run_id)
+    cassette.parent.mkdir(parents=True, exist_ok=True)
+    cassette.write_text("", "utf-8")
+    for step in steps:
+        store.add_step(step)
+    store.end_run(run)
+    return run.run_id, True
+
+
 def load(ref: str = "last", *, store_dir: str | os.PathLike[str] | None = None) -> Run:
     """Load a recorded run (with its steps) by id, unique id prefix, or ``"last"``."""
     return Store(store_dir).load_run(ref)
 
 
-__all__ = ["ENV_DIR", "RunNotFoundError", "Store", "crashlab_dir", "load"]
+__all__ = [
+    "ENV_DIR",
+    "RunNotFoundError",
+    "Store",
+    "crashlab_dir",
+    "export_run",
+    "import_run",
+    "load",
+]

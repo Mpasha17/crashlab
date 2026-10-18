@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from .models import CheckResult, Run, Step
+from .models import CheckResult, Finding, Run, Step
 from .replay.divergence import diff_values
 
 StepStatus = Literal["same", "response", "request", "different", "only_a", "only_b"]
@@ -90,11 +90,37 @@ class CheckDiff:
 
 
 @dataclass
+class FindingDiff:
+    """Runtime-check findings of one kind in A and in B."""
+
+    kind: str
+    a: list[Finding]
+    b: list[Finding]
+
+    @staticmethod
+    def _worst(fs: list[Finding]) -> str | None:
+        return max(fs, key=lambda f: f.rank).severity if fs else None
+
+    @property
+    def worst_a(self) -> str | None:
+        return self._worst(self.a)
+
+    @property
+    def worst_b(self) -> str | None:
+        return self._worst(self.b)
+
+    @property
+    def changed(self) -> bool:
+        return (len(self.a), self.worst_a) != (len(self.b), self.worst_b)
+
+
+@dataclass
 class RunDiff:
     a: Run
     b: Run
     steps: list[StepDiff]
     checks: list[CheckDiff]
+    findings: list[FindingDiff] = field(default_factory=list)
 
     @property
     def first_divergence(self) -> int | None:
@@ -174,7 +200,14 @@ def diff(a: Run, b: Run) -> RunDiff:
     cb = {c.name: c for c in b.checks}
     names = list(ca) + [n for n in cb if n not in ca]
     checks = [CheckDiff(n, ca.get(n), cb.get(n)) for n in names]
-    return RunDiff(a, b, steps, checks)
+    kinds = list(dict.fromkeys([f.kind for f in a.findings] + [f.kind for f in b.findings]))
+    findings = [
+        FindingDiff(
+            k, [f for f in a.findings if f.kind == k], [f for f in b.findings if f.kind == k]
+        )
+        for k in kinds
+    ]
+    return RunDiff(a, b, steps, checks, findings)
 
 
-__all__ = ["CheckDiff", "RunDiff", "StepDiff", "compare_steps", "diff"]
+__all__ = ["CheckDiff", "FindingDiff", "RunDiff", "StepDiff", "compare_steps", "diff"]

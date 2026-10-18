@@ -339,4 +339,6 @@ def test_index_schema_v1_is_migrated(tmp_path):
     idx.list_runs()  # opens + migrates
     conn = sqlite3.connect(db)
     assert "replay_of" in {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("2",)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
+    assert {"cost_usd", "max_severity"} <= cols  # v3
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("3",)

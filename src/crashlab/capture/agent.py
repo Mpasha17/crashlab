@@ -78,6 +78,11 @@ class record:
 
     ``with crashlab.record("refund-bot", input={"msg": msg}) as run: ...``  (also ``async with``)
 
+    ``checks`` configures the built-in runtime checks (see :mod:`crashlab.checks`):
+    ``None`` uses the defaults and ``[tool.crashlab.checks]`` from pyproject.toml, a dict
+    overrides parts of that (``checks={"max_steps": 20, "circuit_breaker": True}``),
+    ``False`` turns them off.
+
     The yielded :class:`~crashlab.models.Run` can be mutated, e.g. ``run.output = answer``
     or ``run.outcome = "pass"``; it is persisted when the block exits. An exception marks
     the run ``status="error"`` and ``outcome="fail"`` and is re-raised.
@@ -92,8 +97,10 @@ class record:
         tags: list[str] | None = None,
         store_dir: str | os.PathLike[str] | None = None,
         mode: str = "record",
+        checks: Any = None,
     ) -> None:
         self.name = name
+        self.checks = checks
         self.input = to_jsonable(input or {})
         if not isinstance(self.input, dict):
             self.input = {"input": self.input}
@@ -142,6 +149,7 @@ class record:
             mode=replayer.mode if replayer else self.mode,  # type: ignore[arg-type]
             replayer=replayer,
         )
+        self._setup_checks(run, store, replayer)
         self._token = set_current(self.ctx)
         self._t0 = time.perf_counter()
         return run
@@ -153,6 +161,15 @@ class record:
             run.ended_at = utcnow()
             run.usage.wall_time_ms = round((time.perf_counter() - self._t0) * 1000, 3)
             user_outcome = run.outcome != "unknown"
+            tripped = self.ctx.tripped
+            if self.ctx.checks is not None:  # end-of-run checks can no longer stop anything
+                self.ctx.circuit_breaker = False
+                self.ctx.add_findings(self.ctx.checks.on_end(run))
+            if tripped is not None and exc is None:  # the agent swallowed the stop
+                from ..checks.engine import CircuitBreakerError
+
+                exc = CircuitBreakerError(tripped)
+                exc_type = type(exc)
             if self.ctx.replayer is not None:
                 rp = self.ctx.replayer
                 divergence = rp.finalize(run, exc)
@@ -165,6 +182,11 @@ class record:
             if exc is not None:
                 run.status = "error"
                 run.error = error_info(exc)
+                if tripped is not None and run.outcome == "unknown":
+                    run.outcome = "fail"
+                    run.outcome_reason = f"stopped by crashlab: [{tripped.kind}] {tripped.message}"[
+                        :500
+                    ]
                 if run.outcome == "unknown":
                     run.outcome = "fail"
                     run.outcome_reason = run.outcome_reason or f"exception: {exc_type.__name__}"
@@ -176,6 +198,31 @@ class record:
             reset_current(self._token)
             self._token = None
         return False
+
+    def _setup_checks(self, run: Run, store: Store, replayer: Any) -> None:
+        from ..checks.config import resolve_config
+        from ..checks.engine import CheckEngine, store_baseline
+
+        source = getattr(replayer, "source", None)
+        base = source.check_config if source is not None else None
+        try:
+            cfg = resolve_config(self.checks, base=base)
+        except Exception as exc:
+            raise ValueError(f"crashlab.record(): bad checks= config: {exc}") from exc
+        run.check_config = cfg.model_dump(mode="json")
+        assert self.ctx is not None
+        if not cfg.enabled:
+            return
+        limit = cfg.suspicious_tool_result.baseline_runs
+        baseline = store_baseline(store, run.name, run.run_id, limit) if limit else None
+        self.ctx.checks = CheckEngine(cfg, run, baseline=baseline)
+        if replayer is not None and replayer.mode == "replay":
+            # a strict replay reproduces the recording: stop exactly where it was stopped
+            stopped = next((f for f in source.findings if f.stopped_run), None)
+            if stopped is not None and stopped.step is not None:
+                self.ctx.breaker_replay = (max(stopped.steps or [stopped.step]), stopped)
+        else:
+            self.ctx.circuit_breaker = cfg.circuit_breaker
 
     def _run_checks(self, run: Run, *, keep_outcome: bool) -> None:
         from ..verify.oracles import apply_outcome, checks_for, run_checks
@@ -203,7 +250,11 @@ class record:
 def agent(fn: F, /) -> F: ...
 @overload
 def agent(
-    *, name: str | None = None, tags: list[str] | None = None, ignore_args: tuple[str, ...] = ()
+    *,
+    name: str | None = None,
+    tags: list[str] | None = None,
+    ignore_args: tuple[str, ...] = (),
+    checks: Any = None,
 ) -> Callable[[F], F]: ...
 
 
@@ -214,12 +265,14 @@ def agent(
     name: str | None = None,
     tags: list[str] | None = None,
     ignore_args: tuple[str, ...] = (),
+    checks: Any = None,
 ) -> Any:
     """Mark an agent entry function: each top-level call becomes one recorded run.
 
     Records the entry point path (``module:qualname``), the bound input arguments, the
     return value as ``output``, status, usage totals and the git sha. Arguments listed in
     ``ignore_args`` (e.g. a client object) are left out of the recorded input.
+    ``checks`` configures the runtime checks, as for :class:`record`.
 
     A call made while another run is active is recorded as an ``invoke_agent`` step of
     the outer run instead of a separate run.
@@ -255,7 +308,7 @@ def agent(
                     pending.finish({"result": to_jsonable(out)})  # type: ignore[union-attr]
                     return out
                 inp = bind_arguments(f, args, kwargs, ignore_args)
-                with record(agent_name, input=inp, entrypoint=ep, tags=tags) as run:
+                with record(agent_name, input=inp, entrypoint=ep, tags=tags, checks=checks) as run:
                     out = await f(*args, **kwargs)
                     run.output = to_jsonable(out)
                     return out
@@ -276,7 +329,7 @@ def agent(
                     pending.finish({"result": to_jsonable(out)})  # type: ignore[union-attr]
                     return out
                 inp = bind_arguments(f, args, kwargs, ignore_args)
-                with record(agent_name, input=inp, entrypoint=ep, tags=tags) as run:
+                with record(agent_name, input=inp, entrypoint=ep, tags=tags, checks=checks) as run:
                     out = f(*args, **kwargs)
                     run.output = to_jsonable(out)
                     return out

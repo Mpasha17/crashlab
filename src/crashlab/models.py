@@ -66,13 +66,62 @@ class ErrorInfo(_Model):
     traceback: str | None = None
 
 
-class Flag(_Model):
-    """A cheap deterministic runtime signal (loop, tool error streak, budget ...)."""
+Severity = Literal["info", "warn", "error", "critical"]
+SEVERITY_RANK: dict[str, int] = {"info": 0, "warn": 1, "error": 2, "critical": 3}
 
-    detector: str
-    step_idx: int | None = None
-    severity: Literal["info", "warn", "error"] = "warn"
+
+class Evidence(_Model):
+    """A verbatim quote from a recorded step (``field`` is a dotted path such as
+    ``result``, ``args`` or ``response.text``)."""
+
+    step_idx: int
+    field: str
+    quote: str
+
+
+class Finding(_Model):
+    """What a runtime check (built-in detector) found in a run: a loop, an error streak,
+    a suspicious tool result, a blown budget ...
+
+    Findings describe *how the run behaved*; they do not decide pass / fail. That is what
+    ``@crashlab.check`` outcome oracles do (``run.checks`` / ``run.outcome``).
+    """
+
+    kind: str  # detector: step_repetition, tool_error_streak, bad_tool_args, ...
+    severity: Severity = "warn"
+    step: int | None = None  # first step where it fired
+    steps: list[int] = Field(default_factory=list)  # every step involved
     message: str
+    evidence: list[Evidence] = Field(default_factory=list)
+    key: str | None = None  # identity within a run (repeats extend one finding)
+    stopped_run: bool = False  # the circuit breaker stopped the run on this finding
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy(cls, data: Any) -> Any:
+        """Day-1..4 flags: ``{detector, step_idx, severity, message}``."""
+        if isinstance(data, dict) and ("detector" in data or "step_idx" in data):
+            data = dict(data)
+            data.setdefault("kind", data.pop("detector", "flag"))
+            data.setdefault("step", data.pop("step_idx", None))
+            data.pop("detector", None)
+            data.pop("step_idx", None)
+        return data
+
+    @property
+    def detector(self) -> str:  # older name
+        return self.kind
+
+    @property
+    def step_idx(self) -> int | None:  # older name
+        return self.step
+
+    @property
+    def rank(self) -> int:
+        return SEVERITY_RANK.get(self.severity, 0)
+
+
+Flag = Finding  # older name
 
 
 # --- Patches -------------------------------------------------------------------------
@@ -139,8 +188,10 @@ class Run(_Model):
     fork_step: int | None = None  # steps < fork_step were served from the parent's cassette
     patch: PatchSet | None = None  # what the fork changed
     patch_description: str | None = None
-    flags: list[Flag] = Field(default_factory=list)
+    # runtime-check findings (detectors); run.checks holds the @crashlab.check oracles
+    findings: list[Finding] = Field(default_factory=list)
     checks: list[CheckResult] = Field(default_factory=list)
+    check_config: dict[str, Any] | None = None  # effective runtime-check config
     started_at: datetime = Field(default_factory=utcnow)
     ended_at: datetime | None = None
     code_version: str | None = None
@@ -154,7 +205,12 @@ class Run(_Model):
     @model_validator(mode="before")
     @classmethod
     def _legacy_fields(cls, data: Any) -> Any:
-        """Runs stored before forks existed used parent_run_id / fork_at / a stub patch."""
+        """Runs stored before forks existed used parent_run_id / fork_at / a stub patch;
+        before runtime checks, findings were called flags."""
+        if isinstance(data, dict) and "flags" in data:
+            data = dict(data)
+            flags = data.pop("flags") or []
+            data["findings"] = list(data.get("findings") or []) + list(flags)
         if isinstance(data, dict) and ("parent_run_id" in data or "fork_at" in data):
             data = dict(data)
             parent, at = data.pop("parent_run_id", None), data.pop("fork_at", None)
@@ -171,6 +227,14 @@ class Run(_Model):
     @property
     def is_fork(self) -> bool:
         return self.forked_from is not None
+
+    @property
+    def flags(self) -> list[Finding]:  # older name
+        return self.findings
+
+    def findings_of(self, kind: str | None = None, *, min_severity: str = "info") -> list[Finding]:
+        floor = SEVERITY_RANK.get(min_severity, 0)
+        return [f for f in self.findings if (kind is None or f.kind == kind) and f.rank >= floor]
 
     def tool_steps(self, name: str | None = None) -> list[Step]:
         return [
@@ -192,12 +256,6 @@ class Run(_Model):
 
 
 # --- Diagnosis / fixes / verification (schemas only in v0.0.1) ------------------------
-
-
-class Evidence(_Model):
-    step_idx: int
-    field: str
-    quote: str
 
 
 class Fix(_Model):

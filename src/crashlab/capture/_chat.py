@@ -120,6 +120,8 @@ class ChatCall:
             raw_request=N.strip_binary(N.to_jsonable(kwargs)),
             idx=idx,
         )
+        if self.pending is not None and self.stream:
+            self.pending.defer_breaker = True
         if self.pending is None:
             _warn_outside_run()
         elif patches:

@@ -8,7 +8,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS runs (
     output_tokens INTEGER NOT NULL DEFAULT 0,
     total_tokens INTEGER NOT NULL DEFAULT 0,
     flag_count INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL,
+    max_severity TEXT,
     run_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS runs_name ON runs(name);
@@ -73,6 +75,17 @@ CREATE TABLE IF NOT EXISTS diagnoses (
 """
 
 
+_RANK = {"info": 0, "warn": 1, "error": 2, "critical": 3}
+
+
+def _flag_row(f: dict[str, Any]) -> tuple[Any, ...]:
+    """A finding (or a pre-v3 flag) as a flags-table row (the column names predate
+    findings: detector = kind, step_idx = step)."""
+    step = f.get("step", f.get("step_idx"))
+    return (step, f.get("kind") or f.get("detector") or "?", f.get("severity", "warn"),
+            f.get("message", ""))  # fmt: skip
+
+
 class SQLiteIndex:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
@@ -88,6 +101,9 @@ class SQLiteIndex:
             cols = {r["name"] for r in conn.execute("PRAGMA table_info(runs)")}
             if "replay_of" not in cols:  # schema v1 -> v2
                 conn.execute("ALTER TABLE runs ADD COLUMN replay_of TEXT")
+            if "cost_usd" not in cols:  # v2 -> v3: cost and findings severity for `ls`
+                conn.execute("ALTER TABLE runs ADD COLUMN cost_usd REAL")
+                conn.execute("ALTER TABLE runs ADD COLUMN max_severity TEXT")
             conn.execute(
                 "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
@@ -101,6 +117,7 @@ class SQLiteIndex:
 
     def upsert_run(self, run: dict[str, Any]) -> None:
         usage = run.get("usage") or {}
+        findings = list(run.get("findings") or run.get("flags") or [])
         row = {
             "run_id": run["run_id"],
             "name": run["name"],
@@ -122,7 +139,13 @@ class SQLiteIndex:
             "input_tokens": usage.get("input_tokens", 0),
             "output_tokens": usage.get("output_tokens", 0),
             "total_tokens": usage.get("total_tokens", 0),
-            "flag_count": len(run.get("flags") or []),
+            "flag_count": len(findings),
+            "cost_usd": usage.get("cost_usd"),
+            "max_severity": max(
+                (f.get("severity", "info") for f in findings),
+                key=lambda sev: _RANK.get(sev, 0),
+                default=None,
+            ),
             "run_json": json.dumps(run, ensure_ascii=False, default=str),
         }
         cols = ", ".join(row)
@@ -133,6 +156,12 @@ class SQLiteIndex:
                 f"INSERT INTO runs ({cols}) VALUES ({params}) "
                 f"ON CONFLICT(run_id) DO UPDATE SET {updates}",
                 row,
+            )
+            conn.execute("DELETE FROM flags WHERE run_id = ?", (run["run_id"],))
+            conn.executemany(
+                "INSERT INTO flags (run_id, step_idx, detector, severity, message) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [(run["run_id"], *_flag_row(f)) for f in findings],
             )
 
     def insert_step(self, step: dict[str, Any]) -> None:
@@ -167,17 +196,26 @@ class SQLiteIndex:
             conn.execute(
                 "INSERT INTO flags (run_id, step_idx, detector, severity, message) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (run_id, flag.get("step_idx"), flag["detector"], flag["severity"], flag["message"]),
+                (run_id, *_flag_row(flag)),
             )
 
-    def list_runs(self, limit: int | None = 20, name: str | None = None) -> list[dict[str, Any]]:
+    def list_runs(
+        self, limit: int | None = 20, name: str | None = None, *, flagged: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Newest first. ``flagged``: only runs with a finding of at least that severity."""
         if not self.exists():
             return []
         sql = "SELECT * FROM runs"
-        args: list[Any] = []
+        where, args = [], []
         if name:
-            sql += " WHERE name = ?"
+            where.append("name = ?")
             args.append(name)
+        if flagged:
+            levels = [k for k, v in _RANK.items() if v >= _RANK.get(flagged, 0)]
+            where.append(f"max_severity IN ({', '.join('?' for _ in levels)})")
+            args += levels
+        if where:
+            sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY run_id DESC"
         if limit:
             sql += " LIMIT ?"

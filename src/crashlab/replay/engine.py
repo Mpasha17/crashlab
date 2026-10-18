@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ..context import pending_replay, run_in_thread
-from ..models import Flag, Run, Step
+from ..models import Finding, Run, Step
 from ..patch import PatchError, PatchSet, as_patchset, preview_patches
 from ..store import Store
 from ..store.redact import get_redactor
@@ -73,7 +73,7 @@ class Replayer:
         self.consumed: set[int] = set()
         self.divergence: DivergenceError | None = None
         self.replay_run_id: str | None = None
-        self.flags: list[Flag] = []  # added to the new run when it ends
+        self.flags: list[Finding] = []  # added to the new run when it ends
         self._lock = threading.Lock()
 
     # policy ----------------------------------------------------------------------------
@@ -352,14 +352,14 @@ class Forker(Replayer):
         if self.divergence is not None:
             return self.divergence
         if self.max_idx < self.at_step:
-            self.flags.append(Flag(
-                detector="fork", step_idx=self.at_step, severity="warn",
+            self.flags.append(Finding(
+                kind="fork", step=self.at_step, severity="warn",
                 message=f"the fork never reached step {self.at_step}; nothing was patched",
             ))  # fmt: skip
         for i, p in enumerate(self.patches.patches):
             if not self.applied.get(i):
-                self.flags.append(Flag(
-                    detector="fork", step_idx=p.target_step(), severity="warn",
+                self.flags.append(Finding(
+                    kind="fork", step=p.target_step(), severity="warn",
                     message=f"patch {i + 1} was never applied: {p.describe()}",
                 ))  # fmt: skip
         return None

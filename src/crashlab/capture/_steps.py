@@ -45,6 +45,9 @@ class PendingStep:
     t0: float = field(default_factory=time.perf_counter)
     done: bool = False
     source: StepSource = "live"  # "patched" when a fork patch changed this call
+    # streams finish inside iteration / close(); the circuit breaker then fires at the
+    # next step instead of raising out of a stream
+    defer_breaker: bool = False
 
     @contextmanager
     def activate(self) -> Iterator[None]:
@@ -77,6 +80,8 @@ class PendingStep:
             source=source or self.source,
         )
         self.ctx.add_step(step)
+        if not self.defer_breaker:
+            self.ctx.raise_if_tripped()
         return step
 
     # replay ----------------------------------------------------------------------------
@@ -149,6 +154,7 @@ def begin_step(
     ctx = current()
     if ctx is None:
         return None
+    ctx.raise_if_tripped()  # the circuit breaker stopped this run: no more calls
     from .._ids import new_span_id
 
     redactor = get_redactor()

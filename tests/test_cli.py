@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from examples.refund_bot import agent as refund
 from typer.testing import CliRunner
 
@@ -78,6 +80,7 @@ def test_dir_option(tmp_path):
 
 def _table_rows(output: str) -> list[str]:
     """Step-table body rows with the model name blanked (it differs per provider)."""
+    output = re.sub(r"\x1b\[[0-9;]*m", "", output)
     rows = [ln for ln in output.splitlines() if "│ chat " in ln or "│ execute_tool " in ln]
     cells = [[c.strip() for c in ln.strip("│").split("│")] for ln in rows]
     return [" | ".join("MODEL" if c in ("claude-fake", "fake-model") else c for c in row)
