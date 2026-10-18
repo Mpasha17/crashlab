@@ -87,13 +87,21 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
   installed. Local servers (Ollama, localhost) cost $0. Unknown models show no cost; prices
   are never guessed. Your own prices: `crashlab.pricing.set_price(...)` or
   `[tool.crashlab.prices]`.
+- **Diagnose:** `crashlab diagnose RUN` / `crashlab.diagnose(run, model=...)` names the
+  failing step, a failure label (`TOOL_ERROR_MISHANDLED`, `BAD_TOOL_ARGUMENTS`,
+  `WRONG_TOOL_SELECTION`, `STEP_REPETITION`, `TASK_SPEC_VIOLATION`, `EXTERNAL_FAILURE`, or
+  `NO_FAILURE` / `UNKNOWN`), a one-sentence root cause and verbatim evidence quotes, from
+  one LLM call over a compacted trace with the checks and findings as hints. Every quote
+  is checked against the step it cites; an answer without valid evidence becomes
+  `UNKNOWN`. Any model works (Groq, Gemini, Ollama, OpenAI, Anthropic, LiteLLM);
+  `--heuristic` needs none. Stored with the run, shown by `crashlab show`, cached.
 - **Share runs:** `crashlab export RUN -o run.jsonl` / `crashlab import run.jsonl`
   (redacted again on the way out).
 - **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab replay`, `crashlab check`,
-  `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
+  `crashlab diagnose`, `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
   `crashlab.load("last")`.
 
-Not yet: diagnosis, verification, test export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
+Not yet: fix proposals, verification, test export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response (same content, different chunk boundaries).
 Also not intercepted yet: Anthropic `client.beta.messages`, OpenAI
 `chat.completions.stream()` / `responses.stream()` helpers, `with_raw_response` calls.
@@ -183,9 +191,36 @@ crashlab ls                        # 5 runs, with cost and findings
 crashlab show 01M57GM9Q5           # Groq gpt-oss-120b retrying an HTML 502 page 3 times
 crashlab check --all               # oracles + runtime checks, offline (exit 1: C03 fails)
 crashlab replay 01M57GM7H9         # strict offline replay of the policy violation
+crashlab diagnose 01M57GM7H9 --heuristic   # failing step + label from checks/findings
 crashlab fork 01M57GM7H9 --at 0 --dry-run \
   --system-append "Never refund an order delivered more than 30 days ago."
 ```
+
+### Diagnose a run
+
+```bash
+# any OpenAI-compatible endpoint; the key is read from the env var you name
+crashlab diagnose 01M57GM7H9 --model openai/gpt-oss-120b \
+  --base-url https://api.groq.com/openai/v1 --api-key-env GROQ_API_KEY
+crashlab diagnose last --model gemini/gemini-flash-latest      # via LiteLLM
+crashlab diagnose last --model qwen2.5:7b --base-url http://localhost:11434/v1  # Ollama
+crashlab diagnose last --show-prompt   # the compacted trace the diagnoser reads, no call
+```
+
+```python
+d = crashlab.diagnose(run, model="openai/gpt-oss-120b",
+                      base_url="https://api.groq.com/openai/v1", api_key=key)
+d.label, d.failing_step, d.root_cause, d.evidence   # also run.diagnosis, `crashlab show`
+```
+
+Or set `CRASHLAB_DIAGNOSER_MODEL` / `CRASHLAB_DIAGNOSER_BASE_URL` /
+`CRASHLAB_DIAGNOSER_API_KEY`. The diagnoser's own calls are recorded in
+`.crashlab/diagnoser/`, apart from your runs.
+
+On 31 hand-labelled live runs of the demo agent (`bench/diagnose_eval.py`, details in
+[bench/README.md](bench/README.md)), Groq `openai/gpt-oss-120b` gets the label right on 74%
+(the heuristic baseline: 52%) and the exact culprit step on 52% of the failing runs
+(baseline: 29%), with no false alarms on clean runs, for about $0.0005 per diagnosis.
 
 Running the fork for real (without `--dry-run`) needs a model, for example a local one:
 

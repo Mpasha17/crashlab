@@ -39,7 +39,7 @@ flowchart LR
 | 2 | `context.py` | `contextvars` current run, monotonic step counter, mode (`record` / `replay` / `fork`) |
 | 3 | `store/` | `sqlite.py` index (runs, steps metadata, flags, diagnoses), `cassette.py` JSONL read/write, `redact.py` strips keys/headers + user regex hook |
 | 4 | `capture/` | `normalize.py` (provider -> common request/response shape + request hash), `openai.py`, `anthropic.py`, `litellm.py` proxies, `_chat.py` (single LLM-call interception point), `streams.py` (pass-through stream wrappers + assemblers), `tools.py` (`@tool(side_effects=...)`), `agent.py` (`@agent`, `record()` context manager); `integrations/litellm.py` exposes `patch()` / `unpatch()` |
-| 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `fork`, `diff`; later `diagnose`, `verify`, `export-test`, `report`, `bench` |
+| 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `diagnose`, `fork`, `diff`; later `verify`, `export-test`, `report`, `bench` |
 | 6 | `replay/`, `patch.py`, `compare.py` | `engine.py` (strict replay; fork = cassette for steps < N, patch from N, live after), `patch.py` (typed patches: `SystemPrompt`, `Message`, `InjectMessage`, `ToolResult`, `ToolDescription`, `ToolSchema`, `ModelParams`), `divergence.py` (hash mismatch -> `DivergenceError` with diff), `compare.py` (run diff) |
 | 7 | `checks/` | Inline findings (built, see below): `loop` (same tool+args >= 3 in last 8 steps), `tool_error_streak` (>= 3), `bad_tool_args`, `suspicious_tool_result` (HTML/empty where JSON expected), `budget`, `length_cutoff` |
 | 8 | `diagnose/` | `compact.py` step table with truncation handles, `heuristics.py` candidate steps from flags/errors, `diagnoser.py` one LLM call returning JSON (failing_step, label, evidence, explanation, confidence), `evidence.py` drops quotes not found verbatim -> UNKNOWN if none, `fixes.py` separate LLM call producing 1-3 typed fixes, `taxonomy.py` enum + definitions |
@@ -193,6 +193,54 @@ flowchart LR
 - **Export / import** (`store.export_run` / `import_run`): one JSONL file, a
   `{"type": "crashlab.run"}` header line with the run, then the redacted cassette lines.
   The demo runs in `examples/refund_bot/demo/` are such files.
+
+## Diagnosis (as built, v1)
+
+`crashlab.diagnose(run, model=...)` / `crashlab diagnose RUN...` answers "which step went
+wrong, and why" with one LLM call over a compacted trace, then checks the answer against
+the trace.
+
+1. **Candidates** (`heuristics.py`): cheap signals, strongest first: a failed LLM API call
+   (rate limit, 5xx), runtime findings (`bad_tool_args`, `step_repetition` at its first
+   repeat, `tool_error_streak`, `suspicious_tool_result`; schema drift counts as
+   external), failed `@crashlab.check` oracles (the `step N` in their message), errors
+   and blocked side effects. `heuristic_raw(run)` turns them into a rule-table diagnosis:
+   the `--heuristic` baseline, no LLM.
+2. **Compaction** (`compact.py`): task input, result, checks, findings and candidates as
+   hints; the system prompt and tool signatures once; then per step only what is new (a
+   chat step's new messages since the agent's previous turn, its reasoning, reply and
+   tool calls; a tool step's args, result or error). Long fields are cut with
+   `…[truncated: X is N chars; only the part above can be quoted]`. `hide_input` drops
+   run input keys (the eval hides fault switches, model and provider).
+3. **One call** (`diagnoser.py`, prompt `diagnose-v1`): JSON with `label`,
+   `failing_step`, `root_cause`, `evidence[{step, quote}]`, `secondary`, `confidence`.
+   Labels: `TOOL_ERROR_MISHANDLED`, `BAD_TOOL_ARGUMENTS`, `WRONG_TOOL_SELECTION`,
+   `STEP_REPETITION`, `TASK_SPEC_VIOLATION`, `EXTERNAL_FAILURE`, `UNKNOWN`, plus the verdict
+   `NO_FAILURE`. `response_format=json_object` is asked for and dropped if the server
+   rejects it; bare, fenced or embedded JSON is accepted.
+4. **Validation** (`evidence.py`): a quote is kept only if it appears verbatim in a field
+   of the step it cites (after NFKC, plain quotes and dashes, whitespace collapsing and
+   stripping leading / trailing ellipses; case-sensitive, at least 3 characters). A label
+   outside the taxonomy, a missing or nonexistent step, or a failure label with no
+   surviving quote becomes `UNKNOWN` (confidence capped at 0.2, the claimed label kept in
+   `secondary`, the reason in `notes`). `NO_FAILURE` on a run whose outcome is `fail` also
+   becomes `UNKNOWN`.
+5. **Storage**: `Run.diagnosis` (shown by `crashlab show`, in `--json`) plus a history row
+   in the `diagnoses` table (schema v4) keyed by `cache_key` = sha256(prompt version,
+   model, messages): an unchanged run is not asked again; a changed trace, check or
+   finding is. The diagnoser's own LLM calls are recorded as `crashlab-diagnoser` runs in
+   `<store>/diagnoser/`, never among the user's runs, and `diagnose()` refuses to run
+   inside an active run.
+6. **Models**: `base_url=` (or `$CRASHLAB_DIAGNOSER_BASE_URL`) for any OpenAI-compatible
+   endpoint (Groq, Gemini, Ollama, vLLM), LiteLLM model strings (`groq/`, `gemini/`,
+   `ollama/` ...), `claude-*` via Anthropic, else OpenAI; `client=` for your own client,
+   `fn=` for any callable (not recorded). The CLI takes `--api-key-env VAR`, never a key.
+
+Culprit step convention (used by the prompt and the eval): the tool step that executed a
+wrong action; if no tool ran, the chat step whose reply was wrong; for an external
+failure the step where it shows; none for `NO_FAILURE`. `bench/diagnose_eval.py` scores
+label and step accuracy on 31 hand-labelled live runs (`bench/diagnose_cases.json`).
+Fix proposals (`fixes.py`) and counterfactual confirmation via `fork` are next.
 
 ## Key design rules
 

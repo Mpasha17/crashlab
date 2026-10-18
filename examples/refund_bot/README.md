@@ -107,12 +107,16 @@ stopped and apologised on `html_502`.
 
 ## Checks: pass / fail instead of "unknown"
 
-`agent.py` registers three `@crashlab.check("refund-bot")` oracles. They grade each run
+`agent.py` registers four `@crashlab.check("refund-bot")` oracles. They grade each run
 against the real order database, not against what the (possibly faulty) tools returned:
 
 - `refund_amount_equals_order_total`: every refund issued is for exactly the order total.
 - `refund_within_policy`: refunds only after a `get_order` lookup, only for delivered orders
   inside the 30-day window, at most one per order, never above the total.
+- `no_unbacked_refund_claim`: the final reply never says a refund was issued ("has been
+  issued", "I've processed" ...) unless `issue_refund` actually ran; small local models
+  like to promise actions they never took. Offers ("I can process a refund") and negations
+  don't count.
 - `within_step_budget`: at most 8 steps (the happy path takes 5), which catches lookup loops.
 
 They run when the run ends; `crashlab show` lists them and the run gets `outcome: pass` or
