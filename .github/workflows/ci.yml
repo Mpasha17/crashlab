@@ -37,9 +37,11 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: Test without provider SDKs
         run: python -m pytest
-      - name: Install openai extra
-        run: python -m pip install -e ".[dev,openai]"
-      - name: Test with openai installed
+      - name: Install provider extras
+        run: python -m pip install -e ".[dev,openai,anthropic,litellm]"
+      - name: Test with openai, anthropic and litellm installed
+        env:
+          LITELLM_LOCAL_MODEL_COST_MAP: "True"
         run: python -m pytest
       - name: CLI smoke test
         run: crashlab --version

@@ -38,7 +38,7 @@ flowchart LR
 | 1 | `models.py` | Pydantic v2: `Run`, `Step`, `Flag`, `Patch`, `Diagnosis`, `Evidence`, `Fix`, `Verification` |
 | 2 | `context.py` | `contextvars` current run, monotonic step counter, mode (`record` / `replay` / `fork`) |
 | 3 | `store/` | `sqlite.py` index (runs, steps metadata, flags, diagnoses), `cassette.py` JSONL read/write, `redact.py` strips keys/headers + user regex hook |
-| 4 | `capture/` | `normalize.py` (provider -> common request/response shape + request hash), `openai.py`, `anthropic.py`, `litellm.py` proxies, `tools.py` (`@tool(side_effects=...)`), `agent.py` (`@agent`, `record()` context manager) |
+| 4 | `capture/` | `normalize.py` (provider -> common request/response shape + request hash), `openai.py`, `anthropic.py`, `litellm.py` proxies, `_chat.py` (single LLM-call interception point), `streams.py` (pass-through stream wrappers + assemblers), `tools.py` (`@tool(side_effects=...)`), `agent.py` (`@agent`, `record()` context manager); `integrations/litellm.py` exposes `patch()` / `unpatch()` |
 | 5 | `cli.py` | Typer + Rich: `ls`, `show` first; later `replay`, `fork`, `diagnose`, `verify`, `export-test`, `report`, `bench` |
 | 6 | `replay/` | `engine.py` (strict replay; fork = cassette for steps < N, patch at N, live after), `patches.py` (`SystemPrompt`, `ToolDescription`, `ToolResult`, `InjectMessage`, `Model`), `divergence.py` (hash mismatch -> `DivergenceError` with diff) |
 | 7 | `checks/` | Inline flags: `loop` (same tool+args >= 3 in last 8 steps), `tool_error_streak` (>= 3), `bad_tool_args`, `suspicious_tool_result` (HTML/empty where JSON expected), `budget`, `length_cutoff` |
@@ -47,6 +47,24 @@ flowchart LR
 | 10 | `export/` + `pytest_plugin.py` | Write `tests/crashlab/test_<agent>_<id>.py` + copied cassette; plugin adds `crashlab_replay` fixture and `--crashlab-live` |
 | 11 | `report/` | Single-file HTML report (Jinja2): timeline, failing step, evidence, fix diff, verification table |
 | 12 | `bench/` | Fault injectors, seed runs, metrics: step localization (exact / within window), label accuracy, fix success, false positive rate, cost |
+
+## Capture details (as built)
+
+- **Common shape.** Every provider maps to `{"system", "messages", "tools", "params"}` requests
+  and `{"messages", "tool_calls", "finish_reason", "usage", ...}` responses. Messages carry
+  typed `parts` (`text`, `tool_call`, `tool_call_response`, `image`/`audio`/`file`
+  placeholders, `reasoning`), loosely following the OTel `gen_ai.input.messages` schema.
+  Tool-call arguments are stored parsed (invalid JSON stays a raw string). Anthropic
+  `tool_result` blocks become `tool` messages, so OpenAI and Anthropic runs line up.
+- **Request hash.** sha256 of canonical JSON (sorted keys) of the redacted normalized
+  request. Transport-only kwargs (headers, timeouts, `stream`, API keys) are excluded, so a
+  streamed and a plain call with the same inputs hash the same.
+- **One interception point.** All LLM calls go through `capture/_chat.invoke()`; replay
+  will substitute cassette responses there.
+- **Streaming.** Streams are wrapped, not consumed: chunks pass through unchanged and the
+  assembled final response is recorded on end / error / close (`crashlab.stream.complete`).
+- **Threads.** Context vars do not cross plain threads; `crashlab.bind_context`,
+  `ContextThreadPoolExecutor` and `run_in_thread` carry the active run into workers.
 
 ## Key design rules
 
@@ -65,7 +83,7 @@ flowchart LR
 import crashlab
 from openai import OpenAI
 
-client = crashlab.wrap(OpenAI())
+client = crashlab.wrap(OpenAI())          # or anthropic.Anthropic(); LiteLLM: crashlab.integrations.litellm.patch()
 
 @crashlab.tool()
 def get_order(order_id: str) -> dict: ...
@@ -98,7 +116,7 @@ crashlab report last --open
 
 ```
 src/crashlab/{__init__,models,context,cli,pytest_plugin}.py
-src/crashlab/{store,capture,checks,replay,diagnose,verify,export,report}/
+src/crashlab/{store,capture,integrations,checks,replay,diagnose,verify,export,report}/
 examples/{refund_bot,sql_analyst}/
 bench/{faults.py,run_bench.py,results/}
 tests/

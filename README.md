@@ -16,25 +16,41 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
 
 ## What works today
 
-- `crashlab.wrap(client)` records `chat.completions.create` calls on OpenAI clients
-  (sync and async) and any OpenAI-compatible endpoint (Ollama, vLLM, LiteLLM proxy ...):
-  normalized request/response, tool calls, token usage, finish reason, errors.
-- `@crashlab.tool(side_effects=...)` records tool arguments, results and exceptions.
-- `@crashlab.agent(name=...)` and `with crashlab.record(name, input=...)` mark run
-  boundaries (input, output, status, usage totals, entry point, git sha).
-- Everything goes to a local store, `.crashlab/` (or `$CRASHLAB_DIR`): a SQLite index plus
-  one JSONL cassette per run. API keys and auth headers are redacted before writing.
-- `crashlab ls` and `crashlab show <run_id|last>` in the terminal; `crashlab.load("last")`
-  in Python.
+- **`crashlab.wrap(client)`** records LLM calls, sync and async:
+  - OpenAI `OpenAI` / `AsyncOpenAI` and any OpenAI-compatible endpoint (Ollama, vLLM,
+    LiteLLM proxy ...): `chat.completions.create` and `responses.create`.
+  - Anthropic `Anthropic` / `AsyncAnthropic`: `messages.create` and `messages.stream(...)`.
+- **LiteLLM:** `crashlab.integrations.litellm.patch()` (or `crashlab.wrap(litellm)`) records
+  `litellm.completion` / `litellm.acompletion`; `unpatch()` restores them.
+- **Streaming:** with `stream=True` (and Anthropic's `messages.stream()`), chunks reach your
+  code unchanged; crashlab assembles and records the final response when the stream ends,
+  errors, or is closed early (marked incomplete).
+- **One common shape** for every provider: system, messages as typed parts (text,
+  tool calls, tool results, images/audio/files as placeholders, reasoning), tools, params,
+  plus finish reason and token usage. The same conversation on OpenAI and Anthropic
+  normalizes to the same messages, and each request gets a stable sha256 `request_hash`.
+- **`@crashlab.tool(side_effects=...)`** records tool arguments, results and exceptions;
+  **`@crashlab.agent(name=...)`** / **`with crashlab.record(name, input=...)`** mark runs
+  (input, output, status, usage totals, entry point, git sha).
+- **Threads:** `crashlab.bind_context(fn)`, `crashlab.ContextThreadPoolExecutor` and
+  `crashlab.run_in_thread(fn, ...)` keep recording tool/LLM calls made in worker threads
+  (asyncio tasks and `asyncio.to_thread` work out of the box).
+- **Local store** `.crashlab/` (or `$CRASHLAB_DIR`): a SQLite index plus one JSONL cassette
+  per run. API keys, auth headers (`Authorization`, `x-api-key` ...) and token-like strings
+  are redacted before anything is written; add your own rules with
+  `crashlab.redaction.add_pattern(...)`, `add_key(...)`, `add_hook(fn)`.
+- **CLI:** `crashlab ls`, `crashlab show <run_id|last>`; in Python, `crashlab.load("last")`.
 
-Not yet: Anthropic and LiteLLM wrappers (they raise `NotImplementedError`), streaming
-capture (`stream=True` calls pass through but the streamed response is not recorded),
-`responses.create`, replay, runtime checks, diagnosis, verification, export.
+Not yet: replay, fork, runtime checks, diagnosis, verification, test export, HTML report.
+Also not intercepted yet: Anthropic `client.beta.messages`, OpenAI
+`chat.completions.stream()` / `responses.stream()` helpers, `with_raw_response` calls.
+OpenAI streams only report token usage if you pass `stream_options={"include_usage": True}`.
 
 ## Quickstart
 
 ```bash
 pip install "crashlab[openai] @ git+https://github.com/Mpasha17/crashlab"
+# or crashlab[anthropic], crashlab[litellm]
 ```
 
 ```python
@@ -42,6 +58,7 @@ import crashlab
 from openai import OpenAI
 
 client = crashlab.wrap(OpenAI())          # or OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+# client = crashlab.wrap(anthropic.Anthropic())
 
 @crashlab.tool()
 def get_order(order_id: str) -> dict: ...
@@ -74,6 +91,10 @@ OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_API_KEY=ollama MODEL=qwen2.5:7b
 FAULT_HTML_502=1 OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_API_KEY=ollama MODEL=qwen2.5:7b \
   python -m examples.refund_bot "Refund my order A17"     # get_order returns an HTML 502 page
 crashlab ls && crashlab show last
+
+# the same agent on Anthropic
+PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... MODEL=claude-haiku-4-5 \
+  python -m examples.refund_bot "Refund my order A17, it arrived broken"
 ```
 
 See [examples/refund_bot](examples/refund_bot/README.md) for details.
@@ -82,12 +103,13 @@ See [examples/refund_bot](examples/refund_bot/README.md) for details.
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev,openai]"
+pip install -e ".[dev,openai,anthropic,litellm]"
 ruff check . && ruff format --check . && pytest
 ```
 
-The tests use a fake OpenAI-like client and a mocked HTTP transport, so they need no
-network access and no API key.
+The tests use fake clients and the real SDKs over mocked HTTP transports (LiteLLM via
+`mock_response`), so they need no network access and no API key. Tests for SDKs that are
+not installed are skipped.
 
 ## License
 
