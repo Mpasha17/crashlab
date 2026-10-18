@@ -1,0 +1,385 @@
+{
+ "description": "Hand-labelled refund-bot runs (live recordings) for bench/diagnose_eval.py. labels: accepted labels, the first is the primary one. step: the expected culprit step (null for NO_FAILURE). window: the steps a reasonable answer may point at.",
+ "agent": "examples.refund_bot.agent",
+ "cases": [
+  {
+   "run": "01M581H68W",
+   "file": "bench/runs/01M581H68W.jsonl",
+   "labels": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "step": 2,
+   "window": [
+    2,
+    2
+   ],
+   "note": "llama3.2:3b via LiteLLM: looked the order up, then promised a refund without calling issue_refund"
+  },
+  {
+   "run": "01M581GD3Q",
+   "file": "bench/runs/01M581GD3Q.jsonl",
+   "labels": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "step": 2,
+   "window": [
+    2,
+    2
+   ],
+   "note": "llama3.2:3b via the OpenAI endpoint: same, replied without calling issue_refund"
+  },
+  {
+   "run": "01M5816HVZ",
+   "file": "bench/runs/01M5816HVZ.jsonl",
+   "labels": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "step": 2,
+   "window": [
+    2,
+    2
+   ],
+   "note": "qwen2.5:3b: 'Let's issue a refund' but never calls issue_refund"
+  },
+  {
+   "run": "01M5815PB2",
+   "file": "bench/runs/01M5815PB2.jsonl",
+   "labels": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "step": 2,
+   "window": [
+    2,
+    2
+   ],
+   "note": "qwen2.5:3b under schema_drift: 'We can issue a refund' without calling issue_refund"
+  },
+  {
+   "run": "01M5815B9Y",
+   "file": "bench/runs/01M5815B9Y.jsonl",
+   "labels": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "step": 2,
+   "window": [
+    2,
+    2
+   ],
+   "note": "qwen2.5:3b: 'I have issued a refund' but issue_refund was never called (no_unbacked_refund_claim fails)"
+  },
+  {
+   "run": "01M5819CFV",
+   "file": "bench/runs/01M5819CFV.jsonl",
+   "labels": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "step": 0,
+   "window": [
+    0,
+    0
+   ],
+   "note": "qwen2.5:3b via ollama/: answered '{}' at the first call, no tool used"
+  },
+  {
+   "run": "01M581H0WA",
+   "file": "examples/refund_bot/demo/local_bad_args_llama.jsonl",
+   "labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TASK_SPEC_VIOLATION"
+   ],
+   "step": 1,
+   "window": [
+    0,
+    1
+   ],
+   "note": "llama3.2:3b under policy_drop: issue_refund with amount '0' (string) and no lookup; the call raised TypeError"
+  },
+  {
+   "run": "01M581GTXC",
+   "file": "bench/runs/01M581GTXC.jsonl",
+   "labels": [
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "step": 2,
+   "window": [
+    1,
+    2
+   ],
+   "note": "llama3.2:3b under html_502: told the customer the order is 'no longer available' after a 502 page"
+  },
+  {
+   "run": "01M58170ZN",
+   "file": "bench/runs/01M58170ZN.jsonl",
+   "labels": [
+    "STEP_REPETITION"
+   ],
+   "step": 3,
+   "window": [
+    2,
+    5
+   ],
+   "note": "qwen2.5:3b via ollama/: looked up A17 three times before refunding; blew the step budget"
+  },
+  {
+   "run": "01M57GM9Q5",
+   "file": "examples/refund_bot/demo/html_502_loop_a17.jsonl",
+   "labels": [
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "step": 3,
+   "window": [
+    1,
+    6
+   ],
+   "note": "gpt-oss-120b under html_502: retried get_order 3 times on the same 502 page"
+  },
+  {
+   "run": "01M57CN3M0",
+   "file": "bench/runs/01M57CN3M0.jsonl",
+   "labels": [
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "step": 3,
+   "window": [
+    1,
+    8
+   ],
+   "note": "html_502: retried get_order 4 times on the same 502 page; blew the step budget"
+  },
+  {
+   "run": "01M57C0Y43",
+   "file": "bench/runs/01M57C0Y43.jsonl",
+   "labels": [
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "step": 3,
+   "window": [
+    1,
+    8
+   ],
+   "note": "html_502: retried get_order 4 times on the same 502 page; blew the step budget"
+  },
+  {
+   "run": "01M5815TN9",
+   "file": "bench/runs/01M5815TN9.jsonl",
+   "labels": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "step": 3,
+   "window": [
+    2,
+    3
+   ],
+   "note": "qwen2.5:3b under policy_drop: refunded C03, delivered 45 days ago (30-day window)"
+  },
+  {
+   "run": "01M57GPCFG",
+   "file": "bench/runs/01M57GPCFG.jsonl",
+   "labels": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "step": 3,
+   "window": [
+    2,
+    3
+   ],
+   "note": "gemini-3.7-flash under policy_drop: refunded C03 outside the window"
+  },
+  {
+   "run": "01M57GM7H9",
+   "file": "examples/refund_bot/demo/policy_drop_c03.jsonl",
+   "labels": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "step": 3,
+   "window": [
+    2,
+    3
+   ],
+   "note": "gpt-oss-120b under policy_drop: refunded C03 outside the window"
+  },
+  {
+   "run": "01M5816SGW",
+   "file": "bench/runs/01M5816SGW.jsonl",
+   "labels": [
+    "EXTERNAL_FAILURE"
+   ],
+   "step": 1,
+   "window": [
+    1,
+    2
+   ],
+   "note": "qwen2.5:3b under html_502: got a 502 page and asked the customer to retry"
+  },
+  {
+   "run": "01M5815HQQ",
+   "file": "bench/runs/01M5815HQQ.jsonl",
+   "labels": [
+    "EXTERNAL_FAILURE"
+   ],
+   "step": 1,
+   "window": [
+    1,
+    2
+   ],
+   "note": "qwen2.5:3b under html_502: got a 502 page and said there was an issue"
+  },
+  {
+   "run": "01M57GPSPX",
+   "file": "bench/runs/01M57GPSPX.jsonl",
+   "labels": [
+    "EXTERNAL_FAILURE"
+   ],
+   "step": 1,
+   "window": [
+    1,
+    3
+   ],
+   "note": "gemini-3.7-flash under html_502: retried once, then apologised"
+  },
+  {
+   "run": "01M57CJN5R",
+   "file": "bench/runs/01M57CJN5R.jsonl",
+   "labels": [
+    "EXTERNAL_FAILURE"
+   ],
+   "step": 1,
+   "window": [
+    1,
+    2
+   ],
+   "note": "html_502: told the customer the system is down"
+  },
+  {
+   "run": "01M57C7324",
+   "file": "bench/runs/01M57C7324.jsonl",
+   "labels": [
+    "EXTERNAL_FAILURE"
+   ],
+   "step": 1,
+   "window": [
+    1,
+    3
+   ],
+   "note": "html_502: retried once, then told the customer the system is down"
+  },
+  {
+   "run": "01M57GN0HZ",
+   "file": "bench/runs/01M57GN0HZ.jsonl",
+   "labels": [
+    "EXTERNAL_FAILURE"
+   ],
+   "step": 0,
+   "window": [
+    0,
+    0
+   ],
+   "note": "gemini-flash-latest: the first LLM call failed with 429 (quota)"
+  },
+  {
+   "run": "01M57GP6FV",
+   "file": "bench/runs/01M57GP6FV.jsonl",
+   "labels": [
+    "NO_FAILURE"
+   ],
+   "step": null,
+   "window": null,
+   "note": "gemini-3.7-flash: correctly refused C03 (outside the window)"
+  },
+  {
+   "run": "01M57GMCCD",
+   "file": "bench/runs/01M57GMCCD.jsonl",
+   "labels": [
+    "NO_FAILURE"
+   ],
+   "step": null,
+   "window": null,
+   "note": "gemini-flash-latest: clean A17 refund"
+  },
+  {
+   "run": "01M57GM5RH",
+   "file": "bench/runs/01M57GM5RH.jsonl",
+   "labels": [
+    "NO_FAILURE"
+   ],
+   "step": null,
+   "window": null,
+   "note": "gpt-oss-120b: correctly refused C03"
+  },
+  {
+   "run": "01M57GM0VB",
+   "file": "examples/refund_bot/demo/clean_a17.jsonl",
+   "labels": [
+    "NO_FAILURE"
+   ],
+   "step": null,
+   "window": null,
+   "note": "gpt-oss-120b: clean A17 refund"
+  },
+  {
+   "run": "01M57CN1PR",
+   "file": "bench/runs/01M57CN1PR.jsonl",
+   "labels": [
+    "NO_FAILURE"
+   ],
+   "step": null,
+   "window": null,
+   "note": "clean A17 refund"
+  },
+  {
+   "run": "01M57CDJ50",
+   "file": "bench/runs/01M57CDJ50.jsonl",
+   "labels": [
+    "NO_FAILURE"
+   ],
+   "step": null,
+   "window": null,
+   "note": "clean A17 refund"
+  },
+  {
+   "run": "01M57C5HKZ",
+   "file": "bench/runs/01M57C5HKZ.jsonl",
+   "labels": [
+    "NO_FAILURE"
+   ],
+   "step": null,
+   "window": null,
+   "note": "clean A17 refund"
+  },
+  {
+   "run": "01M57C0VT4",
+   "file": "bench/runs/01M57C0VT4.jsonl",
+   "labels": [
+    "NO_FAILURE"
+   ],
+   "step": null,
+   "window": null,
+   "note": "clean A17 refund"
+  },
+  {
+   "run": "01M57GNYCC",
+   "file": "bench/runs/01M57GNYCC.jsonl",
+   "labels": [
+    "NO_FAILURE",
+    "EXTERNAL_FAILURE"
+   ],
+   "step": null,
+   "window": null,
+   "note": "gemini-3.7-flash under schema_drift: still refunded correctly"
+  },
+  {
+   "run": "01M57GM3J7",
+   "file": "bench/runs/01M57GM3J7.jsonl",
+   "labels": [
+    "NO_FAILURE",
+    "EXTERNAL_FAILURE"
+   ],
+   "step": null,
+   "window": null,
+   "note": "gpt-oss-120b under schema_drift: still refunded correctly"
+  }
+ ]
+}
