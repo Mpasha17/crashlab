@@ -6,7 +6,7 @@ Record every LLM and tool call from your existing agent loop into a local store
     import crashlab
     from openai import OpenAI
 
-    client = crashlab.wrap(OpenAI())
+    client = crashlab.wrap(OpenAI())          # or anthropic.Anthropic()
 
     @crashlab.tool()
     def get_order(order_id: str) -> dict: ...
@@ -21,6 +21,12 @@ from __future__ import annotations
 
 from ._version import __version__
 from .capture import agent, record, tool, wrap
+from .context import (
+    ContextThreadPoolExecutor,
+    bind_context,
+    copy_context_to_thread,
+    run_in_thread,
+)
 from .models import (
     Diagnosis,
     ErrorInfo,
@@ -37,6 +43,7 @@ from .store import RunNotFoundError, Store, load
 from .store import redact as redaction
 
 __all__ = [
+    "ContextThreadPoolExecutor",
     "Diagnosis",
     "ErrorInfo",
     "Evidence",
@@ -51,9 +58,12 @@ __all__ = [
     "Verification",
     "__version__",
     "agent",
+    "bind_context",
+    "copy_context_to_thread",
     "load",
     "record",
     "redaction",
+    "run_in_thread",
     "tool",
     "wrap",
 ]
