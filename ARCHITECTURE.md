@@ -76,6 +76,49 @@ flowchart LR
 - **Threads.** Context vars do not cross plain threads; `crashlab.bind_context`,
   `ContextThreadPoolExecutor` and `run_in_thread` carry the active run into workers.
 
+## Replay and checks (as built)
+
+- **Strict replay** (`replay/engine.py`). `crashlab.replay(run)` imports the recorded entry
+  point, calls it with the recorded input (plus `overrides=`), and puts the new run in
+  `mode="replay"` with a `Replayer` on the run context. There is no second code path: the
+  capture points ask the replayer before doing anything live.
+  - `capture/_chat.invoke()` (the single LLM interception point) never calls the SDK. It
+    returns the recorded response rebuilt as the recorded class (`crashlab.response.type`,
+    e.g. `ChatCompletion`, `anthropic` `Message`, `litellm.ModelResponse`; `ReplayObject`
+    fallback). Streams become a synthetic stream rebuilt from the assembled response, and
+    Anthropic `messages.stream()` yields the SDK's own `MessageStream` over synthetic events.
+    Proxies pass `is_async` explicitly, since SDK async methods do not look like coroutines.
+  - `@crashlab.tool` never runs the function in replay: it returns the recorded result or
+    re-raises the recorded exception (same type name and message, so the next request is
+    identical). `side_effects=True` tools are additionally guarded in non-record modes.
+  - Recorded LLM errors are re-raised the same way (dynamic subclass of the original type,
+    `status_code` kept).
+- **Matching.** A call must be the next step by `idx` with the same operation and name, and
+  its redacted normalized request must hash to the recorded `request_hash`. At run end the
+  replayer also checks that no recorded step was skipped, that the output matches, and that
+  the run raised the same exception (or none) as the recording.
+- **DivergenceError** (`replay/divergence.py`) carries `kind` (`request`, `step`,
+  `extra_step`, `missing_steps`, `output`, `exception`, `network`), `step_idx`, `fields`
+  (dotted paths such as `system` or `args.order_id`) and a unified diff per differing
+  field, rendered YAML-style so prompts diff line by line. It is sticky: user code that
+  swallows it (`except Exception`) cannot hide it, and `replay()` re-raises at the end. The
+  diverged replay is still stored (`status="error"`) for `crashlab show`.
+- **Offline guards.** During replay outbound socket connections raise (and count as a
+  `network` divergence), and unset `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` get a placeholder
+  so SDK clients can be constructed. Nothing is ever sent.
+- **Provenance.** Replay runs get `replay_of` (indexed column, schema v2 with an automatic
+  v1 migration) and the `replay` tag; served steps have `source="cassette"` and
+  `crashlab.replay.source_step`.
+- **Outcome oracles** (`verify/oracles.py`). `@crashlab.check("agent")` registers a function
+  of the finished `Run`. Returning `True` / `None` passes; `False`, a non-empty message, or
+  an `AssertionError` fails; any other exception is `error`. Checks run in `record.__exit__`
+  (steps are kept in memory for this) and set `outcome` / `outcome_reason` unless the user
+  set an outcome by hand. Results are stored in `run.checks`. `crashlab check` re-runs them.
+- **Known limits.** Streamed calls replay with different chunk boundaries (same final
+  content). Tool results come back as their recorded JSON (a tool that returned a dataclass
+  replays a dict). Runs recorded with `crashlab.record(...)` need `replay(run, fn=main)`.
+  Strict order means concurrently started tool calls must start in the recorded order.
+
 ## Key design rules
 
 1. Never record secrets. Redact before writing.

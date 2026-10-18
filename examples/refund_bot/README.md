@@ -65,13 +65,53 @@ records it in the same common shape, so `crashlab show` looks the same for both 
 
 ## Inject a fault
 
-`FAULT_HTML_502=1` (or `--fault-html-502`) makes `get_order` return an nginx
-`502 Bad Gateway` HTML page instead of JSON:
+| fault | env var / flag | what changes |
+|---|---|---|
+| `html_502` | `FAULT_HTML_502=1` / `--fault-html-502` | `get_order` returns an nginx `502 Bad Gateway` HTML page instead of JSON |
+| `schema_drift` | `FAULT_SCHEMA_DRIFT=1` / `--fault-schema-drift` | `get_order` returns valid JSON, but `total` is renamed `amount_total` |
+| `policy_drop` | `FAULT_POLICY_DROP=1` / `--fault-policy-drop` | policy line 2 (only delivered orders, at most 30 days ago) is removed from the system prompt |
 
 ```bash
 FAULT_HTML_502=1 python -m examples.refund_bot "Refund my order A17"
-crashlab show last    # step 1 returns HTML; see what the model did with it
+FAULT_SCHEMA_DRIFT=1 python -m examples.refund_bot "Refund my order A17"
+# policy_drop only bites on an order outside the policy: C03 was delivered 45 days ago
+FAULT_POLICY_DROP=1 python -m examples.refund_bot "Please refund order C03, the shoes fell apart"
+crashlab show last
 ```
 
-Many models go ahead and issue a refund anyway, which is exactly the kind of failure
-crashlab's diagnosis step will target (`TOOL_ERROR_MISHANDLED`).
+The active faults are recorded in the run input (`faults: [...]`), together with the
+resolved `model` and `provider`, so `crashlab replay` reproduces a faulty run without any
+env vars. The tool result itself is served from the cassette during replay.
+
+What we saw in one live pass (2026-10-18, one run per case, so treat it as anecdote):
+`openai/gpt-oss-120b` (Groq) and `gemini-3.7-flash` both refused C03 with the full policy
+and both **refunded it ($120) under `policy_drop`**, which `refund_within_policy` flagged.
+Neither was fooled by `schema_drift` (both refunded the correct $49 for A17), and both
+stopped and apologised on `html_502`.
+
+## Checks: pass / fail instead of "unknown"
+
+`agent.py` registers three `@crashlab.check("refund-bot")` oracles. They grade each run
+against the real order database, not against what the (possibly faulty) tools returned:
+
+- `refund_amount_equals_order_total`: every refund issued is for exactly the order total.
+- `refund_within_policy`: refunds only after a `get_order` lookup, only for delivered orders
+  inside the 30-day window, at most one per order, never above the total.
+- `within_step_budget`: at most 8 steps (the happy path takes 5), which catches lookup loops.
+
+They run when the run ends; `crashlab show` lists them and the run gets `outcome: pass` or
+`fail` with the first failing check as the reason. Refund attempts that the tool rejected
+(it raises for amounts above the total) are not counted as refunds.
+`crashlab check <run_id>` re-runs the checks on an older run and stores the new outcome.
+
+## Replay offline
+
+```bash
+unset OPENAI_API_KEY ANTHROPIC_API_KEY      # not needed
+crashlab replay last                        # identical run, nothing sent, no refund issued
+```
+
+Every LLM call and every tool call (including `issue_refund`, which has side effects) is
+served from the cassette; the replay is stored as a new run with `replay_of` set. If the
+code now sends a different request (edit the system prompt and try again), the replay stops
+with a `DivergenceError` that shows the step and a diff of what changed.

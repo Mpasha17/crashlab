@@ -10,8 +10,9 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
 - **Verify** a proposed fix by rerunning the failure and your past good runs.
 - **Export** the failure as a pytest regression test.
 
-> **Status: pre-alpha (0.0.1).** Today crashlab **records** runs and lets you inspect
-> them. Replay, fork, diagnose, verify and test export are in progress (see
+> **Status: pre-alpha (0.0.1).** Today crashlab **records** runs, lets you inspect them,
+> **replays** them strictly offline and grades them with **`@crashlab.check`** oracles.
+> Fork, diagnose, verify and test export are in progress (see
 > [ARCHITECTURE.md](ARCHITECTURE.md)) and are not available yet. Not on PyPI yet.
 
 ## What works today
@@ -39,9 +40,24 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
   per run. API keys, auth headers (`Authorization`, `x-api-key` ...) and token-like strings
   are redacted before anything is written; add your own rules with
   `crashlab.redaction.add_pattern(...)`, `add_key(...)`, `add_hook(fn)`.
-- **CLI:** `crashlab ls`, `crashlab show <run_id|last>`; in Python, `crashlab.load("last")`.
+- **Strict offline replay:** `crashlab.replay(run)` / `crashlab replay <run_id|last>`
+  re-runs the recorded entry point with every LLM and tool call served from the cassette:
+  no API key, no network (outbound connections are blocked), and tools never run, so
+  `side_effects=True` tools cannot fire. Calls are matched by step order plus the normalized
+  request hash; anything else raises `DivergenceError` with the step, the differing fields
+  and a diff. Works for OpenAI chat / Responses, Anthropic (`messages.stream()` included) and
+  LiteLLM, plain and streamed, sync and async. The replay is stored as a new run with
+  `replay_of` pointing at the source.
+- **Outcome oracles:** `@crashlab.check("agent-name")` functions get the finished run and
+  pass (return `True` / `None`) or fail (`False`, a message string, or a failed `assert`).
+  They run when a run ends and set `outcome` to `pass` / `fail`;
+  `crashlab check <run_id>` re-runs them on a stored run.
+- **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab replay`, `crashlab check`;
+  in Python, `crashlab.load("last")`.
 
-Not yet: replay, fork, runtime checks, diagnosis, verification, test export, HTML report.
+Not yet: fork, runtime checks (loop / error-streak flags), diagnosis, verification, test
+export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
+final response (same content, different chunk boundaries).
 Also not intercepted yet: Anthropic `client.beta.messages`, OpenAI
 `chat.completions.stream()` / `responses.stream()` helpers, `with_raw_response` calls.
 OpenAI streams only report token usage if you pass `stream_options={"include_usage": True}`.
@@ -70,14 +86,22 @@ def issue_refund(order_id: str, amount: float) -> dict: ...
 def run_agent(user_msg: str) -> str:
     ...                                    # your existing tool-calling loop, unchanged
 
+@crashlab.check("refund-bot")              # outcome oracle: pass / fail
+def refund_not_above_total(run) -> None:
+    for step in run.tool_calls("issue_refund", ok_only=True):
+        assert step.args["amount"] <= 49.0, f"refunded {step.args['amount']}"
+
 run_agent("Refund my order A17, it arrived broken")
 
-run = crashlab.load("last")                # Run with .steps (chat / execute_tool)
+run = crashlab.load("last")                # Run with .steps (chat / execute_tool), .outcome
+replayed = crashlab.replay(run)            # offline; raises DivergenceError if it differs
 ```
 
 ```bash
-crashlab ls          # runs: id, name, status, outcome, steps, tokens, started
-crashlab show last   # step table: idx, op, name, args / result, error
+crashlab ls            # runs: id, name, status, outcome, steps, tokens, started
+crashlab show last     # checks + step table: idx, op, name, args / result, error
+crashlab replay last   # offline re-run from the cassette; exit 1 + diff on divergence
+crashlab check last    # re-run the @crashlab.check oracles, store pass / fail
 ```
 
 Try the bundled demo agent, free with a local model through Ollama:
@@ -91,6 +115,7 @@ OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_API_KEY=ollama MODEL=qwen2.5:7b
 FAULT_HTML_502=1 OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_API_KEY=ollama MODEL=qwen2.5:7b \
   python -m examples.refund_bot "Refund my order A17"     # get_order returns an HTML 502 page
 crashlab ls && crashlab show last
+crashlab replay last                                      # no model server needed
 
 # the same agent on Anthropic
 PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... MODEL=claude-haiku-4-5 \
