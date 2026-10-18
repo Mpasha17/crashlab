@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from ..models import Finding, Run, Step
+from ..models import Diagnosis, Finding, Run, Step
 from .cassette import CassetteWriter, read_cassette, step_to_line
 from .redact import get_redactor
 from .sqlite import SQLiteIndex
@@ -83,6 +83,18 @@ class Store:
         self._write_run(run)
         with self._lock:
             self._writers.pop(run.run_id, None)
+
+    def save_diagnosis(self, run: Run, diagnosis: Diagnosis, cache_key: str | None = None) -> None:
+        """Attach ``diagnosis`` to the stored run (run.json and the index) and keep it in
+        the diagnoses history, keyed for the `crashlab diagnose` cache."""
+        run.diagnosis = diagnosis
+        self._write_run(run)
+        data = get_redactor().redact(diagnosis.model_dump(mode="json"))
+        self.index.insert_diagnosis(data, cache_key)
+
+    def cached_diagnosis(self, run_id: str, cache_key: str) -> Diagnosis | None:
+        data = self.index.find_diagnosis(run_id, cache_key)
+        return Diagnosis.model_validate(data) if data is not None else None
 
     # reading -------------------------------------------------------------------------
     def list_runs(

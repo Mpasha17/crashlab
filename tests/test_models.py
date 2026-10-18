@@ -32,6 +32,7 @@ def test_taxonomy_labels():
         "TASK_SPEC_VIOLATION",
         "EXTERNAL_FAILURE",
         "UNKNOWN",
+        "NO_FAILURE",  # a verdict, not a failure label
     ]
 
 

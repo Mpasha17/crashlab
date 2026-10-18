@@ -30,6 +30,8 @@ class TaxonomyLabel(str, Enum):
     TASK_SPEC_VIOLATION = "TASK_SPEC_VIOLATION"
     EXTERNAL_FAILURE = "EXTERNAL_FAILURE"
     UNKNOWN = "UNKNOWN"
+    # not a failure label: the diagnoser found nothing wrong with the agent's behaviour
+    NO_FAILURE = "NO_FAILURE"
 
 
 Operation = Literal["chat", "execute_tool", "invoke_agent", "custom"]
@@ -192,6 +194,7 @@ class Run(_Model):
     findings: list[Finding] = Field(default_factory=list)
     checks: list[CheckResult] = Field(default_factory=list)
     check_config: dict[str, Any] | None = None  # effective runtime-check config
+    diagnosis: Diagnosis | None = None  # the latest `crashlab diagnose` result
     started_at: datetime = Field(default_factory=utcnow)
     ended_at: datetime | None = None
     code_version: str | None = None
@@ -271,17 +274,31 @@ class Fix(_Model):
 
 
 class Diagnosis(_Model):
+    """Which step went wrong, why (a taxonomy label), and the verbatim evidence.
+
+    Produced by :func:`crashlab.diagnose`. ``evidence`` only holds quotes that were found
+    verbatim in the cited step; if none survive, ``label`` is ``UNKNOWN``. ``notes`` says
+    what validation changed (dropped quotes, a downgrade and why)."""
+
     run_id: str
-    failing_step: int | None
+    failing_step: int | None = None
     step_window: tuple[int, int] | None = None
     label: TaxonomyLabel = TaxonomyLabel.UNKNOWN
     secondary: list[TaxonomyLabel] = Field(default_factory=list)
     confidence: float = 0.0
+    root_cause: str = ""  # one plain sentence
     evidence: list[Evidence] = Field(default_factory=list)
     explanation: str = ""
+    notes: list[str] = Field(default_factory=list)
+    model: str | None = None  # diagnoser model; None for the heuristic diagnosis
+    created_at: datetime = Field(default_factory=utcnow)
     fixes: list[Fix] = Field(default_factory=list)
     method: dict[str, Any] = Field(default_factory=dict)
     confirmed_by_counterfactual: bool | None = None
+
+    @property
+    def is_failure(self) -> bool:
+        return self.label not in (TaxonomyLabel.NO_FAILURE, TaxonomyLabel.UNKNOWN)
 
 
 class RegressionResult(_Model):
@@ -300,3 +317,6 @@ class Verification(_Model):
     ci95: tuple[float, float]
     verdict: Literal["fixes_and_safe", "fixes_with_regressions", "does_not_fix", "inconclusive"]
     cost_usd: float | None = None
+
+
+Run.model_rebuild()

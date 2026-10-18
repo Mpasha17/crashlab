@@ -8,7 +8,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -104,6 +104,11 @@ class SQLiteIndex:
             if "cost_usd" not in cols:  # v2 -> v3: cost and findings severity for `ls`
                 conn.execute("ALTER TABLE runs ADD COLUMN cost_usd REAL")
                 conn.execute("ALTER TABLE runs ADD COLUMN max_severity TEXT")
+            dcols = {r["name"] for r in conn.execute("PRAGMA table_info(diagnoses)")}
+            if "cache_key" not in dcols:  # v3 -> v4: `crashlab diagnose` cache
+                conn.execute("ALTER TABLE diagnoses ADD COLUMN cache_key TEXT")
+                conn.execute("ALTER TABLE diagnoses ADD COLUMN model TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS diagnoses_key ON diagnoses(run_id, cache_key)")
             conn.execute(
                 "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
@@ -261,3 +266,36 @@ class SQLiteIndex:
                 "SELECT * FROM flags WHERE run_id = ? ORDER BY id", (run_id,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # diagnoses -----------------------------------------------------------------------
+    def insert_diagnosis(self, diagnosis: dict[str, Any], cache_key: str | None) -> None:
+        with closing(self._connect()) as conn:
+            conn.execute(
+                "INSERT INTO diagnoses(run_id, created_at, diagnosis_json, cache_key, model) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    diagnosis["run_id"],
+                    str(diagnosis.get("created_at") or ""),
+                    json.dumps(diagnosis, ensure_ascii=False, default=str),
+                    cache_key,
+                    diagnosis.get("model"),
+                ),
+            )
+            conn.commit()
+
+    def find_diagnosis(self, run_id: str, cache_key: str) -> dict[str, Any] | None:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT diagnosis_json FROM diagnoses WHERE run_id = ? AND cache_key = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (run_id, cache_key),
+            ).fetchone()
+        return json.loads(row["diagnosis_json"]) if row else None
+
+    def diagnoses(self, run_id: str) -> list[dict[str, Any]]:
+        """Every stored diagnosis of ``run_id``, oldest first."""
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT diagnosis_json FROM diagnoses WHERE run_id = ? ORDER BY id", (run_id,)
+            ).fetchall()
+        return [json.loads(r["diagnosis_json"]) for r in rows]
