@@ -42,6 +42,7 @@ def test_full_refund_bot_run(crashlab_dir):
         "model": "m1",
         "provider": None,
         "max_turns": 8,
+        "faults": None,
     }
     assert run.entrypoint == "examples.refund_bot.agent:run_agent"
     assert run.env["crashlab"] == crashlab.__version__

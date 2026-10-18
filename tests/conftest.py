@@ -21,7 +21,8 @@ def crashlab_dir(tmp_path, monkeypatch):
 
     store = tmp_path / "store"
     monkeypatch.setenv("CRASHLAB_DIR", str(store))
-    monkeypatch.delenv("FAULT_HTML_502", raising=False)
+    for fault in ("FAULT_HTML_502", "FAULT_SCHEMA_DRIFT", "FAULT_POLICY_DROP"):
+        monkeypatch.delenv(fault, raising=False)
     redact.reset()
     from examples.refund_bot import agent as refund_agent
 

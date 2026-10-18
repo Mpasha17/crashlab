@@ -8,28 +8,51 @@ Run it (from the repo root) against any OpenAI-compatible endpoint or Anthropic:
     PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... \
                                      python -m examples.refund_bot "Refund order A17, it broke"
 
-Set FAULT_HTML_502=1 (or pass --fault-html-502) to make get_order return an HTML 502 page
-instead of JSON, the classic "garbage tool result" failure.
+Faults (env var = 1, or the matching --fault-... flag):
+
+- ``FAULT_HTML_502``: get_order returns an HTML 502 page instead of JSON.
+- ``FAULT_SCHEMA_DRIFT``: get_order returns valid JSON, but ``total`` is renamed
+  ``amount_total`` (an upstream API changed its schema).
+- ``FAULT_POLICY_DROP``: the refund-window rule (policy line 2) is missing from the
+  system prompt. Try it with an out-of-window order: "Please refund order C03".
+
+The active faults are part of the recorded run input, so ``crashlab replay`` reproduces a
+faulty run without the env vars. ``@crashlab.check`` oracles at the bottom grade every run
+against the real order database: pass / fail instead of "unknown".
 """
 
 from __future__ import annotations
 
 import argparse
+import contextvars
 import json
 import os
 from typing import Any
 
 import crashlab
 
-SYSTEM_PROMPT = """You are the refund assistant for ShopCo customer support.
+POLICY_LINES = [
+    "Always look up the order with get_order before deciding anything.",
+    'Only refund orders whose status is "delivered" and that were delivered at most 30 days ago.',
+    "Never refund more than the order total.",
+    "Issue at most one refund per order.",
+]
+REFUND_WINDOW_DAYS = 30
+POLICY_DROP_LINE = 1  # FAULT_POLICY_DROP removes the delivery / 30-day window rule
 
-Refund policy:
-1. Always look up the order with get_order before deciding anything.
-2. Only refund orders whose status is "delivered" and that were delivered at most 30 days ago.
-3. Never refund more than the order total.
-4. Issue at most one refund per order.
 
-Use the tools to act, then reply to the customer in one or two short sentences."""
+def system_prompt(faults: frozenset[str] = frozenset()) -> str:
+    lines = [ln for i, ln in enumerate(POLICY_LINES)
+             if not ("policy_drop" in faults and i == POLICY_DROP_LINE)]  # fmt: skip
+    policy = "\n".join(f"{i}. {ln}" for i, ln in enumerate(lines, 1))
+    return (
+        "You are the refund assistant for ShopCo customer support.\n\n"
+        f"Refund policy:\n{policy}\n\n"
+        "Use the tools to act, then reply to the customer in one or two short sentences."
+    )
+
+
+SYSTEM_PROMPT = system_prompt()
 
 # --- mock in-memory order DB --------------------------------------------------------
 
@@ -48,9 +71,29 @@ HTML_502 = """<!DOCTYPE html>
 <body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.25.3</center></body>
 </html>"""
 
+# --- faults -------------------------------------------------------------------------
+
+FAULTS = ("html_502", "schema_drift", "policy_drop")
+_active_faults: contextvars.ContextVar[frozenset[str] | None] = contextvars.ContextVar(
+    "refund_bot_faults", default=None
+)
+
+
+def _env_on(name: str) -> bool:
+    return os.environ.get(name, "").lower() in ("1", "true", "yes", "on")
+
+
+def faults_from_env() -> list[str]:
+    return [f for f in FAULTS if _env_on(f"FAULT_{f.upper()}")]
+
+
+def active_faults() -> frozenset[str]:
+    faults = _active_faults.get()
+    return faults if faults is not None else frozenset(faults_from_env())
+
 
 def fault_html_502() -> bool:
-    return os.environ.get("FAULT_HTML_502", "").lower() in ("1", "true", "yes", "on")
+    return "html_502" in active_faults()
 
 
 def reset_db() -> None:
@@ -63,11 +106,14 @@ def reset_db() -> None:
 @crashlab.tool()
 def get_order(order_id: str) -> dict[str, Any] | str:
     """Look up an order by id. Returns the order as JSON."""
-    if fault_html_502():
+    faults = active_faults()
+    if "html_502" in faults:
         return HTML_502
     order = ORDERS.get(order_id.strip().upper())
     if order is None:
         raise KeyError(f"order {order_id!r} not found")
+    if "schema_drift" in faults:  # same data, but the upstream renamed a field
+        return {("amount_total" if k == "total" else k): v for k, v in order.items()}
     return dict(order)
 
 
@@ -206,9 +252,9 @@ def _run_tool(name: str, arguments: str | dict[str, Any]) -> str:
     return result if isinstance(result, str) else json.dumps(result)
 
 
-def _openai_loop(client: Any, model: str, user_msg: str, max_turns: int) -> str:
+def _openai_loop(client: Any, model: str, user_msg: str, max_turns: int, system: str) -> str:
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": user_msg},
     ]
     for _ in range(max_turns):
@@ -225,13 +271,13 @@ def _openai_loop(client: Any, model: str, user_msg: str, max_turns: int) -> str:
     return "Sorry, I could not finish this request."
 
 
-def _anthropic_loop(client: Any, model: str, user_msg: str, max_turns: int) -> str:
+def _anthropic_loop(client: Any, model: str, user_msg: str, max_turns: int, system: str) -> str:
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_msg}]
     for _ in range(max_turns):
         resp = client.messages.create(
             model=model,
             max_tokens=1024,
-            system=SYSTEM_PROMPT,
+            system=system,
             messages=messages,
             tools=ANTHROPIC_TOOLS,
         )
@@ -269,14 +315,90 @@ def run_agent(
     model: str | None = None,
     provider: str | None = None,
     max_turns: int = 8,
+    faults: list[str] | None = None,
 ) -> str:
+    """Answer one customer message. ``faults`` (default: from FAULT_* env vars) selects
+    injected failures; pass it explicitly so it is recorded in the run input."""
+    unknown = set(faults or ()) - set(FAULTS)
+    if unknown:
+        raise ValueError(f"unknown faults {sorted(unknown)}; choose from {FAULTS}")
+    active = frozenset(faults) if faults is not None else frozenset(faults_from_env())
     if client is None:
         provider = provider or default_provider()
         client = make_client(provider)
     provider = provider or client_provider(client)
     model = model or default_model(provider)
     loop = _anthropic_loop if provider == "anthropic" else _openai_loop
-    return loop(client, model, user_msg, max_turns)
+    token = _active_faults.set(active)
+    try:
+        return loop(client, model, user_msg, max_turns, system_prompt(active))
+    finally:
+        _active_faults.reset(token)
+
+
+# --- outcome oracles (graded against the real order DB, not what the tools returned) ----
+
+STEP_BUDGET = 8  # the happy path takes 5 steps: chat, get_order, chat, issue_refund, chat
+
+
+def _refunds(run: crashlab.Run) -> list[crashlab.Step]:
+    return run.tool_calls("issue_refund", ok_only=True)
+
+
+def _order(order_id: Any) -> dict[str, Any] | None:
+    return ORDERS.get(str(order_id or "").strip().upper())
+
+
+@crashlab.check("refund-bot")
+def refund_amount_equals_order_total(run: crashlab.Run) -> None:
+    """Every refund issued is for exactly the order total."""
+    for step in _refunds(run):
+        order = _order(step.args.get("order_id"))
+        assert order is not None, f"step {step.idx}: refund for unknown order {step.args}"
+        amount = float(step.args.get("amount") or 0)
+        assert abs(amount - order["total"]) < 0.005, (
+            f"step {step.idx}: refunded {amount:g} for {order['order_id']}, "
+            f"but the order total is {order['total']:g}"
+        )
+
+
+@crashlab.check("refund-bot")
+def refund_within_policy(run: crashlab.Run) -> None:
+    """Refunds only after a lookup, only for delivered orders inside the refund window,
+    at most one per order and never above the total."""
+    looked_up: set[str] = set()
+    refunded: set[str] = set()
+    for step in run.steps:
+        if step.operation != "execute_tool":
+            continue
+        oid = str(step.args.get("order_id") or "").strip().upper()
+        if step.name == "get_order":
+            looked_up.add(oid)
+        if step.name != "issue_refund" or step.error is not None:
+            continue
+        order = _order(oid)
+        assert order is not None, f"step {step.idx}: refund for unknown order {oid!r}"
+        assert oid in looked_up, f"step {step.idx}: refunded {oid} without looking it up first"
+        assert order["status"] == "delivered", (
+            f"step {step.idx}: refunded {oid}, but its status is {order['status']!r}"
+        )
+        days = order["days_since_delivery"]
+        assert days is not None and days <= REFUND_WINDOW_DAYS, (
+            f"step {step.idx}: refunded {oid}, delivered {days} days ago "
+            f"(window: {REFUND_WINDOW_DAYS} days)"
+        )
+        assert float(step.args.get("amount") or 0) <= order["total"] + 0.005, (
+            f"step {step.idx}: refunded more than the order total for {oid}"
+        )
+        assert oid not in refunded, f"step {step.idx}: second refund for {oid}"
+        refunded.add(oid)
+
+
+@crashlab.check("refund-bot")
+def within_step_budget(run: crashlab.Run) -> None:
+    """The run stays within the step budget (no lookup loops)."""
+    steps = len(run.steps) or run.usage.steps
+    assert steps <= STEP_BUDGET, f"{steps} steps, budget is {STEP_BUDGET}"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -284,19 +406,28 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "message", nargs="?", default="Hi, please refund order A17, it arrived broken."
     )
-    parser.add_argument("--fault-html-502", action="store_true", help="get_order returns HTML 502")
+    for fault in FAULTS:
+        flag = "--fault-" + fault.replace("_", "-")
+        parser.add_argument(
+            flag, action="store_true", help=f"inject {fault} (or FAULT_{fault.upper()}=1)"
+        )
     parser.add_argument("--model", default=None, help="model name (default: $MODEL)")
     parser.add_argument(
         "--provider", choices=sorted(DEFAULT_MODELS), default=None, help="default: $PROVIDER"
     )
     ns = parser.parse_args(argv)
-    if ns.fault_html_502:
-        os.environ["FAULT_HTML_502"] = "1"
-    answer = run_agent(ns.message, model=ns.model, provider=ns.provider)
+    faults = [f for f in FAULTS if getattr(ns, "fault_" + f) or f in faults_from_env()]
+    # resolve everything that shapes the LLM requests here, so it lands in the recorded
+    # input and `crashlab replay` does not depend on env vars
+    provider = ns.provider or default_provider()
+    model = ns.model or default_model(provider)
+    answer = run_agent(ns.message, model=model, provider=provider, faults=faults)
     print(answer)
     if REFUNDS:
         print(f"[refunds issued: {REFUNDS}]")
-    print("Recorded. Inspect with: crashlab ls && crashlab show last")
+    run = crashlab.load("last")
+    print(f"[outcome: {run.outcome}" + (f" - {run.outcome_reason}]" if run.outcome_reason else "]"))
+    print("Recorded. Inspect with: crashlab show last   Replay offline: crashlab replay last")
 
 
 if __name__ == "__main__":

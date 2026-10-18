@@ -32,7 +32,7 @@ def test_ls_and_show():
     run_id = _record_one()
     result = runner.invoke(app, ["ls"], env=ENV)
     assert result.exit_code == 0, result.output
-    for text in (run_id, "refund-bot", "ok", "unknown", " 5 ", "443"):
+    for text in (run_id, "refund-bot", "ok", "pass", " 5 ", "443"):
         assert text in result.output
 
     result = runner.invoke(app, ["show", "last"], env=ENV)
