@@ -38,12 +38,41 @@ def _status(run):
 
 def test_clean_refund_passes_every_check():
     run = _refund_run(refund_script())
-    assert run.outcome == "pass" and run.outcome_reason == "3 check(s) passed"
+    assert run.outcome == "pass" and run.outcome_reason == "4 check(s) passed"
     assert _status(run) == {
         "refund_amount_equals_order_total": "pass",
         "refund_within_policy": "pass",
+        "no_unbacked_refund_claim": "pass",
         "within_step_budget": "pass",
     }
+
+
+def test_reply_claiming_a_refund_that_never_happened_fails():
+    script = [
+        tool_call_response(1, "get_order", {"order_id": "A17"}),
+        text_response(2, "I have issued a refund for your order A17. Allow 3-5 days."),
+    ]
+    run = _refund_run(script)
+    assert _status(run)["no_unbacked_refund_claim"] == "fail"
+    assert run.outcome == "fail"
+    assert "step 2: the reply says 'I have issued a refund for your order A17.'" in (
+        run.outcome_reason
+    )
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "I can process a refund for you once I have the order details.",
+        "We can issue a refund if you confirm the order id.",
+        "I'm sorry, I couldn't retrieve your order, so no refund has been issued yet.",
+        "I can't process the refund amount as it's not available.",
+    ],
+)
+def test_offers_and_negations_are_not_refund_claims(reply):
+    run = _refund_run([tool_call_response(1, "get_order", {"order_id": "A17"}),
+                       text_response(2, reply)])  # fmt: skip
+    assert _status(run)["no_unbacked_refund_claim"] == "pass"
 
 
 def test_wrong_amount_fails():
@@ -83,6 +112,7 @@ def test_lookup_loop_blows_the_step_budget():
     assert _status(run) == {
         "refund_amount_equals_order_total": "pass",
         "refund_within_policy": "pass",
+        "no_unbacked_refund_claim": "pass",
         "within_step_budget": "fail",
     }
     assert run.outcome_reason == "check within_step_budget failed: 9 steps, budget is 8"
@@ -200,7 +230,7 @@ def test_no_checks_keeps_unknown():
 def test_run_checks_on_a_loaded_run():
     run = _refund_run(refund_script(amount=30.0))
     results = crashlab.run_checks(run)
-    assert [r.status for r in results] == ["fail", "pass", "pass"]
+    assert [r.status for r in results] == ["fail", "pass", "pass", "pass"]
 
 
 # --- CLI -----------------------------------------------------------------------------

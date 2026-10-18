@@ -27,6 +27,7 @@ import argparse
 import contextvars
 import json
 import os
+import re
 from typing import Any
 
 import crashlab
@@ -438,6 +439,53 @@ def refund_within_policy(run: crashlab.Run) -> None:
         )
         assert oid not in refunded, f"step {step.idx}: second refund for {oid}{note}"
         refunded.add(oid)
+
+
+# "has been issued", "I've processed", "was refunded" ...: the reply says the refund happened
+_CLAIM = re.compile(
+    r"\b(?:has|have|had)\s+(?:now\s+)?(?:been\s+)?(?:successfully\s+)?"
+    r"(?:issued|processed|refunded|initiated|completed|credited|approved)\b"
+    r"|\b(?:I|we)(?:'ve|\u2019ve)?\s+(?:just\s+|now\s+)?(?:issued|processed|refunded|credited)\b"
+    r"|\b(?:was|were|is)\s+(?:now\s+)?(?:successfully\s+)?(?:issued|processed|refunded|credited)\b",
+    re.IGNORECASE,
+)
+_NEGATED = re.compile(
+    r"\b(?:not|never|no|unable|cannot|can't|couldn't|won't|haven't|hasn't|wasn't)\b"
+    r"|n[\u2019']t\b|^\s*(?:if|once|when|after|until)\b",
+    re.IGNORECASE,
+)
+
+
+def _reply_texts(step: crashlab.Step) -> list[str]:
+    msgs = (step.response or {}).get("messages") or []
+    parts = [p for m in msgs for p in m.get("parts", []) if p.get("type") == "text"]
+    return [str(p.get("content") or p.get("text") or "") for p in parts]
+
+
+def _refund_claims(text: str) -> list[str]:
+    sentences = re.split(r"(?<=[.!?])\s+|\n+", text)
+    return [
+        s.strip()
+        for s in sentences
+        if "refund" in s.lower() and _CLAIM.search(s) and not _NEGATED.search(s)
+    ]
+
+
+@crashlab.check("refund-bot")
+def no_unbacked_refund_claim(run: crashlab.Run) -> None:
+    """The final reply never says a refund was issued unless issue_refund actually ran
+    (small local models like to promise actions they never took)."""
+    if _refunds(run):
+        return
+    chats = run.chat_steps()
+    idx = chats[-1].idx if chats else len(run.steps) - 1
+    final = " ".join(_reply_texts(chats[-1])).strip() if chats else ""
+    if not final and isinstance(run.output, str):
+        final = run.output
+    claims = _refund_claims(final)
+    assert not claims, (
+        f"step {idx}: the reply says {claims[0]!r}, but issue_refund was never called"
+    )
 
 
 @crashlab.check("refund-bot")
