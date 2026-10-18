@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+# never let litellm fetch its model cost map from the network during tests
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import pytest
 
@@ -24,3 +28,6 @@ def crashlab_dir(tmp_path, monkeypatch):
     refund_agent.reset_db()
     yield store
     redact.reset()
+    from crashlab.integrations import litellm as cl_litellm
+
+    cl_litellm.unpatch()
