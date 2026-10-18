@@ -87,6 +87,15 @@ class Redactor:
                     out[k] = self.redact(v)
             return out
         if isinstance(obj, (list, tuple)):
+            # header lists like [("Authorization", "Bearer ..."), ...]
+            if (
+                len(obj) == 2
+                and isinstance(obj[0], str)
+                and isinstance(obj[1], str)
+                and self._sensitive_key(obj[0])
+                and obj[1]
+            ):
+                return [obj[0], REDACTED]
             return [self.redact(v) for v in obj]
         return obj
 
