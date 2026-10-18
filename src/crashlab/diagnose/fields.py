@@ -74,6 +74,7 @@ def step_fields(step: Step) -> dict[str, str]:
             )
     else:
         out["args"] = as_text(step.args)
+        out["call"] = f"{step.name}({out['args']})"  # how the trace shows the call
         if step.response is not None and step.error is None:
             out["result"] = as_text(step.result)
     if step.error is not None:
@@ -93,19 +94,27 @@ _QUOTES = str.maketrans(
     }
 )
 _ELLIPSIS = re.compile(r"^(\.\.\.|…)+|(\.\.\.|…)+$")
+# the labels compact() puts in front of step content ("reply: ", "calls tool: " ...): they
+# are crashlab's, not the trace's, so a quote that starts with one is matched without it
+_LABEL = re.compile(
+    r"^\s*(?:-\s*)?(?:\[\d+\]\s*)?(?:calls tool|reply|reasoning|result|args|error"
+    r"|new (?:user|assistant|tool|system) message|system prompt changed)\s*:\s*",
+    re.IGNORECASE,
+)
+_ESCAPES = re.compile(r"\\[ntr]")
 
 
 def normalize(text: str) -> str:
     """Whitespace collapsed, NFKC, typographic quotes and dashes made plain; JSON escapes
     of quotes undone. Applied to both sides of a verbatim comparison."""
     text = unicodedata.normalize("NFKC", text).translate(_QUOTES).replace('\\"', '"')
-    return " ".join(text.split())
+    return " ".join(_ESCAPES.sub(" ", text).split())
 
 
 def find_quote(step: Step, quote: str) -> str | None:
     """The field of ``step`` that contains ``quote`` verbatim (after normalization), or
     None. Leading / trailing ellipses in the quote are ignored."""
-    q = normalize(_ELLIPSIS.sub("", normalize(quote)).strip())
+    q = normalize(_ELLIPSIS.sub("", normalize(_LABEL.sub("", quote))).strip())
     if len(q) < 3:
         return None
     for name, text in step_fields(step).items():

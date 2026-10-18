@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .taxonomy import render
 
-PROMPT_VERSION = "diagnose-v1"
+PROMPT_VERSION = "diagnose-v2"
 
 SYSTEM = """You are crashlab's diagnosis agent. You read the trace of one recorded run of \
 an AI agent and decide whether the agent failed, at which step, and why.
@@ -25,9 +25,11 @@ Rules:
 executed it; if no tool ran (a wrong or premature reply), the chat step whose reply was \
 wrong. For EXTERNAL_FAILURE, the step where the external failure shows. null for \
 NO_FAILURE.
-2. evidence: 1 to 4 quotes copied character for character from the trace, each with the \
-number of the step it appears in. Quote only text shown in the trace, never a truncation \
-marker. Prefer short decisive quotes (a sentence, or a JSON fragment such as \
+2. evidence: 1 to 4 quotes copied character for character from the STEPS section, each \
+with the number of the step it appears under. Quote the content after the label (after \
+"reply: ", "result: ", "error: " ...), never the label or a truncation marker. CHECKS, \
+RUNTIME FINDINGS and CANDIDATE STEPS are hints, not quotable: quote the step content \
+they point at instead. Prefer short decisive quotes (a sentence, or a JSON fragment such as \
 "days_since_delivery": 45). Quotes that are not found verbatim in the cited step are \
 discarded, and a failure label without valid evidence becomes UNKNOWN.
 3. If the trace does not support a label, answer UNKNOWN. Do not guess.

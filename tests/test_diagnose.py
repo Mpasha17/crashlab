@@ -140,6 +140,19 @@ def test_quotes_survive_typographic_and_ellipsis_differences():
     assert find_quote(step4, "..") is None  # too short
 
 
+def test_display_labels_and_escapes_are_not_part_of_the_quote():
+    run = _policy_run()
+    assert find_quote(run.steps[4], "reply: Your refund for order C03") == "response.text"
+    assert find_quote(run.steps[0], 'calls tool: get_order({"order_id": "C03"})') == (
+        "response.tool_calls[0]"
+    )
+    assert find_quote(run.steps[1], 'get_order({"order_id": "C03"})') == "call"  # tool step
+    assert find_quote(run.steps[1], 'result: {"order_id": "C03", "item"') == "result"
+    assert find_quote(run.steps[4], "Your refund\\nfor order") == "response.text"
+    assert find_quote(run.steps[4], "reply: ") is None
+    assert find_quote(run.steps[1], "FAIL refund_within_policy: step 3") is None
+
+
 def test_non_object_answer_is_unknown():
     d = validate(["TASK_SPEC_VIOLATION"], _policy_run())
     assert d.label is UNKNOWN and "did not return a JSON object" in d.notes[0]
@@ -265,7 +278,7 @@ def test_heuristic_unbacked_claim_points_at_the_reply():
     refund.run_agent("Refund A17", client=crashlab.wrap(FakeOpenAI(script)), model="fake-model")
     run = crashlab.load("last")
     raw = heuristic_raw(run)
-    assert raw["failing_step"] == 2 and raw["label"] == "TASK_SPEC_VIOLATION"
+    assert raw["failing_step"] == 2 and raw["label"] == "WRONG_TOOL_SELECTION"
 
 
 def test_candidates_for_a_lookup_loop():

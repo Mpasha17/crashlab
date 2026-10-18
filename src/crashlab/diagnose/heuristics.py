@@ -11,6 +11,7 @@ from ..models import Run, Step, TaxonomyLabel
 from .fields import step_fields
 
 _STEP_REF = re.compile(r"\bsteps? (\d+)\b")
+_NOT_CALLED = re.compile(r"\b(?:never|not) (?:been )?called\b|\bwithout calling\b", re.I)
 _API_ERRORS = (
     "RateLimit",
     "APIConnection",
@@ -100,9 +101,10 @@ def candidates(run: Run) -> list[Candidate]:
         if idx is None:
             continue
         reason = f"check {c.name} failed: {c.message or ''}".strip()
-        out.append(
-            Candidate(idx, reason, TaxonomyLabel.TASK_SPEC_VIOLATION, [_quote(steps[idx])], 2)
-        )
+        label = TaxonomyLabel.TASK_SPEC_VIOLATION
+        if _NOT_CALLED.search(c.message or ""):  # "... but issue_refund was never called"
+            label = TaxonomyLabel.WRONG_TOOL_SELECTION
+        out.append(Candidate(idx, reason, label, [_quote(steps[idx])], 2))
 
     for s in run.steps:
         if s.source == "blocked":
