@@ -175,24 +175,54 @@ ANTHROPIC_TOOLS = [
 
 # --- client -------------------------------------------------------------------------
 
-DEFAULT_MODELS = {"openai": "gpt-4o-mini", "anthropic": "claude-haiku-4-5"}
+DEFAULT_MODELS = {
+    "openai": "gpt-4o-mini",
+    "anthropic": "claude-haiku-4-5",
+    "litellm": "ollama_chat/qwen2.5:3b",  # local, no API key; or groq/..., gemini/...
+}
 
 
 def default_provider() -> str:
     provider = os.environ.get("PROVIDER", "openai").strip().lower()
     if provider not in DEFAULT_MODELS:
-        raise SystemExit(f"PROVIDER must be 'openai' or 'anthropic', not {provider!r}")
+        raise SystemExit(f"PROVIDER must be one of {sorted(DEFAULT_MODELS)}, not {provider!r}")
     return provider
+
+
+class LiteLLMClient:
+    """``client.chat.completions.create(...)`` on top of ``litellm.completion``, so the
+    OpenAI-style loop below also runs on any LiteLLM model (``ollama_chat/qwen2.5:3b``,
+    ``ollama/llama3.2:3b``, ``groq/...``). crashlab records it via ``crashlab.wrap(litellm)``."""
+
+    def __init__(self) -> None:
+        os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")  # no fetch at import
+        import litellm
+
+        self.litellm = crashlab.wrap(litellm)
+
+        class _Completions:
+            @staticmethod
+            def create(**kwargs: Any) -> Any:
+                return self.litellm.completion(**kwargs)
+
+        class _Chat:
+            completions = _Completions()
+
+        self.chat = _Chat()
 
 
 def make_client(provider: str | None = None) -> Any:
     """Client wrapped by crashlab. openai: OPENAI_BASE_URL / OPENAI_API_KEY (any
-    OpenAI-compatible server); anthropic: ANTHROPIC_API_KEY (ANTHROPIC_BASE_URL optional)."""
+    OpenAI-compatible server, e.g. Ollama at http://localhost:11434/v1); anthropic:
+    ANTHROPIC_API_KEY (ANTHROPIC_BASE_URL optional); litellm: whatever the model's
+    provider needs (Ollama: nothing; OLLAMA_API_BASE if not on localhost)."""
     provider = provider or default_provider()
     if provider == "anthropic":
         from anthropic import Anthropic
 
         return crashlab.wrap(Anthropic())
+    if provider == "litellm":
+        return LiteLLMClient()
     from openai import OpenAI
 
     base_url = os.environ.get("OPENAI_BASE_URL") or None
@@ -207,6 +237,8 @@ def default_model(provider: str | None = None) -> str:
 def client_provider(client: Any) -> str:
     """'anthropic' for Anthropic-style clients (messages.create), else 'openai'."""
     inner = getattr(client, "unwrapped", client)
+    if isinstance(inner, LiteLLMClient):
+        return "litellm"
     if type(inner).__module__.split(".")[0] == "anthropic":
         return "anthropic"
     if getattr(inner, "chat", None) is None and getattr(inner, "messages", None) is not None:
