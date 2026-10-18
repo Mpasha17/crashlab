@@ -8,6 +8,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
+from ..replay.divergence import SideEffectBlockedError
+from ..replay.rebuild import rebuild_exception
 from ._steps import begin_step
 from ._util import bind_arguments, first_doc_line
 from .normalize import to_jsonable
@@ -45,6 +47,28 @@ def _begin(spec: ToolSpec, fn: Callable[..., Any], args: tuple, kwargs: dict):
     return pending
 
 
+def _serve_replay(pending: Any, spec: ToolSpec) -> tuple[bool, Any]:
+    """In replay mode: ``(True, recorded result)`` or raise the recorded exception.
+
+    The tool function itself never runs in replay; ``side_effects=True`` tools are
+    additionally guarded so they can never run live in a non-record mode.
+    """
+    src = pending.replay_source()
+    if src is None:
+        if spec.side_effects and pending.ctx.mode != "record":
+            err = SideEffectBlockedError(
+                f"tool {spec.name!r} has side effects and is never run live during "
+                f"{pending.ctx.mode}"
+            )
+            pending.fail(err, is_tool_error=True)
+            raise err
+        return False, None
+    pending.finish_from(src)
+    if src.error is not None:
+        raise rebuild_exception(src.error)
+    return True, (src.response or {}).get("result")
+
+
 def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
     if inspect.iscoroutinefunction(fn):
 
@@ -53,6 +77,9 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             pending = _begin(spec, fn, args, kwargs)
             if pending is None:
                 return await fn(*args, **kwargs)
+            served, value = _serve_replay(pending, spec)
+            if served:
+                return value
             try:
                 with pending.activate():
                     result = await fn(*args, **kwargs)
@@ -70,6 +97,9 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             pending = _begin(spec, fn, args, kwargs)
             if pending is None:
                 return fn(*args, **kwargs)
+            served, value = _serve_replay(pending, spec)
+            if served:
+                return value
             try:
                 with pending.activate():
                     result = fn(*args, **kwargs)
@@ -88,7 +118,11 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
 def tool(fn: F, /) -> F: ...
 @overload
 def tool(
-    *, name: str | None = None, side_effects: bool = False, description: str | None = None
+    *,
+    name: str | None = None,
+    side_effects: bool = False,
+    side_effect: bool | None = None,
+    description: str | None = None,
 ) -> Callable[[F], F]: ...
 
 
@@ -98,13 +132,14 @@ def tool(
     *,
     name: str | None = None,
     side_effects: bool = False,
+    side_effect: bool | None = None,
     description: str | None = None,
 ) -> Any:
     """Record a tool function's arguments, result and exceptions.
 
-    Use ``side_effects=True`` for tools that change the world (payments, emails, writes).
-    In v0.0.1 this is recorded as metadata; replay/fork (coming) will never re-run such
-    tools live and will serve the recorded result instead.
+    Use ``side_effects=True`` (alias ``side_effect=True``) for tools that change the world
+    (payments, emails, writes). Such tools never run live outside record mode. In a strict
+    replay *no* tool runs: every result (or exception) is served from the cassette.
 
     Works as ``@crashlab.tool`` or ``@crashlab.tool(...)`` on sync and async functions.
     """
@@ -112,7 +147,7 @@ def tool(
     def decorate(f: Callable[..., Any]) -> Callable[..., Any]:
         spec = ToolSpec(
             name=name or f.__name__,
-            side_effects=side_effects,
+            side_effects=bool(side_effects or side_effect),
             description=description or first_doc_line(f),
         )
         return _wrap(f, spec)

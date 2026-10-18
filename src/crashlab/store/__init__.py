@@ -75,6 +75,10 @@ class Store:
     def add_flag(self, run_id: str, flag: Flag) -> None:
         self.index.insert_flag(run_id, get_redactor().redact(flag.model_dump(mode="json")))
 
+    def update_run(self, run: Run) -> None:
+        """Rewrite a stored run's metadata (e.g. after re-running checks)."""
+        self._write_run(run)
+
     def end_run(self, run: Run) -> None:
         self._write_run(run)
         with self._lock:

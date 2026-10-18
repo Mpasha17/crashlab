@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..context import RunContext, active_span, current, current_span_id
-from ..models import ErrorInfo, Operation, Step, utcnow
+from ..models import ErrorInfo, Operation, Step, StepSource, utcnow
 from ..store.redact import get_redactor
 from .normalize import request_hash
 
@@ -51,7 +51,7 @@ class PendingStep:
         with active_span(self.span_id):
             yield
 
-    def _emit(self, response, raw_response, error, extra_attrs) -> Step:
+    def _emit(self, response, raw_response, error, extra_attrs, source="live") -> Step:
         if self.done:
             raise RuntimeError("step already finished")
         self.done = True
@@ -73,10 +73,36 @@ class PendingStep:
             request_hash=self.request_hash,
             started_at=self.started_at,
             duration_ms=round((time.perf_counter() - self.t0) * 1000, 3),
-            source="live",
+            source=source,
         )
         self.ctx.add_step(step)
         return step
+
+    # replay ----------------------------------------------------------------------------
+    def replay_source(self) -> Step | None:
+        """In replay mode, the recorded step this call must reproduce (else None).
+
+        A mismatch is recorded as this step's error and raised as ``DivergenceError``.
+        """
+        replayer = self.ctx.replayer
+        if replayer is None:
+            return None
+        try:
+            return replayer.match(
+                self.idx, self.operation, self.name, self.request, self.request_hash
+            )
+        except BaseException as exc:
+            if not self.done:
+                self.fail(exc)
+            raise
+
+    def finish_from(self, src: Step, source: StepSource = "cassette") -> Step:
+        """Finish with the recorded step's response / error / response attributes."""
+        attrs = dict(src.attributes)
+        attrs.update(self.attributes)  # this call's request attributes (server, tool call id)
+        attrs["crashlab.replay.source_step"] = src.idx
+        self.attributes = attrs
+        return self._emit(src.response, src.raw_response, src.error, None, source)
 
     def finish(
         self,

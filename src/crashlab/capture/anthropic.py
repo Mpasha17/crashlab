@@ -41,10 +41,13 @@ class WrappedAnthropic(WrappedClient):
         is_async = _is_async_messages(messages)
 
         def create(*args: Any, **kwargs: Any) -> Any:
-            return invoke(MESSAGES, messages.create, args, kwargs, server=server)
+            return invoke(MESSAGES, messages.create, args, kwargs, server=server, is_async=is_async)
 
         def stream(*args: Any, **kwargs: Any) -> Any:
             call = ChatCall(MESSAGES, kwargs, server=server, stream=True)
+            src = call.replay_source()
+            if src is not None:
+                return _replay_stream_manager(call, src, is_async)
             try:
                 manager = messages.stream(*args, **kwargs)
             except BaseException as exc:
@@ -61,6 +64,17 @@ class WrappedAnthropic(WrappedClient):
 
     def _rewrap(self, client: Any) -> WrappedAnthropic:
         return WrappedAnthropic(client)
+
+
+def _replay_stream_manager(call: ChatCall, src: Any, is_async: bool) -> Any:
+    from ..replay import rebuild as R
+    from ..replay import synth
+
+    call.pending.finish_from(src)  # type: ignore[union-attr]
+    error = R.rebuild_exception(src.error) if src.error is not None else None
+    events = synth.synthesize(MESSAGES.api, src.raw_response, R.DEFAULT_CHUNK_TYPES[MESSAGES.api])
+    cls = synth.AsyncReplayMessageStreamManager if is_async else synth.ReplayMessageStreamManager
+    return cls(events, src.raw_response, error)
 
 
 def looks_like_anthropic(client: Any) -> bool:

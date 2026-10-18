@@ -1,7 +1,8 @@
 """crashlab: crash-test your AI agents.
 
 Record every LLM and tool call from your existing agent loop into a local store
-(``.crashlab/``), then inspect runs with ``crashlab ls`` / ``crashlab show``.
+(``.crashlab/``), inspect runs with ``crashlab ls`` / ``crashlab show``, replay them
+offline with ``crashlab.replay(run)``, and judge them with ``@crashlab.check`` oracles.
 
     import crashlab
     from openai import OpenAI
@@ -14,7 +15,11 @@ Record every LLM and tool call from your existing agent loop into a local store
     @crashlab.agent(name="refund-bot")
     def run_agent(user_msg: str) -> str: ...
 
+    @crashlab.check("refund-bot")
+    def refund_not_above_total(run): ...
+
     run = crashlab.load("last")
+    crashlab.replay(run)                      # offline; DivergenceError if it differs
 """
 
 from __future__ import annotations
@@ -25,9 +30,11 @@ from .context import (
     ContextThreadPoolExecutor,
     bind_context,
     copy_context_to_thread,
+    is_replaying,
     run_in_thread,
 )
 from .models import (
+    CheckResult,
     Diagnosis,
     ErrorInfo,
     Evidence,
@@ -39,18 +46,31 @@ from .models import (
     Usage,
     Verification,
 )
+from .replay import (
+    DivergenceError,
+    ReplayError,
+    ReplayNetworkError,
+    SideEffectBlockedError,
+    replay,
+)
 from .store import RunNotFoundError, Store, load
 from .store import redact as redaction
+from .verify import check, run_checks
 
 __all__ = [
+    "CheckResult",
     "ContextThreadPoolExecutor",
     "Diagnosis",
+    "DivergenceError",
     "ErrorInfo",
     "Evidence",
     "Fix",
     "Flag",
+    "ReplayError",
+    "ReplayNetworkError",
     "Run",
     "RunNotFoundError",
+    "SideEffectBlockedError",
     "Step",
     "Store",
     "TaxonomyLabel",
@@ -59,10 +79,14 @@ __all__ = [
     "__version__",
     "agent",
     "bind_context",
+    "check",
     "copy_context_to_thread",
+    "is_replaying",
     "load",
     "record",
     "redaction",
+    "replay",
+    "run_checks",
     "run_in_thread",
     "tool",
     "wrap",

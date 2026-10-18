@@ -8,6 +8,7 @@ response is recorded when the stream ends). Everything else is delegated untouch
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from . import normalize as N
@@ -39,9 +40,17 @@ def _adapter(base: ChatAdapter, provider: str) -> ChatAdapter:
     )
 
 
+def _is_async(resource: Any) -> bool:
+    if "Async" in type(resource).__name__:
+        return True
+    return inspect.iscoroutinefunction(getattr(resource, "create", None))
+
+
 def _create(inner: Any, adapter: ChatAdapter, server: str | None):
+    is_async = _is_async(inner)
+
     def create(*args: Any, **kwargs: Any) -> Any:
-        return invoke(adapter, inner.create, args, kwargs, server=server)
+        return invoke(adapter, inner.create, args, kwargs, server=server, is_async=is_async)
 
     create.__doc__ = getattr(inner.create, "__doc__", None)
     return create

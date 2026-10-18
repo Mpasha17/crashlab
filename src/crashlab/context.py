@@ -22,10 +22,11 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from .models import Flag, Run, Step
 
 if TYPE_CHECKING:
+    from .replay.engine import Replayer
     from .store import Store
 
 Mode = Literal["record", "replay", "fork"]
-SUPPORTED_MODES: tuple[Mode, ...] = ("record",)
+SUPPORTED_MODES: tuple[Mode, ...] = ("record", "replay")
 
 
 @dataclass
@@ -38,6 +39,10 @@ class RunContext:
     # Tool calls requested by the most recent chat response that no tool step has
     # consumed yet; used to link execute_tool steps to gen_ai.tool.call.id.
     pending_tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    # Set in replay mode: serves LLM/tool calls from the source run's cassette.
+    replayer: Replayer | None = None
+    # Finished steps, kept in memory so @crashlab.check oracles can run at run end.
+    steps: list[Step] = field(default_factory=list)
 
     def next_idx(self) -> int:
         with self._lock:
@@ -67,6 +72,7 @@ class RunContext:
                 u.tool_calls += 1
             if step.error is not None:
                 u.errors += 1
+            self.steps.append(step)
         self.store.add_step(step)
 
     def add_flag(self, flag: Flag) -> None:
@@ -121,10 +127,38 @@ def current_mode() -> Mode:
 def check_mode(mode: str) -> Mode:
     if mode not in SUPPORTED_MODES:
         raise NotImplementedError(
-            f"crashlab mode {mode!r} is not implemented yet; only 'record' is available "
-            "in v0.0.1 (replay and fork are on the roadmap)."
+            f"crashlab mode {mode!r} is not implemented yet; available: "
+            f"{', '.join(SUPPORTED_MODES)} (fork is on the roadmap)."
         )
     return mode  # type: ignore[return-value]
+
+
+# A replay prepared by crashlab.replay(); the next record() in this context picks it up.
+_pending_replay: contextvars.ContextVar[Replayer | None] = contextvars.ContextVar(
+    "crashlab_pending_replay", default=None
+)
+
+
+def take_pending_replay() -> Replayer | None:
+    rp = _pending_replay.get()
+    if rp is not None:
+        _pending_replay.set(None)
+    return rp
+
+
+@contextmanager
+def pending_replay(rp: Replayer) -> Iterator[None]:
+    token = _pending_replay.set(rp)
+    try:
+        yield
+    finally:
+        _pending_replay.reset(token)
+
+
+def is_replaying() -> bool:
+    """True inside a run that is being replayed from a cassette."""
+    ctx = _current_run.get()
+    return ctx is not None and ctx.mode == "replay"
 
 
 def set_current(ctx: RunContext | None) -> contextvars.Token:

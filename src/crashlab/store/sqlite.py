@@ -8,7 +8,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS runs (
     outcome_reason TEXT,
     parent_run_id TEXT,
     fork_at INTEGER,
+    replay_of TEXT,
     started_at TEXT NOT NULL,
     ended_at TEXT,
     code_version TEXT,
@@ -84,8 +85,11 @@ class SQLiteIndex:
         if not self._initialized:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(_SCHEMA)
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(runs)")}
+            if "replay_of" not in cols:  # schema v1 -> v2
+                conn.execute("ALTER TABLE runs ADD COLUMN replay_of TEXT")
             conn.execute(
-                "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
+                "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
             )
             conn.commit()
@@ -106,6 +110,7 @@ class SQLiteIndex:
             "outcome_reason": run.get("outcome_reason"),
             "parent_run_id": run.get("parent_run_id"),
             "fork_at": run.get("fork_at"),
+            "replay_of": run.get("replay_of"),
             "started_at": run["started_at"],
             "ended_at": run.get("ended_at"),
             "code_version": run.get("code_version"),

@@ -23,9 +23,13 @@ class Assembler:
 
     def __init__(self) -> None:
         self.chunks = 0
+        self.chunk_type: str | None = None  # class of the first chunk, for replay
 
     def add(self, chunk: Any) -> None:
         self.chunks += 1
+        if self.chunk_type is None:
+            cls = type(chunk)
+            self.chunk_type = f"{cls.__module__}.{cls.__qualname__}"
         data = to_jsonable(chunk)
         if isinstance(data, dict):
             self._add(data)

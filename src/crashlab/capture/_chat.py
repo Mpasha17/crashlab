@@ -1,8 +1,8 @@
 """Provider-independent recording of one LLM call (plain or streamed).
 
 Each provider supplies a :class:`ChatAdapter`; :func:`invoke` is the single interception
-point used by every proxy (OpenAI chat + responses, Anthropic, LiteLLM). The replay
-engine will plug in here to serve responses from the cassette instead of calling ``fn``.
+point used by every proxy (OpenAI chat + responses, Anthropic, LiteLLM). In replay mode it
+serves the recorded response from the cassette instead of calling ``fn``.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ..models import Step
 from . import normalize as N
 from ._steps import begin_step
 from .streams import (
@@ -129,9 +130,41 @@ class ChatCall:
         if not self.active:
             return
         norm, raw = self.adapter.normalize_response(resp)
+        attrs = _response_attributes(norm)
+        attrs["crashlab.response.type"] = f"{type(resp).__module__}.{type(resp).__qualname__}"
         self.pending.finish(  # type: ignore[union-attr]
-            norm, raw_response=N.strip_binary(raw), attributes=_response_attributes(norm)
+            norm, raw_response=N.strip_binary(raw), attributes=attrs
         )
+
+    # replay ----------------------------------------------------------------------------
+    def replay_source(self) -> Step | None:
+        return self.pending.replay_source() if self.pending is not None else None
+
+    def serve_replay(self, src: Step, *, is_async: bool) -> Any:
+        """Finish this step from the recording and return what the live call returned."""
+        from ..replay import rebuild as R
+        from ..replay import synth
+
+        self.pending.finish_from(src)  # type: ignore[union-attr]
+        error = R.rebuild_exception(src.error) if src.error is not None else None
+        api = self.adapter.api
+        if self.stream:
+            chunk_type = src.attributes.get("crashlab.stream.chunk_type") or (
+                R.DEFAULT_CHUNK_TYPES.get(api)
+            )
+            items = synth.synthesize(api, src.raw_response, chunk_type)
+            if error is not None and not items:
+                return _raise_later(error) if is_async else _raise(error)
+            if is_async:  # `await create(stream=True)` returns the stream
+                return _return_later(synth.AsyncReplayStream(items, error))
+            return synth.ReplayStream(items, error)
+        if error is not None:
+            return _raise_later(error) if is_async else _raise(error)
+        resp_type = src.attributes.get("crashlab.response.type") or R.DEFAULT_RESPONSE_TYPES.get(
+            api
+        )
+        obj = R.rebuild(src.raw_response or {}, resp_type)
+        return _return_later(obj) if is_async else obj
 
     def finish_stream(
         self, asm: Assembler, *, error: BaseException | None = None, complete: bool = False
@@ -142,6 +175,8 @@ class ChatCall:
         norm, raw = self.adapter.normalize_response(raw) if raw else (None, None)
         attrs = _response_attributes(norm) if norm else {}
         attrs["crashlab.stream.chunks"] = asm.chunks
+        if asm.chunk_type:
+            attrs["crashlab.stream.chunk_type"] = asm.chunk_type
         attrs["crashlab.stream.complete"] = bool(complete and error is None)
         raw = N.strip_binary(raw) if raw else None
         if error is not None and not isinstance(error, GeneratorExit):
@@ -162,6 +197,18 @@ def _wrap_result(call: ChatCall, result: Any, *, is_async: bool) -> Any:
     return result
 
 
+def _raise(exc: BaseException) -> Any:
+    raise exc
+
+
+async def _raise_later(exc: BaseException) -> Any:
+    raise exc
+
+
+async def _return_later(value: Any) -> Any:
+    return value
+
+
 def invoke(
     adapter: ChatAdapter,
     fn: Callable[..., Any],
@@ -170,8 +217,14 @@ def invoke(
     *,
     server: str | None = None,
     bind_to: Callable[..., Any] | None = None,
+    is_async: bool | None = None,
 ) -> Any:
-    """Call ``fn(*args, **kwargs)`` and record it. Works for sync and async callables."""
+    """Call ``fn(*args, **kwargs)`` and record it. Works for sync and async callables.
+
+    In replay mode ``fn`` is not called: the recorded response is returned (awaitable when
+    ``is_async``; SDK async methods are not detectable as coroutine functions, so the
+    proxies pass it explicitly).
+    """
     call_kwargs = dict(kwargs)
     if args and bind_to is not None:  # positional args (e.g. litellm.completion(model, msgs))
         try:
@@ -181,6 +234,11 @@ def invoke(
         except (TypeError, ValueError):
             pass
     call = ChatCall(adapter, call_kwargs, server=server)
+    src = call.replay_source()
+    if src is not None:
+        if is_async is None:
+            is_async = inspect.iscoroutinefunction(fn)
+        return call.serve_replay(src, is_async=is_async)
     try:
         result = fn(*args, **kwargs)
     except BaseException as exc:

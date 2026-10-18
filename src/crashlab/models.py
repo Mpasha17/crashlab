@@ -92,6 +92,14 @@ Patch = Annotated[Union[NoopPatch, RawPatch], Field(discriminator="kind")]  # no
 # --- Steps and runs ------------------------------------------------------------------
 
 
+class CheckResult(_Model):
+    """Result of one ``@crashlab.check`` outcome oracle on a run."""
+
+    name: str
+    status: Literal["pass", "fail", "error"]
+    message: str | None = None
+
+
 class Step(_Model):
     """One recorded interaction in a run: an LLM call, a tool execution or a custom span."""
 
@@ -137,8 +145,10 @@ class Run(_Model):
     error: ErrorInfo | None = None
     parent_run_id: str | None = None
     fork_at: int | None = None
+    replay_of: str | None = None  # source run id when this run is a strict replay
     patch: Patch | None = None
     flags: list[Flag] = Field(default_factory=list)
+    checks: list[CheckResult] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=utcnow)
     ended_at: datetime | None = None
     code_version: str | None = None
@@ -158,6 +168,14 @@ class Run(_Model):
 
     def chat_steps(self) -> list[Step]:
         return [s for s in self.steps if s.operation == "chat"]
+
+    def tool_calls(self, name: str | None = None, *, ok_only: bool = False) -> list[Step]:
+        """Tool steps (optionally only one tool / only those that did not raise)."""
+        return [s for s in self.tool_steps(name) if not (ok_only and s.error is not None)]
+
+    def tool_results(self, name: str | None = None) -> list[Any]:
+        """Results of the tool calls that succeeded, in order."""
+        return [s.result for s in self.tool_calls(name, ok_only=True)]
 
 
 # --- Diagnosis / fixes / verification (schemas only in v0.0.1) ------------------------

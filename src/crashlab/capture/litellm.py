@@ -2,7 +2,7 @@
 
 ``patch()`` replaces ``litellm.completion`` and ``litellm.acompletion`` with recording
 wrappers (plain and ``stream=True``). Calls go through the same interception point as the
-client proxies, which is where replay will later substitute recorded responses.
+client proxies, so ``crashlab.replay`` serves them from the cassette too.
 
 Code that did ``from litellm import completion`` *before* ``patch()`` keeps a reference to
 the original function and is not recorded; call ``litellm.completion(...)`` or patch first.
@@ -49,7 +49,7 @@ def _make(orig: Any, is_async: bool) -> Any:
         async def acompletion(*args: Any, **kwargs: Any) -> Any:
             model = kwargs.get("model", args[0] if args else None)
             adapter = _adapter_for({**kwargs, "model": model})
-            return await invoke(adapter, orig, args, kwargs, bind_to=orig)
+            return await invoke(adapter, orig, args, kwargs, bind_to=orig, is_async=True)
 
         acompletion.__crashlab_patched__ = True  # type: ignore[attr-defined]
         return acompletion
@@ -58,7 +58,7 @@ def _make(orig: Any, is_async: bool) -> Any:
     def completion(*args: Any, **kwargs: Any) -> Any:
         model = kwargs.get("model", args[0] if args else None)
         adapter = _adapter_for({**kwargs, "model": model})
-        return invoke(adapter, orig, args, kwargs, bind_to=orig)
+        return invoke(adapter, orig, args, kwargs, bind_to=orig, is_async=False)
 
     completion.__crashlab_patched__ = True  # type: ignore[attr-defined]
     return completion
