@@ -171,17 +171,22 @@ def client_provider(client: Any) -> str:
 # --- the agent loops (plain SDK tool calling; nothing crashlab-specific inside) --------
 
 
+def _tool_call_dict(tc: Any) -> dict[str, Any]:
+    # model_dump keeps provider extras, e.g. Gemini's extra_content.google.thought_signature,
+    # which Gemini 3 requires to be sent back with the next request.
+    if hasattr(tc, "model_dump"):
+        return tc.model_dump(exclude_none=True)
+    return {
+        "id": tc.id,
+        "type": "function",
+        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+    }
+
+
 def _assistant_message(msg: Any) -> dict[str, Any]:
     out: dict[str, Any] = {"role": "assistant", "content": msg.content}
     if msg.tool_calls:
-        out["tool_calls"] = [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-            }
-            for tc in msg.tool_calls
-        ]
+        out["tool_calls"] = [_tool_call_dict(tc) for tc in msg.tool_calls]
     return out
 
 

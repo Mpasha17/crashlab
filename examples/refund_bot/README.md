@@ -24,7 +24,16 @@ crashlab show last
 ```
 
 Any OpenAI-compatible endpoint works through `OPENAI_BASE_URL`, `OPENAI_API_KEY` and
-`MODEL` (vLLM, LM Studio, LiteLLM proxy, OpenRouter ...).
+`MODEL` (vLLM, LM Studio, LiteLLM proxy, OpenRouter ...). Tested live with:
+
+| provider | `OPENAI_BASE_URL` | `MODEL` |
+|---|---|---|
+| Groq | `https://api.groq.com/openai/v1` | `openai/gpt-oss-120b` |
+| Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-flash-latest` |
+
+Gemini 3 models attach a `thought_signature` to each tool call and reject the next turn
+if it is not sent back. The agent echoes tool calls with `model_dump()` so the signature is
+kept; do the same in your own agents.
 
 ### Free, local, with Ollama
 
