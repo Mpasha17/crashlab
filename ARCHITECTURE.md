@@ -41,7 +41,7 @@ flowchart LR
 | 4 | `capture/` | `normalize.py` (provider -> common request/response shape + request hash), `openai.py`, `anthropic.py`, `litellm.py` proxies, `_chat.py` (single LLM-call interception point), `streams.py` (pass-through stream wrappers + assemblers), `tools.py` (`@tool(side_effects=...)`), `agent.py` (`@agent`, `record()` context manager); `integrations/litellm.py` exposes `patch()` / `unpatch()` |
 | 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `fork`, `diff`; later `diagnose`, `verify`, `export-test`, `report`, `bench` |
 | 6 | `replay/`, `patch.py`, `compare.py` | `engine.py` (strict replay; fork = cassette for steps < N, patch from N, live after), `patch.py` (typed patches: `SystemPrompt`, `Message`, `InjectMessage`, `ToolResult`, `ToolDescription`, `ToolSchema`, `ModelParams`), `divergence.py` (hash mismatch -> `DivergenceError` with diff), `compare.py` (run diff) |
-| 7 | `checks/` | Inline flags: `loop` (same tool+args >= 3 in last 8 steps), `tool_error_streak` (>= 3), `bad_tool_args`, `suspicious_tool_result` (HTML/empty where JSON expected), `budget`, `length_cutoff` |
+| 7 | `checks/` | Inline findings (built, see below): `loop` (same tool+args >= 3 in last 8 steps), `tool_error_streak` (>= 3), `bad_tool_args`, `suspicious_tool_result` (HTML/empty where JSON expected), `budget`, `length_cutoff` |
 | 8 | `diagnose/` | `compact.py` step table with truncation handles, `heuristics.py` candidate steps from flags/errors, `diagnoser.py` one LLM call returning JSON (failing_step, label, evidence, explanation, confidence), `evidence.py` drops quotes not found verbatim -> UNKNOWN if none, `fixes.py` separate LLM call producing 1-3 typed fixes, `taxonomy.py` enum + definitions |
 | 9 | `verify/` | `runner.py` k forks with fix + reruns of past passing runs, `oracles.py` (`@check` fns > "same failure didn't recur" > LLM judge, labelled weaker), `stats.py` pass^k + Wilson CI + verdict |
 | 10 | `export/` + `pytest_plugin.py` | Write `tests/crashlab/test_<agent>_<id>.py` + copied cassette; plugin adds `crashlab_replay` fixture and `--crashlab-live` |
@@ -152,6 +152,47 @@ flowchart LR
   `request`, `response`, `different` call, `only_a`, `only_b`) comparing the normalized
   request and response with volatile fields (ids, signatures, usage) removed, plus the
   first divergence with a field diff.
+
+## Runtime checks and cost (as built)
+
+- **Findings** (`models.Finding`; `Flag` is an alias): `kind`, `severity` (`info` < `warn` <
+  `error` < `critical`), `step` / `steps`, `message`, `evidence` (verbatim quotes with step
+  and field), a merge `key` and `stopped_run`. Stored in `run.json` and indexed in the
+  `flags` table; `runs.max_severity` and `runs.cost_usd` back `ls --flagged`. Runtime
+  checks are separate from `@crashlab.check` oracles: findings say how a run behaved,
+  oracles say whether it passed. A finding never changes the outcome, except a
+  circuit-breaker stop.
+- **Detectors** (`checks/detectors.py`) are small stateful objects with `on_step` and
+  `on_end`. `checks/engine.py` `CheckEngine` runs them inline (`RunContext.add_step`) and
+  `checks.evaluate(run, config)` runs the same code over a stored run. Findings with the
+  same `(kind, key)` are merged: steps extend, severity only goes up, evidence is capped.
+  `suspicious_tool_result` drift compares a result's shape (keys and JSON types) with
+  earlier results of the same tool in the run and in the last 5 ok runs of the same agent
+  (majority keys).
+  Repetition after a failing result is `warn`, after differing results `info`, and
+  `critical` at 5. HTML or error bodies count as tool failures for `tool_error_streak`.
+- **Config** (`checks/config.py`, `ChecksConfig`): defaults < `[tool.crashlab.checks]` in
+  the nearest `pyproject.toml` < `record(checks=...)` / `agent(checks=...)` (a dict or a
+  `ChecksConfig`; `False` disables). The resolved config is stored in `run.check_config`, and
+  replay / fork / `crashlab check` start from it, so a stored run keeps its limits.
+  `CRASHLAB_NO_PYPROJECT=1` ignores pyproject.
+- **Circuit breaker** (opt-in): a new critical finding raises `CircuitBreakerError`
+  (a `BaseException`, so `except Exception` in agent code does not swallow it) right after
+  the step is stored. For streams it is raised at the next step, so the stream itself
+  completes. End-of-run findings never trip it. The finding gets `stopped_run=True`; the
+  run ends with `status=error`, `outcome=fail`. A strict replay re-raises at the same step
+  from the stored finding, and `crashlab check --save` keeps that marker. A fork uses the
+  config as it is now.
+- **Cost** (`pricing.py`): the provider comes from `server.address` (known API hosts; localhost
+  / `*.local` = local = $0) or the LiteLLM model prefix. Prices come from custom
+  (`set_price`, `[tool.crashlab.prices]`), then the built-in dated table (`PRICES_AS_OF`),
+  then LiteLLM's bundled `model_cost` (never fetched). OpenAI-style input includes cached
+  tokens; Anthropic cache reads and writes are separate. Total tokens beyond input + output
+  (thinking) are billed as output. Unknown model or no usage reported means `None`, and one
+  unknown call makes the run total `None`. Replayed steps keep the recorded cost.
+- **Export / import** (`store.export_run` / `import_run`): one JSONL file, a
+  `{"type": "crashlab.run"}` header line with the run, then the redacted cassette lines.
+  The demo runs in `examples/refund_bot/demo/` are such files.
 
 ## Key design rules
 

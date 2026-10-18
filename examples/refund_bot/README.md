@@ -38,17 +38,33 @@ kept; do the same in your own agents.
 ### Free, local, with Ollama
 
 ```bash
-ollama pull qwen2.5:7b            # any model with tool-calling support, e.g. llama3.1:8b
+ollama pull qwen2.5:3b            # any model with tool calling: llama3.2:3b, qwen2.5:7b, ...
 ollama serve                      # if it is not already running
 
 export OPENAI_BASE_URL=http://localhost:11434/v1
 export OPENAI_API_KEY=ollama      # Ollama ignores the key, but the client needs one
-export MODEL=qwen2.5:7b
+export MODEL=qwen2.5:3b
 python -m examples.refund_bot "Refund my order A17, it arrived broken"
-crashlab show last
+crashlab show last                # est. $0: local servers are free
 ```
 
-Small local models are less reliable at tool calling, so expect more interesting failures.
+Or through LiteLLM (`pip install -e ".[litellm]"`), with the same loop and tools:
+
+```bash
+python -m examples.refund_bot --provider litellm --model ollama_chat/qwen2.5:3b "Refund A17"
+PROVIDER=litellm MODEL=ollama_chat/llama3.2:3b python -m examples.refund_bot "Refund A17"
+```
+
+Use `ollama_chat/...` (Ollama's chat API with native tool calling). LiteLLM's older
+`ollama/...` route emulates tools through JSON prompting: in our runs qwen2.5:3b on it
+once repeated `get_order` three times (flagged by `step_repetition`, failed by the step
+budget oracle) and once answered `{}` without calling a tool. `--provider litellm`
+also takes any other LiteLLM model (`groq/...`, `gemini/...`) with that provider's key.
+
+Small local models are less reliable at tool calling, which makes them good at producing
+failures to look at: llama3.2:3b called `issue_refund` with `amount: "0"` (a string where
+the schema says number, flagged by `bad_tool_args`), and both 3B models sometimes promise
+a refund in the reply without calling `issue_refund`.
 
 ### Anthropic
 
@@ -103,6 +119,32 @@ They run when the run ends; `crashlab show` lists them and the run gets `outcome
 `fail` with the first failing check as the reason. Refund attempts that the tool rejected
 (it raises for amounts above the total) are not counted as refunds.
 `crashlab check <run_id>` re-runs the checks on an older run and stores the new outcome.
+
+## Runtime checks
+
+Besides the oracles, the built-in runtime checks watch every run (no setup needed):
+
+```bash
+FAULT_HTML_502=1 python -m examples.refund_bot "Refund my order A17"
+crashlab show last        # runtime findings: e.g. tool_error_streak (error) at steps 1, 3, 5:
+                          # "get_order failed 3 times in a row ... HTML page (502 Bad Gateway)"
+crashlab ls --flagged     # runs with findings
+crashlab check last --findings-only --max-steps 4 --fail-on error   # stricter, after the fact
+```
+
+To stop a run instead of only flagging it, turn on the circuit breaker, e.g. in a
+`pyproject.toml` next to where you run the agent:
+
+```toml
+[tool.crashlab.checks]
+circuit_breaker = true
+max_steps = 6
+```
+
+A critical finding (a budget exceeded, 5 identical tool calls, 5 tool failures in a row)
+then raises `crashlab.CircuitBreakerError` right after the step that caused it. The run is
+stored with `status=error` and `outcome=fail` ("stopped by crashlab: [budget] ..."), and
+`crashlab replay` stops at the same step.
 
 ## Replay offline
 

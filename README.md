@@ -70,11 +70,30 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
   outcome and check changes, tokens / steps / time side by side, a step-by-step comparison
   (same, different request, different response, only in A / B) and the first divergence
   with a field diff. `B` defaults to `A`'s parent.
+- **Runtime checks** (built in, on by default): cheap deterministic detectors that run
+  while the agent is recorded and on stored runs (`crashlab check`). They emit typed
+  findings (kind, severity `info` / `warn` / `error` / `critical`, steps, a message and
+  verbatim evidence quotes):
+  `step_repetition` (same tool + arguments again and again, near-identical LLM requests),
+  `tool_error_streak`, `bad_tool_args` (validated against the tool's JSON schema),
+  `suspicious_tool_result` (HTML / error pages, empty or truncated results, a result whose
+  shape drifted from earlier results of the same tool), `budget` (steps, LLM / tool calls,
+  tokens, USD, seconds) and `length_cutoff`. Findings are stored with the run and shown by
+  `show`, `diff` and `ls --flagged`. They describe *how* a run behaved; `@crashlab.check`
+  oracles still decide whether it passed. Opt-in **circuit breaker**: a critical finding
+  stops the agent (`CircuitBreakerError`), and strict replay stops at the same step.
+- **Cost estimates** per step and per run in USD, from a small built-in price table
+  (OpenAI, Anthropic, Groq, Gemini; dated prices) plus LiteLLM's cost map when LiteLLM is
+  installed. Local servers (Ollama, localhost) cost $0. Unknown models show no cost; prices
+  are never guessed. Your own prices: `crashlab.pricing.set_price(...)` or
+  `[tool.crashlab.prices]`.
+- **Share runs:** `crashlab export RUN -o run.jsonl` / `crashlab import run.jsonl`
+  (redacted again on the way out).
 - **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab replay`, `crashlab check`,
-  `crashlab fork`, `crashlab diff`; in Python, `crashlab.load("last")`.
+  `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
+  `crashlab.load("last")`.
 
-Not yet: runtime checks (loop / error-streak flags), diagnosis, verification, test
-export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
+Not yet: diagnosis, verification, test export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response (same content, different chunk boundaries).
 Also not intercepted yet: Anthropic `client.beta.messages`, OpenAI
 `chat.completions.stream()` / `responses.stream()` helpers, `with_raw_response` calls.
@@ -121,27 +140,67 @@ print(crashlab.diff(run, branch).summary())
 ```
 
 ```bash
-crashlab ls            # runs: id, name, status, outcome, steps, tokens, started
-crashlab show last     # checks + step table: idx, op, name, args / result, error
+crashlab ls            # runs: id, name, status, outcome, steps, tokens, cost, findings
+crashlab ls --flagged  # only runs with runtime-check findings (--min-severity error)
+crashlab show last     # checks, findings + step table: idx, op, name, args / result, error
 crashlab replay last   # offline re-run from the cassette; exit 1 + diff on divergence
-crashlab check last    # re-run the @crashlab.check oracles, store pass / fail
+crashlab check last    # re-run the oracles and the runtime checks (--save to store them)
+crashlab check --all --findings-only --max-cost 0.05 --fail-on error   # e.g. in CI
 crashlab fork last --at 0 --system-append "Never refund more than the order total."
 crashlab fork last --at 2 --patch fix.yaml --dry-run   # show the patch diff, run nothing
 crashlab diff last     # the fork vs its parent: checks, usage, steps, first divergence
 ```
 
-Try the bundled demo agent, free with a local model through Ollama:
+Runtime checks are configured per run or in `pyproject.toml`, and `record(checks=...)`
+wins over pyproject:
+
+```python
+@crashlab.agent(name="refund-bot", checks={"max_steps": 20, "max_cost_usd": 0.10,
+                                           "circuit_breaker": True})
+```
+
+```toml
+[tool.crashlab.checks]
+circuit_breaker = true          # stop the agent on a critical finding (default: off)
+max_steps = 20                  # budget: also max_llm_calls, max_tool_calls, max_tokens,
+max_cost_usd = 0.10             #   max_seconds; warn at 80% (budget.warn_at)
+[tool.crashlab.checks.step_repetition]
+threshold = 3                   # warn at 3 identical tool calls, critical at 5
+```
+
+### Try it with no API key and no model
+
+The repo ships five real recorded runs of the demo agent (secrets and local paths scrubbed):
+a clean refund, a policy violation the oracles fail, a 502 retry loop the runtime checks
+flag, a run the circuit breaker stopped, and a small local model passing a bad argument.
 
 ```bash
 git clone https://github.com/Mpasha17/crashlab && cd crashlab
 python -m venv .venv && . .venv/bin/activate && pip install -e ".[openai]"
-ollama pull qwen2.5:7b
-OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_API_KEY=ollama MODEL=qwen2.5:7b \
+export CRASHLAB_DIR=/tmp/crashlab-demo
+for f in examples/refund_bot/demo/*.jsonl; do crashlab import "$f"; done
+crashlab ls                        # 5 runs, with cost and findings
+crashlab show 01M57GM9Q5           # Groq gpt-oss-120b retrying an HTML 502 page 3 times
+crashlab check --all               # oracles + runtime checks, offline (exit 1: C03 fails)
+crashlab replay 01M57GM7H9         # strict offline replay of the policy violation
+crashlab fork 01M57GM7H9 --at 0 --dry-run \
+  --system-append "Never refund an order delivered more than 30 days ago."
+```
+
+Running the fork for real (without `--dry-run`) needs a model, for example a local one:
+
+### Free, local, with Ollama
+
+```bash
+ollama pull qwen2.5:3b             # or llama3.2:3b / qwen2.5:7b: any tool-calling model
+OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_API_KEY=ollama MODEL=qwen2.5:3b \
   python -m examples.refund_bot "Refund my order A17, it arrived broken"
-FAULT_HTML_502=1 OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_API_KEY=ollama MODEL=qwen2.5:7b \
+FAULT_HTML_502=1 OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_API_KEY=ollama MODEL=qwen2.5:3b \
   python -m examples.refund_bot "Refund my order A17"     # get_order returns an HTML 502 page
-crashlab ls && crashlab show last
-crashlab replay last                                      # no model server needed
+# or through LiteLLM (pip install -e ".[litellm]"): ollama_chat/ uses Ollama's native tools
+python -m examples.refund_bot --provider litellm --model ollama_chat/qwen2.5:3b "Refund A17"
+crashlab ls && crashlab show last  # cost: $0
+crashlab replay last               # no model server needed
 
 # the same agent on Anthropic
 PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... MODEL=claude-haiku-4-5 \
