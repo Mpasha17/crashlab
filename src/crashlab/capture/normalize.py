@@ -149,20 +149,51 @@ def binary_placeholder(data: bytes | str, media_type: str | None = None) -> str:
     return f"<{media_type or 'binary'} {size} bytes sha256:{digest}>"
 
 
-def strip_binary(obj: Any) -> Any:
-    """Replace inline base64 blobs / data: URLs in a JSON-like structure with placeholders."""
+# Keys whose long base64 values are media payloads (image/audio/file bytes).
+_MEDIA_KEYS = frozenset(
+    {
+        "data",
+        "b64_json",
+        "file_data",
+        "bytes",
+        "blob",
+        "image",
+        "audio",
+        "inline_data",
+        "inlineData",
+    }
+)
+# Containers whose ``data`` is an opaque token the provider needs back verbatim.
+_OPAQUE_TYPES = frozenset({"redacted_thinking"})
+
+
+def strip_binary(obj: Any, _key: str | None = None) -> Any:
+    """Replace inline media (base64 blobs, data: URLs) in a JSON-like structure with placeholders.
+
+    Only ``data:`` URLs and long base64 values under media keys (``data``, ``b64_json``,
+    ``file_data``...) are elided. Opaque provider tokens that must round-trip verbatim
+    (Gemini ``thought_signature``, Anthropic ``signature`` / ``redacted_thinking.data``,
+    OpenAI ``encrypted_content``) are kept, so a recording can still be replayed.
+    """
     if isinstance(obj, str):
         if obj.startswith("data:"):
             m = _DATA_URL.match(obj)
             if m:
                 return binary_placeholder(m.group("data"), m.group("mt"))
-        if len(obj) > BINARY_PLACEHOLDER_MIN and " " not in obj[:200] and _BASE64ISH.match(obj):
+        if (
+            _key in _MEDIA_KEYS
+            and len(obj) > BINARY_PLACEHOLDER_MIN
+            and " " not in obj[:200]
+            and _BASE64ISH.match(obj)
+        ):
             return binary_placeholder(obj)
         return obj
     if isinstance(obj, dict):
-        return {k: strip_binary(v) for k, v in obj.items()}
+        if obj.get("type") in _OPAQUE_TYPES:
+            return obj
+        return {k: strip_binary(v, k if isinstance(k, str) else None) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [strip_binary(v) for v in obj]
+        return [strip_binary(v, _key) for v in obj]
     return obj
 
 
@@ -409,6 +440,10 @@ def normalize_messages(messages: Any) -> list[dict[str, Any]]:
                 (tool_results if p["type"] == "tool_call_response" else parts).append(p)
         else:
             parts = content_parts(content)
+        if role == "assistant":
+            reasoning = m.get("reasoning_content") or m.get("reasoning")
+            if isinstance(reasoning, str) and reasoning:
+                parts.insert(0, {"type": "reasoning", "content": reasoning})
         for tc in m.get("tool_calls") or []:
             fn = tc.get("function") or {}
             parts.append(tool_call_part(tc.get("id"), fn.get("name"), fn.get("arguments")))
@@ -637,7 +672,13 @@ def normalize_openai_chat_response(resp: Any) -> tuple[dict[str, Any], dict[str,
         cache_read_input_tokens=details_in.get("cached_tokens"),
         reasoning_tokens=details_out.get("reasoning_tokens"),
     )
-    reasons = [_OPENAI_FINISH.get(r, r) for r in provider_reasons]
+    reasons = [
+        # Gemini's OpenAI-compatible stream reports "stop" on a tool-calling turn.
+        "tool_calls"
+        if r == "stop" and any(p["type"] == "tool_call" for p in msg["parts"])
+        else _OPENAI_FINISH.get(r, r)
+        for r, msg in zip(provider_reasons, messages, strict=True)
+    ]
     normalized = {
         "messages": messages,
         "tool_calls": tool_calls,

@@ -86,6 +86,8 @@ def _response_attributes(norm: dict[str, Any]) -> dict[str, Any]:
         "gen_ai.usage.cache_read.input_tokens": usage.get("cache_read_input_tokens"),
         "gen_ai.usage.cache_creation.input_tokens": usage.get("cache_creation_input_tokens"),
         "gen_ai.usage.reasoning.output_tokens": usage.get("reasoning_tokens"),
+        # provider-reported total; can exceed input+output (e.g. Gemini thinking tokens)
+        "crashlab.usage.total_tokens": usage.get("total_tokens"),
     }
     return {k: v for k, v in attrs.items() if v is not None}
 

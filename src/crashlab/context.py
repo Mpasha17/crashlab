@@ -55,9 +55,12 @@ class RunContext:
             u.steps += 1
             if step.operation == "chat":
                 u.llm_calls += 1
-                u.input_tokens += int(step.attributes.get("gen_ai.usage.input_tokens") or 0)
-                u.output_tokens += int(step.attributes.get("gen_ai.usage.output_tokens") or 0)
-                u.total_tokens = u.input_tokens + u.output_tokens
+                inp = int(step.attributes.get("gen_ai.usage.input_tokens") or 0)
+                out = int(step.attributes.get("gen_ai.usage.output_tokens") or 0)
+                total = step.attributes.get("crashlab.usage.total_tokens")
+                u.input_tokens += inp
+                u.output_tokens += out
+                u.total_tokens += int(total) if total is not None else inp + out
                 if step.response:
                     self.pending_tool_calls = list(step.response.get("tool_calls") or [])
             elif step.operation == "execute_tool":

@@ -56,7 +56,15 @@ class OpenAIChatAssembler(Assembler):
             idx = ch.get("index") or 0
             st = self.choices.setdefault(
                 idx,
-                {"role": None, "content": [], "refusal": [], "tool_calls": {}, "finish": None},
+                {
+                    "role": None,
+                    "content": [],
+                    "refusal": [],
+                    "reasoning": [],
+                    "reasoning_key": None,
+                    "tool_calls": {},
+                    "finish": None,
+                },
             )
             delta = ch.get("delta") or {}
             if delta.get("role"):
@@ -65,6 +73,11 @@ class OpenAIChatAssembler(Assembler):
                 st["content"].append(delta["content"])
             if delta.get("refusal"):
                 st["refusal"].append(delta["refusal"])
+            for rkey in ("reasoning_content", "reasoning"):
+                if isinstance(delta.get(rkey), str) and delta[rkey]:
+                    st["reasoning"].append(delta[rkey])
+                    st["reasoning_key"] = st["reasoning_key"] or rkey
+                    break
             for tc in delta.get("tool_calls") or []:
                 tidx = tc.get("index") or 0
                 call = st["tool_calls"].setdefault(
@@ -72,6 +85,9 @@ class OpenAIChatAssembler(Assembler):
                 )
                 if tc.get("id"):
                     call["id"] = tc["id"]
+                for k, v in tc.items():  # provider extras, e.g. Gemini extra_content
+                    if k not in ("index", "id", "type", "function") and v is not None:
+                        call.setdefault("extra", {})[k] = v
                 fn = tc.get("function") or {}
                 if fn.get("name"):
                     call["name"].append(fn["name"])
@@ -90,6 +106,8 @@ class OpenAIChatAssembler(Assembler):
             }
             if st["refusal"]:
                 msg["refusal"] = "".join(st["refusal"])
+            if st["reasoning"]:
+                msg[st["reasoning_key"]] = "".join(st["reasoning"])
             if st["tool_calls"]:
                 msg["tool_calls"] = [
                     {
@@ -99,6 +117,7 @@ class OpenAIChatAssembler(Assembler):
                             "name": "".join(c["name"]),
                             "arguments": "".join(c["arguments"]),
                         },
+                        **c.get("extra", {}),
                     }
                     for _, c in sorted(st["tool_calls"].items())
                 ]

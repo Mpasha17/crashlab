@@ -63,6 +63,16 @@ flowchart LR
   will substitute cassette responses there.
 - **Streaming.** Streams are wrapped, not consumed: chunks pass through unchanged and the
   assembled final response is recorded on end / error / close (`crashlab.stream.complete`).
+- **OpenAI-compatible quirks.** `reasoning` / `reasoning_content` on assistant messages and
+  stream deltas (Groq, DeepSeek, vLLM, LiteLLM) become `reasoning` parts. `finish_reason`
+  `"stop"` on a turn that has tool calls (Gemini streams) normalizes to `"tool_calls"`; the raw
+  value stays in `provider_finish_reason`. The provider's `total_tokens` is kept
+  (`crashlab.usage.total_tokens`) and summed into the run total, because it can exceed
+  input+output (Gemini thinking tokens).
+- **Opaque tokens survive.** Media elision only touches `data:` URLs and base64 under media
+  keys (`data`, `b64_json`, `file_data`...). Replay tokens such as Gemini `thought_signature`,
+  Anthropic `signature` / `redacted_thinking`, and OpenAI `encrypted_content` are stored
+  verbatim, since the provider needs them back.
 - **Threads.** Context vars do not cross plain threads; `crashlab.bind_context`,
   `ContextThreadPoolExecutor` and `run_in_thread` carry the active run into workers.
 
