@@ -1,5 +1,5 @@
-"""``crashlab`` command line: ``ls``, ``show``, ``replay``, ``check``, ``fork``, ``diff``,
-``export``, ``import``."""
+"""``crashlab`` command line: ``ls``, ``show``, ``replay``, ``check``, ``diagnose``,
+``fork``, ``diff``, ``export``, ``import``."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from rich.table import Table as _RichTable
 from rich.text import Text
 
 from ._version import __version__
-from .models import SEVERITY_RANK, CheckResult, Finding, Run, Step
+from .models import SEVERITY_RANK, CheckResult, Diagnosis, Finding, Run, Step
 from .store import ENV_DIR, RunNotFoundError, Store
 
 
@@ -342,6 +342,8 @@ def show(
         console.print(_checks_table(run.checks))
     if run.findings:
         console.print(_findings_table(run.findings))
+    if run.diagnosis is not None:
+        console.print(_diagnosis_panel(run.diagnosis))
     marks: dict[int, Finding] = {}
     for f in run.findings:
         for i in f.steps or ([f.step] if f.step is not None else []):
@@ -383,6 +385,124 @@ def _checks_table(results: list[CheckResult]) -> Table:
     for r in results:
         table.add_row(Text(r.status, style=_CHECK_STYLE.get(r.status, "")), r.name, r.message or "")
     return table
+
+
+_LABEL_STYLE = {"NO_FAILURE": "green", "UNKNOWN": "yellow"}
+
+
+def _diagnosis_panel(d: Diagnosis) -> Panel:
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="bold", no_wrap=True)
+    grid.add_column(overflow="fold")
+    label = Text(d.label.value, style=_LABEL_STYLE.get(d.label.value, "bold red"))
+    head = (Text(f"step {d.failing_step} · ") if d.failing_step is not None else Text()) + label
+    if d.step_window and d.step_window[0] != d.step_window[1]:
+        head += Text(f"  (steps {d.step_window[0]}-{d.step_window[1]})", style="dim")
+    grid.add_row("verdict", head)
+    grid.add_row("confidence", f"{d.confidence:.2f}")
+    if d.root_cause:
+        grid.add_row("root cause", d.root_cause)
+    for i, ev in enumerate(d.evidence):
+        quote = " ".join(ev.quote.split())
+        quote = quote if len(quote) <= 160 else quote[:159] + "…"
+        grid.add_row(
+            "evidence" if i == 0 else "",
+            Text(f"step {ev.step_idx} {ev.field}: ", style="dim") + Text(repr(quote)),
+        )
+    if d.secondary:
+        grid.add_row("also", ", ".join(s.value for s in d.secondary))
+    for i, note in enumerate(d.notes):
+        grid.add_row("notes" if i == 0 else "", Text(note, style="yellow"))
+    m = d.method or {}
+    bits = [d.model or "?"]
+    if m.get("input_tokens") is not None:
+        bits.append(f"{m.get('input_tokens', 0)}+{m.get('output_tokens', 0)} tokens")
+    if m.get("cost_usd") is not None:
+        bits.append(_cost_text(m.get("cost_usd")))
+    if m.get("seconds") is not None:
+        bits.append(f"{m['seconds']:.1f}s")
+    if m.get("cached"):
+        bits.append("cached")
+    grid.add_row("diagnoser", Text(" · ".join(bits), style="dim"))
+    return Panel(grid, title="diagnosis", title_align="left")
+
+
+@app.command("diagnose")
+def diagnose_cmd(
+    run_refs: list[str] = typer.Argument(  # noqa: B008
+        None, help="Run ids / prefixes / 'last' (default: last)."
+    ),
+    model: str | None = typer.Option(
+        None, "--model", "-m", help="Diagnoser model (default: $CRASHLAB_DIAGNOSER_MODEL)."
+    ),
+    base_url: str | None = typer.Option(
+        None,
+        "--base-url",
+        help="OpenAI-compatible endpoint for the diagnoser (Groq, Gemini, Ollama, vLLM ...).",
+    ),
+    api_key_env: str | None = typer.Option(
+        None,
+        "--api-key-env",
+        help="Name of the env var that holds the diagnoser's API key (never the key itself).",
+    ),
+    heuristic: bool = typer.Option(
+        False, "--heuristic", help="No LLM call: rule-based diagnosis from checks and findings."
+    ),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Ask again even if cached."),
+    save: bool = typer.Option(True, "--save/--no-save", help="Store the diagnosis with the run."),
+    hide_input: list[str] = typer.Option(  # noqa: B008
+        [], "--hide-input", help="Run input key to hide from the diagnoser (repeatable)."
+    ),
+    max_chars: int = typer.Option(600, "--max-chars", help="Truncate trace fields at N chars."),
+    show_prompt: bool = typer.Option(
+        False, "--show-prompt", help="Print the compacted trace the diagnoser reads; no call."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the diagnosis as JSON."),
+) -> None:
+    """Diagnose stored runs: failure label, culprit step, root cause and verbatim evidence
+    from one LLM call, validated against the trace (unsupported answers become UNKNOWN)."""
+    from .diagnose import DiagnoseError, candidates, compact, diagnose
+
+    console = _console()
+    store = Store()
+    api_key = None
+    if api_key_env:
+        api_key = os.environ.get(api_key_env)
+        if not api_key:
+            console.print(f"[red]${_e(api_key_env)} is not set[/]")
+            raise typer.Exit(code=2)
+    out: list[dict[str, Any]] = []
+    for ref in run_refs or ["last"]:
+        run = _resolve(store, ref)
+        if show_prompt:
+            trace = compact(
+                run, candidates=candidates(run), max_field=max_chars, hide_input=hide_input
+            )
+            typer.echo(trace)
+            continue
+        try:
+            d = diagnose(
+                run,
+                model,
+                base_url=base_url,
+                api_key=api_key,
+                heuristic=heuristic,
+                cache=not no_cache,
+                save=save,
+                store=store,
+                hide_input=hide_input,
+                max_field=max_chars,
+            )
+        except DiagnoseError as exc:
+            console.print(f"[red]{_e(run.run_id)}: {_e(exc)}[/]")
+            raise typer.Exit(code=1) from exc
+        if as_json:
+            out.append(d.model_dump(mode="json"))
+        else:
+            console.print(f"[bold]{_e(run.run_id)}[/] {_e(run.name)} · outcome {_e(run.outcome)}")
+            console.print(_diagnosis_panel(d))
+    if as_json:
+        typer.echo(json.dumps(out[0] if len(out) == 1 else out, indent=2, ensure_ascii=False))
 
 
 @app.command("replay")
