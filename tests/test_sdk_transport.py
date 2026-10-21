@@ -59,7 +59,9 @@ def test_anthropic_sdk_refund_bot(anthropic_mod, crashlab_dir):
     client = crashlab.wrap(_anthropic_client(anthropic_mod, script))
     answer = refund.run_agent("Refund A17", client=client, model="claude-test")
     assert answer == "Refunded $49.00."
-    assert script.requests[0].headers["x-api-key"] == ANTHROPIC_KEY
+    headers = script.requests[0].headers  # anthropic<2: x-api-key; >=2: Authorization: Bearer
+    sent = headers.get("x-api-key") or headers.get("authorization", "").removeprefix("Bearer ")
+    assert sent == ANTHROPIC_KEY
     run = crashlab.load("last")
     assert [s.operation for s in run.steps] == ["chat", "execute_tool"] * 2 + ["chat"]
     chat0 = run.steps[0]
