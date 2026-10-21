@@ -170,6 +170,7 @@ def _ask(
     api_key: str | None,
     json_mode: bool,
     store: Any,
+    prompt_version: str = PROMPT_VERSION,
 ) -> tuple[Any, dict[str, Any]]:
     if current() is not None:
         raise DiagnoseError(
@@ -193,7 +194,7 @@ def _ask(
     try:
         with record(
             DIAGNOSER_RUN_NAME,
-            input={"run_id": run.run_id, "model": model, "prompt_version": PROMPT_VERSION},
+            input={"run_id": run.run_id, "model": model, "prompt_version": prompt_version},
             store_dir=root / "diagnoser",
             checks=False,
             tags=[DIAGNOSER_RUN_NAME],

@@ -262,15 +262,23 @@ class Run(_Model):
 
 
 class Fix(_Model):
+    """A proposed fix: one typed patch (see :mod:`crashlab.patch`) that ``crashlab fork
+    --patch`` can apply, ranked, with why it should work. Produced by
+    :func:`crashlab.propose_fixes` and validated before it is kept."""
+
     fix_id: str
-    kind: Literal[
-        "system_prompt", "tool_description", "tool_result_note", "guard_config", "model_swap"
-    ]
-    target: str
+    rank: int = 1
+    kind: str  # the patch kind: system_prompt, tool_description, tool_schema ...
+    target: str = ""  # "system prompt", a tool name, "step 3"
     before: str | None = None
-    after: str
-    rationale: str
+    after: str = ""
+    rationale: str = ""
+    expected_effect: str = ""
     as_patch: Patch | None = None
+    test_only: bool = False  # a counterfactual (tool_result): proves a cause, not a fix
+    file: str | None = None  # the saved patch file (``crashlab fork --patch FILE``)
+    notes: list[str] = Field(default_factory=list)
+    tried: dict[str, Any] | None = None  # ``--try``: the fork run id, outcome and checks
 
 
 class Diagnosis(_Model):
@@ -293,6 +301,8 @@ class Diagnosis(_Model):
     model: str | None = None  # diagnoser model; None for the heuristic diagnosis
     created_at: datetime = Field(default_factory=utcnow)
     fixes: list[Fix] = Field(default_factory=list)
+    fix_notes: list[str] = Field(default_factory=list)  # rejected proposals and why
+    fix_method: dict[str, Any] = Field(default_factory=dict)
     method: dict[str, Any] = Field(default_factory=dict)
     confirmed_by_counterfactual: bool | None = None
 

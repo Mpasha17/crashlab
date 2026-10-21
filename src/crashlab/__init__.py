@@ -42,7 +42,7 @@ from .context import (
     is_replaying,
     run_in_thread,
 )
-from .diagnose import DiagnoseError, diagnose
+from .diagnose import DiagnoseError, diagnose, propose_fixes, try_fix
 from .models import (
     CheckResult,
     Diagnosis,
@@ -85,6 +85,8 @@ from .verify import check, run_checks
 __all__ = [
     "DiagnoseError",
     "diagnose",
+    "propose_fixes",
+    "try_fix",
     "CheckResult",
     "ChecksConfig",
     "CircuitBreakerError",
