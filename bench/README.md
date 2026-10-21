@@ -26,11 +26,18 @@ calling `issue_refund`; 1 `BAD_TOOL_ARGUMENTS`; 1 `TOOL_ERROR_MISHANDLED`; 4
 `STEP_REPETITION`; 3 `TASK_SPEC_VIOLATION`; 6 `EXTERNAL_FAILURE`), 8 clean runs and 2
 schema-drift runs that still refunded correctly.
 
-## Results (prompt diagnose-v2, 2026-10-19)
+## Results
+
+The LLM rows below are prompt diagnose-v2 (2026-10-19). The 2026-10-21 heuristic rules
+(HTML / error tool results count as external failures, a failed check that names no step
+no longer outranks a step_repetition finding) were written after looking at the Day 6
+misses on this same set, so its jump from 51.6% to 80.6% is partly fitted to these cases.
+
 
 | diagnoser | cases | label acc. | label acc. (failures) | step exact | step in window | false alarms (8 clean) | evidence quotes valid | cost |
 |---|---|---|---|---|---|---|---|---|
-| heuristic (no LLM) | 31 | 51.6% | 28.6% | 28.6% | 38.1% | 0 | 9/9 | $0 |
+| heuristic (no LLM), 2026-10-21 rules | 31 | 80.6% | 71.4% | 66.7% | 76.2% | 0 | see results | $0 |
+| heuristic (no LLM), Day 6 rules | 31 | 51.6% | 28.6% | 28.6% | 38.1% | 0 | 9/9 | $0 |
 | Groq openai/gpt-oss-120b | 31 | 74.2% | 61.9% | 52.4% | 66.7% | 0 | 46/47 | $0.016 total, 6.3 s/case |
 | gemini-3.7-flash (partial) | 8 | 87.5% | 87.5% | 87.5% | 87.5% | n/a | 9/10 | free tier |
 | gemini-flash-latest (partial) | 7 | 85.7% | 85.7% | 85.7% | 85.7% | n/a | 7/8 | free tier |

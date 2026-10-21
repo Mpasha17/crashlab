@@ -87,8 +87,8 @@ def candidates(run: Run) -> list[Candidate]:
         if idx is None or idx not in steps:
             continue
         label, rank = _FINDING_RULES.get(f.kind, (None, 8))
-        if f.kind == "suspicious_tool_result" and "changed shape" in f.message:
-            label, rank = TaxonomyLabel.EXTERNAL_FAILURE, 6
+        if f.kind == "suspicious_tool_result":  # an HTML / error page, drift: upstream
+            label, rank = TaxonomyLabel.EXTERNAL_FAILURE, 6 if "changed shape" in f.message else 5
         quotes = [e.quote for e in f.evidence if e.step_idx == idx][:2] or [_quote(steps[idx])]
         reason = f"runtime check {f.kind} ({f.severity}): {f.message}"
         out.append(Candidate(idx, reason, label, quotes, rank))
@@ -104,7 +104,9 @@ def candidates(run: Run) -> list[Candidate]:
         label = TaxonomyLabel.TASK_SPEC_VIOLATION
         if _NOT_CALLED.search(c.message or ""):  # "... but issue_refund was never called"
             label = TaxonomyLabel.WRONG_TOOL_SELECTION
-        out.append(Candidate(idx, reason, label, [_quote(steps[idx])], 2))
+        # a check that names no step (a budget, the final answer) is weaker evidence of
+        # *where* it went wrong than a detector that does
+        out.append(Candidate(idx, reason, label, [_quote(steps[idx])], 2 if refs else 7))
 
     for s in run.steps:
         if s.source == "blocked":
@@ -129,10 +131,20 @@ def candidates(run: Run) -> list[Candidate]:
 
 def heuristic_raw(run: Run, cands: list[Candidate] | None = None) -> dict[str, Any]:
     """The rule-table diagnosis as diagnoser-style JSON (validated like an LLM's answer):
-    a passing run with no error-level finding is NO_FAILURE; otherwise the strongest
+    a passing run with no error-level finding, bad tool arguments or error / HTML tool
+    result is NO_FAILURE; otherwise the strongest
     labelled candidate wins; otherwise UNKNOWN."""
     cands = candidates(run) if cands is None else cands
-    serious = [f for f in run.findings if f.kind != "fork" and f.rank >= 2]
+    serious = [
+        f
+        for f in run.findings
+        if f.kind != "fork"
+        and (
+            f.rank >= 2
+            or f.kind == "bad_tool_args"
+            or (f.kind == "suspicious_tool_result" and "changed shape" not in f.message)
+        )
+    ]
     if run.outcome != "fail" and run.status != "error" and not serious:
         return {
             "label": "NO_FAILURE",

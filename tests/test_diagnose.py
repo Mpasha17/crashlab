@@ -298,6 +298,27 @@ def test_candidates_for_a_lookup_loop():
     assert any(c.label is crashlab.TaxonomyLabel.TOOL_ERROR_MISHANDLED for c in cands)
 
 
+def test_heuristic_loop_blames_the_first_repeat_not_the_budget_step():
+    script = [tool_call_response(i, "get_order", {"order_id": "A17"}) for i in range(1, 5)]
+    client = crashlab.wrap(FakeOpenAI([*script, text_response(9, "Sorry, the system is down.")]))
+    refund.run_agent("Refund A17", client=client, model="fake-model", faults=["html_502"])
+    run = crashlab.load("last")
+    assert run.outcome == "fail"  # within_step_budget
+    raw = heuristic_raw(run)
+    assert raw["failing_step"] == 3 and raw["label"] in ("STEP_REPETITION", "TOOL_ERROR_MISHANDLED")
+
+
+def test_heuristic_html_page_handled_politely_is_external():
+    script = [
+        tool_call_response(1, "get_order", {"order_id": "A17"}),
+        text_response(2, "Sorry, our order system is having trouble right now."),
+    ]
+    client = crashlab.wrap(FakeOpenAI(script))
+    refund.run_agent("Refund A17", client=client, model="fake-model", faults=["html_502"])
+    raw = heuristic_raw(crashlab.load("last"))
+    assert raw["label"] == "EXTERNAL_FAILURE" and raw["failing_step"] == 1
+
+
 # --- compaction ------------------------------------------------------------------------
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .taxonomy import render
 
-PROMPT_VERSION = "diagnose-v2"
+PROMPT_VERSION = "diagnose-v3"
 
 SYSTEM = """You are crashlab's diagnosis agent. You read the trace of one recorded run of \
 an AI agent and decide whether the agent failed, at which step, and why.
@@ -33,7 +33,14 @@ they point at instead. Prefer short decisive quotes (a sentence, or a JSON fragm
 "days_since_delivery": 45). Quotes that are not found verbatim in the cited step are \
 discarded, and a failure label without valid evidence becomes UNKNOWN.
 3. If the trace does not support a label, answer UNKNOWN. Do not guess.
-4. root_cause is one plain sentence a developer can act on. confidence is 0 to 1.
+4. A tool that returned an error, an HTML error page or garbage is never NO_FAILURE, even \
+if the agent then apologised: label EXTERNAL_FAILURE (failing_step = the tool step) when \
+the agent handled it reasonably (reported the problem, invented nothing), \
+TOOL_ERROR_MISHANDLED when it ignored, misread or misreported it, STEP_REPETITION when it \
+kept retrying the same call.
+5. For a loop, failing_step is the first repeated call (the second identical tool step), \
+not the step where a step or budget check finally failed.
+6. root_cause is one plain sentence a developer can act on. confidence is 0 to 1.
 
 Reply with only this JSON object:
 {{"label": "<LABEL>", "failing_step": <int or null>, "root_cause": "<one sentence>", \
