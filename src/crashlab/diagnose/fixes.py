@@ -138,6 +138,27 @@ def _fork_step(patch: Any, run: Run) -> int:
     return chats[0] if chats else 0
 
 
+#: system_prompt fields each op ignores; a proposal that sets one is confused (e.g. an
+#: ``after`` anchor on an ``append``), so it is flagged and the field dropped
+_UNUSED_BY_OP = {
+    "replace": ("line", "after", "before", "match", "old"),
+    "append": ("line", "after", "before", "match", "old"),
+    "prepend": ("line", "after", "before", "match", "old"),
+    "insert_line": ("match", "old"),
+    "replace_line": ("after", "before", "old"),
+    "delete_line": ("after", "before", "old"),
+    "substitute": ("line", "after", "before", "match"),
+}
+
+
+def stray_fields(patch: Any) -> list[str]:
+    """Fields set on ``patch`` that its op ignores (only system_prompt has such fields;
+    the other kinds forbid unknown keys outright)."""
+    if getattr(patch, "kind", None) != "system_prompt":
+        return []
+    return [f for f in _UNUSED_BY_OP.get(patch.op, ()) if getattr(patch, f) is not None]
+
+
 def validate_fix(item: Any, run: Run, rank: int) -> tuple[Fix | None, str | None]:
     """``(Fix, None)`` for an acceptable proposal, else ``(None, reason)``."""
     if not isinstance(item, dict):
@@ -153,6 +174,9 @@ def validate_fix(item: Any, run: Run, rank: int) -> tuple[Fix | None, str | None
     except (ValueError, TypeError) as e:
         return None, f"{kind} patch does not parse: {' '.join(str(e).split())[:200]}"
     patch = patches.patches[0]
+    stray = stray_fields(patch)
+    if stray:
+        patch = patch.model_copy(update=dict.fromkeys(stray))
     label = patch.describe()
     if patch.kind == "system_prompt" and patch.op in ("replace", "prepend"):
         return None, f"{label}: not minimal (rewrites the whole prompt; edit a line instead)"
@@ -180,6 +204,8 @@ def validate_fix(item: Any, run: Run, rank: int) -> tuple[Fix | None, str | None
     if not preview and patch.kind != "model_params":
         return None, f"{label}: changes nothing in the recorded run"
     notes: list[str] = []
+    if stray:
+        notes.append(f"ignored field(s) {stray} that {patch.kind} op {patch.op!r} does not use")
     test_only = patch.kind == "tool_result"
     if not test_only:
         leaked = sorted(_literals(text) & instance_literals(run))

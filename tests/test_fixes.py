@@ -253,3 +253,13 @@ def test_cli_diagnose_with_fix(fake_fix_model, monkeypatch):
     assert "proposed fixes" in res.output and "fix-1" in res.output
     again = runner.invoke(app, ["diagnose", run.run_id, "-m", "fake", "--fix"])
     assert again.exit_code == 0 and fake_fix_model == ["fix-v1"]  # both calls cached
+
+
+def test_stray_anchor_on_append_is_flagged_and_dropped():
+    run = _diagnosed()
+    patch = {"kind": "system_prompt", "op": "append", "after": "3. Issue", "text": "4. Rule."}
+    fix, why = validate_fix({"patch": patch}, run, 1)
+    assert why is None and fix.as_patch.after is None
+    assert any("['after']" in n and "'append'" in n for n in fix.notes)
+    clean, _ = validate_fix({"patch": RULE}, run, 1)
+    assert not any("ignored field" in n for n in clean.notes)
