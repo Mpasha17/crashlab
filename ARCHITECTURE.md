@@ -39,7 +39,7 @@ flowchart LR
 | 2 | `context.py` | `contextvars` current run, monotonic step counter, mode (`record` / `replay` / `fork`) |
 | 3 | `store/` | `sqlite.py` index (runs, steps metadata, flags, diagnoses), `cassette.py` JSONL read/write, `redact.py` strips keys/headers + user regex hook |
 | 4 | `capture/` | `normalize.py` (provider -> common request/response shape + request hash), `openai.py`, `anthropic.py`, `litellm.py` proxies, `_chat.py` (single LLM-call interception point), `streams.py` (pass-through stream wrappers + assemblers), `tools.py` (`@tool(side_effects=...)`), `agent.py` (`@agent`, `record()` context manager); `integrations/litellm.py` exposes `patch()` / `unpatch()` |
-| 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `diagnose`, `fix`, `report`, `fork`, `diff`; later `verify`, `export-test`, `report`, `bench` |
+| 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `diagnose`, `fix`, `report`, `fork`, `diff`, `verify`; later `export-test`, `bench` |
 | 6 | `replay/`, `patch.py`, `compare.py` | `engine.py` (strict replay; fork = cassette for steps < N, patch from N, live after), `patch.py` (typed patches: `SystemPrompt`, `Message`, `InjectMessage`, `ToolResult`, `ToolDescription`, `ToolSchema`, `ModelParams`), `divergence.py` (hash mismatch -> `DivergenceError` with diff), `compare.py` (run diff) |
 | 7 | `checks/` | Inline findings (built, see below): `loop` (same tool+args >= 3 in last 8 steps), `tool_error_streak` (>= 3), `bad_tool_args`, `suspicious_tool_result` (HTML/empty where JSON expected), `budget`, `length_cutoff` |
 | 8 | `diagnose/` | `compact.py` step table with truncation handles, `heuristics.py` candidate steps from flags/errors, `diagnoser.py` one LLM call returning JSON (failing_step, label, evidence, explanation, confidence), `evidence.py` drops quotes not found verbatim -> UNKNOWN if none, `fixes.py` separate LLM call producing 1-3 typed fixes, `taxonomy.py` enum + definitions |
@@ -270,11 +270,31 @@ Kept fixes are saved as `<store>/runs/<id>/fixes/fix-N.yaml` (JSON without PyYAM
 `crashlab fork --patch`, and cached by a hash of the fix prompt. `try_fix(run, fix)` /
 `--try` forks once from the step the patch applies to (the first LLM call for request
 patches) with the agent's own client and stores `fix.tried` (fork run id, outcome, failed
-checks). Repeated verification (k reruns, regressions) is Day 8.
+checks). Repeated verification is `crashlab verify` (below).
 
 `crashlab report RUN` renders the run header, checks, findings, the diagnosis panel, the
 fixes with their diffs, rejections and `--try` result, and next-command hints;
 `crashlab diagnose --fix [--try]` prints the same report.
+
+## Fix verification (as built)
+
+`crashlab.verify(run, fix, k=5, control=True, regress=None, max_cost_usd=None)`
+(`verify/runner.py`, `verify/stats.py`):
+
+- **Patched arm:** k forks of the failing run with the fix, live from the step it applies
+  to. **Control arm:** k forks from the same step with no patch: the noise floor.
+  Trials interleave (patched, control, ...) so a budget stop keeps the arms balanced.
+- **Regression:** the patch on past good runs, forked at their first LLM call
+  (default: the newest 10 passing, non-fork runs of the same agent; or ids / `tag:X` /
+  `none`). Step-bound patches and patches whose anchor a run lacks are `skipped` with a
+  note, which blocks VERIFIED but is not a regression.
+- **Errored:** a child run that died on a provider error (429/5xx/overload/connection) or
+  a fork that failed to start is `errored`, excluded from n.
+- **Stats:** per-arm passes/fails/errored, rate, Wilson 95% CI, pass^k (tau-bench
+  estimator C(c,k)/C(n,k)). Verdict rules are in `stats.verdict`.
+- **Storage:** `runs/<id>/verifications/<vid>.json` (all trials with child run ids,
+  cost, tokens), a summary appended to `run.fix_attempts`, child runs tagged
+  `verify:<vid>` and `verify-patched|control|regression`. Cost counts live chat steps only.
 
 ## Key design rules
 

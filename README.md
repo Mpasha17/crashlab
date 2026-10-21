@@ -12,9 +12,9 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
 
 > **Status: pre-alpha (0.0.1).** Today crashlab **records** runs, lets you inspect them,
 > **replays** them strictly offline, grades them with **`@crashlab.check`** oracles,
-> **forks** them at any step with typed **patches** and **diffs** two runs. Diagnose,
-> verify and test export are in progress (see [ARCHITECTURE.md](ARCHITECTURE.md)) and are
-> not available yet. Not on PyPI yet.
+> **forks** them at any step with typed **patches** and **diffs** two runs. It also
+> **diagnoses** failed runs, **proposes fixes** and **verifies** them with repeated live
+> forks; test export is in progress (see [ARCHITECTURE.md](ARCHITECTURE.md)). Not on PyPI yet.
 
 ## What works today
 
@@ -111,7 +111,7 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
   `crashlab diagnose`, `crashlab fix`, `crashlab report`, `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
   `crashlab.load("last")`.
 
-Not yet: k-rerun fix verification, test export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
+Not yet: test export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response (same content, different chunk boundaries).
 Also not intercepted yet: Anthropic `client.beta.messages`, OpenAI
 `chat.completions.stream()` / `responses.stream()` helpers, `with_raw_response` calls.
@@ -243,6 +243,25 @@ OPENAI_BASE_URL=https://api.groq.com/openai/v1 OPENAI_API_KEY=$GROQ_API_KEY \
   crashlab fix 01M57GM7H9 --model openai/gpt-oss-120b \
   --base-url https://api.groq.com/openai/v1 --api-key-env GROQ_API_KEY --try
 ```
+
+### Verify a fix
+
+```bash
+# 5 forks with fix-1 + 5 unpatched controls + the patch rerun on past good runs
+OPENAI_BASE_URL=https://api.groq.com/openai/v1 OPENAI_API_KEY=$GROQ_API_KEY \
+  crashlab verify 01M57GM7H9 --fix fix-1 -k 5 --regress 01M57GM0VB,01M57GM5RH --max-cost 0.50
+# or all in one: diagnose (if needed) -> fix -> verify
+crashlab fix 01M57GM7H9 --model ... --verify -k 5
+```
+
+Verdicts: **VERIFIED** (patched Wilson 95% lower bound above the control's upper bound,
+or controls all fail and patched all pass; no regression), **LIKELY** (better, but not
+significant or incomplete), **INCONCLUSIVE** (too few usable trials), **REJECTED** (a
+past good run now fails, or no better than control). Provider errors (429/5xx) are
+counted as `errored`, never as fails. `--no-control`, `--regress none|tag:X|ID,ID`,
+`--json`. Child runs are tagged `verify:<id>`; `crashlab report` lists fix attempts.
+On Groq gpt-oss-120b: policy_drop fix-1 went 5/5 vs control 0/5, 2/2 good runs still
+pass (VERIFIED, $0.002).
 
 Running the fork for real (without `--dry-run`) needs a model, for example a local one:
 
