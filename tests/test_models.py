@@ -99,10 +99,7 @@ def test_diagnosis_fix_verification_roundtrip():
         fixes=[fix],
     )
     roundtrip(d)
-    v = Verification(
-        run_id="R", fix_id="f1", k=3, target_passes=3, pass_hat_k=1.0, ci95=(0.44, 1.0),
-        verdict="fixes_and_safe",
-    )  # fmt: skip
+    v = Verification(run_id="R", fix_id="f1", k=3, verdict="VERIFIED")
     roundtrip(v)
 
 

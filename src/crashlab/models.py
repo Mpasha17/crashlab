@@ -195,6 +195,7 @@ class Run(_Model):
     checks: list[CheckResult] = Field(default_factory=list)
     check_config: dict[str, Any] | None = None  # effective runtime-check config
     diagnosis: Diagnosis | None = None  # the latest `crashlab diagnose` result
+    fix_attempts: list[dict[str, Any]] = Field(default_factory=list)  # verify history
     started_at: datetime = Field(default_factory=utcnow)
     ended_at: datetime | None = None
     code_version: str | None = None
@@ -311,22 +312,73 @@ class Diagnosis(_Model):
         return self.label not in (TaxonomyLabel.NO_FAILURE, TaxonomyLabel.UNKNOWN)
 
 
+class Trial(_Model):
+    """One rerun inside a verification. ``status`` is the oracle verdict; ``errored``
+    means the provider failed (429/5xx, connection) and the trial says nothing about the
+    fix, so it is never counted as a fail."""
+
+    role: Literal["patched", "control", "regression"]
+    source_run: str  # the run that was forked
+    run_id: str | None = None  # the child run (None if the fork never started)
+    status: Literal["pass", "fail", "errored"]
+    outcome: str | None = None
+    failed_checks: list[str] = Field(default_factory=list)
+    error: str | None = None
+    cost_usd: float = 0.0
+    tokens: int = 0
+
+
+class ArmStats(_Model):
+    """Pass counts for one arm (patched or control), errored trials excluded."""
+
+    passes: int = 0
+    fails: int = 0
+    errored: int = 0
+    rate: float | None = None  # passes / (passes + fails)
+    ci95: tuple[float, float] | None = None  # Wilson interval on the per-trial pass rate
+    pass_hat_k: float | None = None  # estimated P(all k trials pass), tau-bench style
+
+    @property
+    def n(self) -> int:
+        return self.passes + self.fails
+
+
 class RegressionResult(_Model):
-    run_id: str
-    k: int
-    passes: int
+    run_id: str  # the past good run
+    status: Literal["pass", "fail", "errored", "skipped"]
+    trial_run: str | None = None
+    note: str | None = None
+
+
+Verdict = Literal["VERIFIED", "LIKELY", "INCONCLUSIVE", "REJECTED"]
 
 
 class Verification(_Model):
+    """``crashlab verify``: k patched forks vs k unpatched controls, plus the patch rerun
+    on past good runs. Child runs are tagged ``verify:<verification_id>``."""
+
+    verification_id: str = ""
     run_id: str
     fix_id: str
+    patch_description: str = ""
+    fix_file: str | None = None
     k: int
-    target_passes: int
+    fork_step: int = 0
+    patched: ArmStats = Field(default_factory=ArmStats)
+    control: ArmStats | None = None
     regression: list[RegressionResult] = Field(default_factory=list)
-    pass_hat_k: float
-    ci95: tuple[float, float]
-    verdict: Literal["fixes_and_safe", "fixes_with_regressions", "does_not_fix", "inconclusive"]
-    cost_usd: float | None = None
+    trials: list[Trial] = Field(default_factory=list)
+    verdict: Verdict = "INCONCLUSIVE"
+    reasons: list[str] = Field(default_factory=list)
+    cost_usd: float = 0.0
+    tokens: int = 0
+    max_cost_usd: float | None = None
+    budget_exhausted: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
+
+    @property
+    def regressions(self) -> list[RegressionResult]:
+        return [r for r in self.regression if r.status == "fail"]
 
 
 Run.model_rebuild()

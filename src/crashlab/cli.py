@@ -82,8 +82,8 @@ def _findings_table(findings: list[Finding], title: str = "runtime findings") ->
     return table
 
 
-def _console() -> Console:
-    return Console()
+def _console(stderr: bool = False) -> Console:
+    return Console(stderr=stderr)
 
 
 def _version_callback(value: bool) -> None:
@@ -512,6 +512,8 @@ def _next_hints(run: Run) -> list[str]:
             hints.append(f"crashlab fork {rid} --at {at or 0} --patch {f.file}")
         if not f.tried:
             hints.append(f"crashlab fix {rid} --model MODEL --try     # fork once with fix-1")
+        if not run.fix_attempts:
+            hints.append(f"crashlab verify {rid} --fix {f.fix_id} -k 5     # k forks + controls")
     if run.entrypoint:
         hints.append(f"crashlab replay {rid}                     # strict offline replay")
     return hints
@@ -546,11 +548,144 @@ def _print_report(console: Console, run: Run) -> None:
         console.print(_diagnosis_panel(run.diagnosis))
         if run.diagnosis.is_failure or run.diagnosis.fixes or run.diagnosis.fix_notes:
             console.print(_fixes_panel(run.diagnosis, run))
+    attempts = _attempts_table(run)
+    if attempts is not None:
+        console.print(attempts)
     hints = _next_hints(run)
     if hints:
         console.print(Text("next:", style="bold"))
         for h in hints:
             console.print(Text("  " + h, style="dim"))
+
+
+_VERDICT_STYLE = {
+    "VERIFIED": "bold green",
+    "LIKELY": "green",
+    "INCONCLUSIVE": "yellow",
+    "REJECTED": "bold red",
+}
+
+
+def _attempts_table(run: Run) -> Table | None:
+    if not run.fix_attempts:
+        return None
+    t = Table(title="Fix attempts (crashlab verify)", title_justify="left")
+    for col in ("when", "fix", "verdict", "patched", "control", "regressions", "cost"):
+        t.add_column(col)
+    for a in run.fix_attempts:
+        t.add_row(
+            str(a.get("created_at", ""))[:16].replace("T", " "),
+            f"{a.get('fix_id')}",
+            Text(str(a.get("verdict")), style=_VERDICT_STYLE.get(a.get("verdict"), "")),
+            str(a.get("patched")),
+            str(a.get("control") or "-"),
+            str(a.get("regressions")),
+            _cost_text(a.get("cost_usd") or 0),
+        )
+    return t
+
+
+def _arm_text(name: str, a: Any) -> str:
+    if a is None:
+        return f"{name}: not run"
+    out = f"{name}: {a.passes}/{a.n} passed"
+    if a.ci95 is not None:
+        out += f" (rate {a.rate:.2f}, 95% CI {a.ci95[0]:.2f}-{a.ci95[1]:.2f})"
+    if a.pass_hat_k is not None:
+        out += f", pass^k {a.pass_hat_k:.2f}"
+    if a.errored:
+        out += f", {a.errored} errored (not counted)"
+    return out
+
+
+def _verification_panel(v: Any) -> Panel:
+    from rich.console import Group
+
+    parts: list[Any] = [
+        Text("verdict: ", style="bold")
+        + Text(v.verdict, style=_VERDICT_STYLE.get(v.verdict, ""))
+        + Text(f"   {v.fix_id}: {v.patch_description}", style="dim"),
+        Text(_arm_text(f"patched ({v.k} forks from step {v.fork_step})", v.patched)),
+        Text(_arm_text("control (no patch)", v.control)),
+    ]
+    if v.regression:
+        counts: dict[str, int] = {}
+        for r in v.regression:
+            counts[r.status] = counts.get(r.status, 0) + 1
+        bits = ", ".join(f"{n} {k}" for k, n in sorted(counts.items()))
+        parts.append(Text(f"regression: {len(v.regression)} past good run(s): {bits}"))
+        for r in v.regression:
+            if r.status != "pass":
+                st = "red" if r.status == "fail" else "yellow"
+                parts.append(Text(f"  {r.run_id[:10]} {r.status}: {r.note or ''}", style=st))
+    else:
+        parts.append(Text("regression: no past good runs checked", style="dim"))
+    for why in v.reasons:
+        parts.append(Text("  " + why, style="dim"))
+    spend = f"cost {_cost_text(v.cost_usd)} · {v.tokens} tokens"
+    if v.max_cost_usd is not None:
+        spend += f" · cap {_cost_text(v.max_cost_usd)}"
+    parts.append(Text(spend + f" · id {v.verification_id}", style="dim"))
+    return Panel(Group(*parts), title="verification", title_align="left")
+
+
+def _run_verify(console, store, run, fix, *, k, control, regress, max_cost) -> Any:
+    from .verify import VerifyError, verify
+
+    def tick(t: Any) -> None:
+        style = {"pass": "green", "fail": "red"}.get(t.status, "yellow")
+        rid = (t.run_id or "-")[:10]
+        msg = f"  {t.role:<10} {rid}  " + f"[{style}]{t.status}[/]"
+        if t.status != "pass" and (t.error or t.failed_checks):
+            msg += f" [dim]{_e(t.error or ', '.join(t.failed_checks))[:120]}[/]"
+        console.print(msg)
+
+    try:
+        return verify(
+            run,
+            fix,
+            k=k,
+            control=control,
+            regress=regress,
+            store_dir=store.root,
+            max_cost_usd=max_cost,
+            on_trial=tick,
+        )
+    except VerifyError as exc:
+        console.print(f"[red]{_e(exc)}[/]")
+        raise typer.Exit(code=2) from exc
+
+
+@app.command("verify")
+def verify_cmd(
+    run_ref: str = typer.Argument("last", help="The failing run: id, prefix or 'last'."),
+    fix: str = typer.Option(
+        "1", "--fix", "-f", help="fix-N / N on the diagnosis, or a patch file."
+    ),
+    k: int = typer.Option(5, "-k", help="Patched forks (and as many unpatched controls)."),
+    no_control: bool = typer.Option(False, "--no-control", help="Skip the unpatched controls."),
+    regress: str | None = typer.Option(
+        None,
+        "--regress",
+        help="Past good runs to re-run with the patch: ids (comma list), tag:X or none. "
+        "Default: passing runs of the same agent (newest 10).",
+    ),
+    max_cost: float | None = typer.Option(None, "--max-cost", help="Stop at this USD spend."),
+    as_json: bool = typer.Option(False, "--json", help="Print the verification as JSON."),
+) -> None:
+    """Verify a fix: fork the failing run k times with the patch and k times without it
+    (the noise floor), re-run past good runs with it, and give a verdict with pass rates,
+    Wilson 95% intervals and pass^k. Provider errors (429/5xx) are counted separately."""
+    console = _console(stderr=as_json)
+    store = Store()
+    run = _resolve(store, run_ref)
+    v = _run_verify(
+        console, store, run, fix, k=k, control=not no_control, regress=regress, max_cost=max_cost
+    )
+    if as_json:
+        typer.echo(json.dumps(v.model_dump(mode="json"), indent=2, ensure_ascii=False))
+        return
+    console.print(_verification_panel(v))
 
 
 @app.command("report")
@@ -739,6 +874,13 @@ def fix_cmd(
     ),
     max_chars: int = typer.Option(600, "--max-chars", help="Truncate trace fields at N chars."),
     as_json: bool = typer.Option(False, "--json", help="Print the fixes as JSON."),
+    verify_it: bool = typer.Option(
+        False, "--verify", help="Then verify the top fix (k forks + controls + regression)."
+    ),
+    k: int = typer.Option(5, "-k", help="With --verify: forks per arm."),
+    no_control: bool = typer.Option(False, "--no-control", help="With --verify: no controls."),
+    regress: str | None = typer.Option(None, "--regress", help="With --verify: see `verify`."),
+    max_cost: float | None = typer.Option(None, "--max-cost", help="With --verify: USD cap."),
 ) -> None:
     """Propose 1-3 ranked typed patches for a diagnosed run (diagnosing it first if
     needed), validated against the run and saved as patch files for `crashlab fork --patch`."""
@@ -776,12 +918,32 @@ def fix_cmd(
         hide_input=hide_input,
         max_chars=max_chars,
     )
-    if as_json:
-        typer.echo(
-            json.dumps([f.model_dump(mode="json") for f in fixes], indent=2, ensure_ascii=False)
+    v = None
+    top = next((f for f in fixes if not f.test_only), None)
+    if verify_it and top is not None:
+        if not as_json:
+            console.print(f"[dim]verifying {_e(top.fix_id)} on {_e(run.run_id[:10])} ...[/]")
+        v = _run_verify(
+            _console(stderr=True) if as_json else console,
+            store,
+            run,
+            top,
+            k=k,
+            control=not no_control,
+            regress=regress,
+            max_cost=max_cost,
         )
+    elif verify_it:
+        console.print("[yellow]no fix to verify[/]")
+    if as_json:
+        out: Any = [f.model_dump(mode="json") for f in fixes]
+        if verify_it:
+            out = {"fixes": out, "verification": v.model_dump(mode="json") if v else None}
+        typer.echo(json.dumps(out, indent=2, ensure_ascii=False))
         return
     _print_report(console, run)
+    if v is not None:
+        console.print(_verification_panel(v))
 
 
 @app.command("replay")

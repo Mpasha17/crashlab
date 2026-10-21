@@ -80,13 +80,15 @@ from .replay import (
 )
 from .store import RunNotFoundError, Store, load
 from .store import redact as redaction
-from .verify import check, run_checks
+from .verify import VerifyError, check, run_checks, verify
 
 __all__ = [
     "DiagnoseError",
     "diagnose",
     "propose_fixes",
     "try_fix",
+    "verify",
+    "VerifyError",
     "CheckResult",
     "ChecksConfig",
     "CircuitBreakerError",
