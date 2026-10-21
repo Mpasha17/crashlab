@@ -95,13 +95,23 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
   is checked against the step it cites; an answer without valid evidence becomes
   `UNKNOWN`. Any model works (Groq, Gemini, Ollama, OpenAI, Anthropic, LiteLLM);
   `--heuristic` needs none. Stored with the run, shown by `crashlab show`, cached.
+- **Fix proposals:** `crashlab fix RUN` / `crashlab.propose_fixes(run)` makes a second,
+  separate LLM call that turns the diagnosis into 1-3 ranked typed patches (system prompt
+  line, tool description or schema, model params, a message; tool-result counterfactuals
+  are marked test-only), each with a rationale and expected effect. A proposal is kept
+  only if it parses, its target exists in the run (dry-run diff), it is small, and it does
+  not hard-code this run's data (order ids, amounts ...). Kept fixes are stored with the
+  run and saved as patch files for `crashlab fork --patch`; `--try` forks once with the
+  top fix and shows the checks.
+- **`crashlab report RUN`:** one screen with the outcome, checks, findings, diagnosis,
+  fixes with diffs and the next commands to run (`crashlab diagnose --fix` prints it too).
 - **Share runs:** `crashlab export RUN -o run.jsonl` / `crashlab import run.jsonl`
   (redacted again on the way out).
 - **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab replay`, `crashlab check`,
-  `crashlab diagnose`, `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
+  `crashlab diagnose`, `crashlab fix`, `crashlab report`, `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
   `crashlab.load("last")`.
 
-Not yet: fix proposals, verification, test export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
+Not yet: k-rerun fix verification, test export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response (same content, different chunk boundaries).
 Also not intercepted yet: Anthropic `client.beta.messages`, OpenAI
 `chat.completions.stream()` / `responses.stream()` helpers, `with_raw_response` calls.
@@ -221,6 +231,18 @@ On 31 hand-labelled live runs of the demo agent (`bench/diagnose_eval.py`, detai
 [bench/README.md](bench/README.md)), Groq `openai/gpt-oss-120b` gets the label right on 74%
 (the heuristic baseline: 52%) and the exact culprit step on 52% of the failing runs
 (baseline: 29%), with no false alarms on clean runs, for about $0.0005 per diagnosis.
+
+### Propose a fix and try it
+
+```bash
+crashlab fix 01M57GM7H9 --model openai/gpt-oss-120b \
+  --base-url https://api.groq.com/openai/v1 --api-key-env GROQ_API_KEY
+crashlab report 01M57GM7H9          # diagnosis, fix-1 with its diff, next commands
+# --try forks once with fix-1, live: the agent uses its own client, e.g. on Groq
+OPENAI_BASE_URL=https://api.groq.com/openai/v1 OPENAI_API_KEY=$GROQ_API_KEY \
+  crashlab fix 01M57GM7H9 --model openai/gpt-oss-120b \
+  --base-url https://api.groq.com/openai/v1 --api-key-env GROQ_API_KEY --try
+```
 
 Running the fork for real (without `--dry-run`) needs a model, for example a local one:
 

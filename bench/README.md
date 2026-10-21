@@ -28,7 +28,7 @@ schema-drift runs that still refunded correctly.
 
 ## Results
 
-The LLM rows below are prompt diagnose-v2 (2026-10-19). The 2026-10-21 heuristic rules
+Rows are prompt diagnose-v2 (2026-10-19) unless marked v3. Prompt v3 (2026-10-21) adds the two rules below, also written after reading the v2 misses on this set, so its gain is partly fitted too. The 2026-10-21 heuristic rules
 (HTML / error tool results count as external failures, a failed check that names no step
 no longer outranks a step_repetition finding) were written after looking at the Day 6
 misses on this same set, so its jump from 51.6% to 80.6% is partly fitted to these cases.
@@ -38,7 +38,8 @@ misses on this same set, so its jump from 51.6% to 80.6% is partly fitted to the
 |---|---|---|---|---|---|---|---|---|
 | heuristic (no LLM), 2026-10-21 rules | 31 | 80.6% | 71.4% | 66.7% | 76.2% | 0 | see results | $0 |
 | heuristic (no LLM), Day 6 rules | 31 | 51.6% | 28.6% | 28.6% | 38.1% | 0 | 9/9 | $0 |
-| Groq openai/gpt-oss-120b | 31 | 74.2% | 61.9% | 52.4% | 66.7% | 0 | 46/47 | $0.016 total, 6.3 s/case |
+| Groq openai/gpt-oss-120b, prompt v3 (2026-10-21) | 31 | 90.3% | 85.7% | 71.4% | 90.5% | 0 | 44/46 | $0.017 total, 10.7 s/case |
+| Groq openai/gpt-oss-120b, prompt v2 | 31 | 74.2% | 61.9% | 52.4% | 66.7% | 0 | 46/47 | $0.016 total, 6.3 s/case |
 | gemini-3.7-flash (partial) | 8 | 87.5% | 87.5% | 87.5% | 87.5% | n/a | 9/10 | free tier |
 | gemini-flash-latest (partial) | 7 | 85.7% | 85.7% | 85.7% | 85.7% | n/a | 7/8 | free tier |
 

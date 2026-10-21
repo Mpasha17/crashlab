@@ -39,7 +39,7 @@ flowchart LR
 | 2 | `context.py` | `contextvars` current run, monotonic step counter, mode (`record` / `replay` / `fork`) |
 | 3 | `store/` | `sqlite.py` index (runs, steps metadata, flags, diagnoses), `cassette.py` JSONL read/write, `redact.py` strips keys/headers + user regex hook |
 | 4 | `capture/` | `normalize.py` (provider -> common request/response shape + request hash), `openai.py`, `anthropic.py`, `litellm.py` proxies, `_chat.py` (single LLM-call interception point), `streams.py` (pass-through stream wrappers + assemblers), `tools.py` (`@tool(side_effects=...)`), `agent.py` (`@agent`, `record()` context manager); `integrations/litellm.py` exposes `patch()` / `unpatch()` |
-| 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `diagnose`, `fork`, `diff`; later `verify`, `export-test`, `report`, `bench` |
+| 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `diagnose`, `fix`, `report`, `fork`, `diff`; later `verify`, `export-test`, `report`, `bench` |
 | 6 | `replay/`, `patch.py`, `compare.py` | `engine.py` (strict replay; fork = cassette for steps < N, patch from N, live after), `patch.py` (typed patches: `SystemPrompt`, `Message`, `InjectMessage`, `ToolResult`, `ToolDescription`, `ToolSchema`, `ModelParams`), `divergence.py` (hash mismatch -> `DivergenceError` with diff), `compare.py` (run diff) |
 | 7 | `checks/` | Inline findings (built, see below): `loop` (same tool+args >= 3 in last 8 steps), `tool_error_streak` (>= 3), `bad_tool_args`, `suspicious_tool_result` (HTML/empty where JSON expected), `budget`, `length_cutoff` |
 | 8 | `diagnose/` | `compact.py` step table with truncation handles, `heuristics.py` candidate steps from flags/errors, `diagnoser.py` one LLM call returning JSON (failing_step, label, evidence, explanation, confidence), `evidence.py` drops quotes not found verbatim -> UNKNOWN if none, `fixes.py` separate LLM call producing 1-3 typed fixes, `taxonomy.py` enum + definitions |
@@ -240,7 +240,41 @@ Culprit step convention (used by the prompt and the eval): the tool step that ex
 wrong action; if no tool ran, the chat step whose reply was wrong; for an external
 failure the step where it shows; none for `NO_FAILURE`. `bench/diagnose_eval.py` scores
 label and step accuracy on 31 hand-labelled live runs (`bench/diagnose_cases.json`).
-Fix proposals (`fixes.py`) and counterfactual confirmation via `fork` are next.
+Prompt v3 adds two rules learned from the Day 6 misses: a tool error / HTML page is
+never `NO_FAILURE` (`EXTERNAL_FAILURE` if handled, `TOOL_ERROR_MISHANDLED` if not), and a
+loop is blamed on its first repeat, not on the step where a budget check fails.
+
+## Fix proposals and the report (as built)
+
+`crashlab.propose_fixes(run_or_diagnosis, model=...)` / `crashlab fix RUN` (`fixes.py`,
+prompt `fix-v1`) is a second LLM call, never merged with the diagnosis. Input: the
+diagnosis (label, step, root cause, evidence) and the same compacted trace. Output:
+`{"fixes": [{"patch": {...}, "rationale", "expected_effect", "literal_justification"?}]}`,
+1-3 ranked. Each proposal is validated and kept as a `Fix` on `run.diagnosis.fixes`; every
+rejection is a line in `diagnosis.fix_notes`:
+
+1. it parses into a known patch type (system_prompt, tool_description, tool_schema,
+   tool_result, model_params, message, inject_message);
+2. its target exists: the tool is in the run's tool list, the step exists and has the
+   right kind, and a dry run (`preview_patches`) against the recorded requests applies
+   and changes something (anchors found, lines in range);
+3. it is minimal: at most 700 characters of patch text, at most 4 new prompt lines, no
+   `replace` / `prepend` of the whole system prompt;
+4. leakage guard: literals of this task instance (ids and 2+ digit numbers from the run
+   input and the tool arguments / results, minus those already in the system prompt or
+   tool descriptions) must not appear in a request patch unless the proposal gives a
+   `literal_justification` (kept with a note). `tool_result` patches are counterfactuals
+   for testing a hypothesis: allowed, flagged `test_only`, never `--try`'d.
+
+Kept fixes are saved as `<store>/runs/<id>/fixes/fix-N.yaml` (JSON without PyYAML) for
+`crashlab fork --patch`, and cached by a hash of the fix prompt. `try_fix(run, fix)` /
+`--try` forks once from the step the patch applies to (the first LLM call for request
+patches) with the agent's own client and stores `fix.tried` (fork run id, outcome, failed
+checks). Repeated verification (k reruns, regressions) is Day 8.
+
+`crashlab report RUN` renders the run header, checks, findings, the diagnosis panel, the
+fixes with their diffs, rejections and `--try` result, and next-command hints;
+`crashlab diagnose --fix [--try]` prints the same report.
 
 ## Key design rules
 
