@@ -6,9 +6,12 @@ from __future__ import annotations
 import json
 
 import pytest
+from typer.testing import CliRunner
 
 import crashlab
+from crashlab.cli import app
 from crashlab.diagnose import DiagnoseError, instance_literals, validate, validate_fix
+from crashlab.diagnose import fixes as fixes_mod
 from tests.fakes import FakeOpenAI, text_response, tool_call_response
 from tests.test_diagnose import GOOD, _clean_run, _policy_run
 
@@ -166,3 +169,87 @@ def test_try_fix_forks_once_and_reports_the_checks():
     assert (
         branch.forked_from == run.run_id and "4. Only refund" in branch.steps[0].request["system"]
     )
+
+
+# --- CLI: fix / report / diagnose --fix ------------------------------------------------
+
+runner = CliRunner()
+
+
+@pytest.fixture
+def fake_fix_model(monkeypatch):
+    calls = []
+
+    def ask(run, msgs, model, **kw):
+        calls.append(kw.get("prompt_version"))
+        return json.dumps(
+            {
+                "fixes": [
+                    {
+                        "patch": RULE,
+                        "rationale": "rule missing",
+                        "expected_effect": "refuses C-orders",
+                    }
+                ]
+            }
+        ), {"backend": "fake"}
+
+    monkeypatch.setattr(fixes_mod, "_ask", ask)
+    return calls
+
+
+def test_cli_fix_prints_the_report_with_a_diff(fake_fix_model):
+    run = _policy_run()
+    crashlab.diagnose(run, heuristic=True)
+    res = runner.invoke(app, ["fix", run.run_id, "--model", "fake"])
+    assert res.exit_code == 0, res.output
+    out = res.output
+    for want in (
+        "crashlab report",
+        "TASK_SPEC_VIOLATION",
+        "proposed fixes",
+        "fix-1",
+        "+4. Only refund delivered orders",
+        "crashlab fork",
+        "--patch",
+    ):
+        assert want in out, want
+    assert fake_fix_model == ["fix-v1"]
+    stored = crashlab.load(run.run_id).diagnosis
+    assert stored.fixes[0].file and stored.fixes[0].kind == "system_prompt"
+
+
+def test_cli_fix_json(fake_fix_model):
+    run = _policy_run()
+    crashlab.diagnose(run, heuristic=True)
+    data = json.loads(runner.invoke(app, ["fix", run.run_id, "-m", "fake", "--json"]).output)
+    assert data[0]["fix_id"] == "fix-1" and data[0]["as_patch"]["kind"] == "system_prompt"
+
+
+def test_cli_report_without_a_diagnosis_hints_what_to_run():
+    run = _policy_run()
+    res = runner.invoke(app, ["report", run.run_id])
+    assert res.exit_code == 0 and "crashlab report" in res.output
+    assert "refund_within_policy" in res.output and "crashlab diagnose" in res.output
+    assert "proposed fixes" not in res.output
+
+
+def test_cli_report_shows_rejections_and_tried_result():
+    run = _diagnosed()
+    [fix] = crashlab.propose_fixes(run, fn=_reply(RULE, {**RULE, "text": "4. Never refund C03."}))
+    fix.tried = {"run_id": "01FORKRUN000", "fork_step": 0, "outcome": "pass", "failed_checks": []}
+    crashlab.store.Store().save_diagnosis(run, run.diagnosis)
+    out = runner.invoke(app, ["report", run.run_id]).output
+    assert "rejected:" in out and "leaks" in out and "tried: fork 01FORKRUN0" in out
+
+
+def test_cli_diagnose_with_fix(fake_fix_model, monkeypatch):
+    run = _policy_run()
+    from crashlab.diagnose import diagnoser
+
+    monkeypatch.setattr(diagnoser, "_ask", lambda *a, **k: (json.dumps(GOOD), {"backend": "fake"}))
+    res = runner.invoke(app, ["diagnose", run.run_id, "-m", "fake", "--fix"])
+    assert res.exit_code == 0, res.output
+    assert "proposed fixes" in res.output and "fix-1" in res.output
+    again = runner.invoke(app, ["diagnose", run.run_id, "-m", "fake", "--fix"])
+    assert again.exit_code == 0 and fake_fix_model == ["fix-v1"]  # both calls cached

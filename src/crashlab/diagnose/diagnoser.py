@@ -312,6 +312,7 @@ def diagnose(
         "prompt_chars": sum(len(m["content"]) for m in msgs),
         "candidates": [c.as_dict() for c in cands],
         "cached": False,
+        "cache_key": key,
     }
     if raw is None:
         method["raw_reply"] = str(reply)[:500]

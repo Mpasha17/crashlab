@@ -1,5 +1,5 @@
 """``crashlab`` command line: ``ls``, ``show``, ``replay``, ``check``, ``diagnose``,
-``fork``, ``diff``, ``export``, ``import``."""
+``fix``, ``report``, ``fork``, ``diff``, ``export``, ``import``."""
 
 from __future__ import annotations
 
@@ -64,8 +64,11 @@ def _findings_table(findings: list[Finding], title: str = "runtime findings") ->
     table.add_column("steps", no_wrap=True, style="cyan")
     table.add_column("message", overflow="fold")
     for f in sorted(findings, key=lambda f: (-f.rank, f.step if f.step is not None else -1)):
-        steps = ",".join(str(i) for i in f.steps) if f.steps else ("-" if f.step is None
-                                                                  else str(f.step))  # fmt: skip
+        steps = (
+            ",".join(str(i) for i in f.steps)
+            if f.steps
+            else ("-" if f.step is None else str(f.step))
+        )
         msg = Text(f.message)
         if f.stopped_run:
             msg = Text("STOPPED THE RUN: ", style="bold red") + msg
@@ -198,8 +201,14 @@ def _finding_diff_json(fd: Any) -> dict[str, Any]:
     def side(fs: list[Finding]) -> list[dict[str, Any]]:
         return [{"severity": f.severity, "steps": f.steps, "message": f.message} for f in fs]
 
-    return {"kind": fd.kind, "worst_a": fd.worst_a, "worst_b": fd.worst_b,
-            "changed": fd.changed, "a": side(fd.a), "b": side(fd.b)}  # fmt: skip
+    return {
+        "kind": fd.kind,
+        "worst_a": fd.worst_a,
+        "worst_b": fd.worst_b,
+        "changed": fd.changed,
+        "a": side(fd.a),
+        "b": side(fd.b),
+    }
 
 
 def _unique_prefix_len(run_ids: Any, minimum: int = 10) -> int:
@@ -427,6 +436,190 @@ def _diagnosis_panel(d: Diagnosis) -> Panel:
     return Panel(grid, title="diagnosis", title_align="left")
 
 
+def _fixes_panel(d: Diagnosis, run: Run) -> Panel:
+    from rich.console import Group
+    from rich.syntax import Syntax
+
+    from .patch import PatchError, PatchSet
+
+    parts: list[Any] = []
+    for f in d.fixes:
+        head = Text(f"{f.fix_id}  ", style="bold") + Text(f.kind, style="cyan")
+        head += Text(f" → {f.target}")
+        if f.test_only:
+            head += Text("  (test only: a counterfactual, not a fix)", style="yellow")
+        parts.append(head)
+        parts.append(Text("  " + f.after))
+        if f.rationale:
+            parts.append(Text("  why: ", style="dim") + Text(f.rationale))
+        if f.expected_effect:
+            parts.append(Text("  expect: ", style="dim") + Text(f.expected_effect))
+        for n in f.notes:
+            parts.append(Text("  note: " + n, style="yellow"))
+        if f.as_patch is not None:
+            at = f.tried["fork_step"] if f.tried else (f.as_patch.target_step() or 0)
+            try:
+                diff = PatchSet(patches=[f.as_patch]).render_diff(run, fork_step=at)
+                body = "\n".join(diff.splitlines()[1:]).strip()
+                if body:
+                    parts.append(Syntax(body, "diff", theme="ansi_dark", word_wrap=True))
+            except PatchError as exc:
+                parts.append(Text(f"  (diff unavailable: {exc})", style="dim"))
+        if f.file:
+            parts.append(Text("  file: ", style="dim") + Text(f.file))
+        if f.tried:
+            t = f.tried
+            style = _OUTCOME_STYLE.get(t.get("outcome", ""), "")
+            line = Text("  tried: fork ") + Text(str(t.get("run_id"))[:10], style="cyan")
+            line += Text(f" from step {t.get('fork_step')} → outcome ")
+            line += Text(str(t.get("outcome")), style=style)
+            if t.get("failed_checks"):
+                line += Text(f" (failed: {', '.join(t['failed_checks'])})", style="red")
+            if t.get("error"):
+                line += Text(f"  error: {t['error']}", style="red")
+            parts.append(line)
+        parts.append(Text(""))
+    for n in d.fix_notes:
+        parts.append(Text(n, style="yellow"))
+    if not parts:
+        parts.append(Text("no fix proposed", style="dim"))
+    m = d.fix_method or {}
+    if m.get("model"):
+        bits = [str(m["model"])]
+        if m.get("input_tokens") is not None:
+            bits.append(f"{m.get('input_tokens', 0)}+{m.get('output_tokens', 0)} tokens")
+        if m.get("cost_usd") is not None:
+            bits.append(_cost_text(m["cost_usd"]))
+        bits.append(f"{m.get('kept', 0)}/{m.get('proposed', 0)} proposals kept")
+        if m.get("cached"):
+            bits.append("cached")
+        parts.append(Text("fix model: " + " · ".join(bits), style="dim"))
+    return Panel(Group(*parts), title="proposed fixes", title_align="left")
+
+
+def _next_hints(run: Run) -> list[str]:
+    rid = run.run_id[:10]
+    d = run.diagnosis
+    hints: list[str] = []
+    if d is None:
+        hints.append(f"crashlab diagnose {rid} --model MODEL [--base-url URL --api-key-env VAR]")
+        hints.append(f"crashlab diagnose {rid} --heuristic        # no LLM")
+    elif d.is_failure and not d.fixes:
+        hints.append(f"crashlab fix {rid} --model MODEL           # propose patches")
+    for f in (d.fixes if d else [])[:1]:
+        if f.file:
+            at = f.as_patch.target_step() if f.as_patch is not None else None
+            hints.append(f"crashlab fork {rid} --at {at or 0} --patch {f.file}")
+        if not f.tried:
+            hints.append(f"crashlab fix {rid} --model MODEL --try     # fork once with fix-1")
+    if run.entrypoint:
+        hints.append(f"crashlab replay {rid}                     # strict offline replay")
+    return hints
+
+
+def _print_report(console: Console, run: Run) -> None:
+    head = Table.grid(padding=(0, 2))
+    head.add_column(style="bold")
+    head.add_column(overflow="fold")
+    head.add_row("run", f"{run.run_id}  ({run.name})")
+    head.add_row(
+        "outcome",
+        Text(run.outcome, style=_OUTCOME_STYLE.get(run.outcome, ""))
+        + Text(f"  status: {run.status}"),
+    )
+    if run.outcome_reason:
+        head.add_row("reason", run.outcome_reason)
+    if run.forked_from:
+        head.add_row("forked from", f"{run.forked_from} at step {run.fork_step}")
+    head.add_row("output", _short(run.output, 160))
+    u = run.usage
+    head.add_row(
+        "usage",
+        f"{u.steps} steps · {u.llm_calls} llm · {u.tool_calls} tool · {u.total_tokens} tokens",
+    )
+    console.print(Panel(head, title="crashlab report", title_align="left"))
+    if run.checks:
+        console.print(_checks_table(run.checks))
+    if run.findings:
+        console.print(_findings_table(run.findings))
+    if run.diagnosis is not None:
+        console.print(_diagnosis_panel(run.diagnosis))
+        if run.diagnosis.is_failure or run.diagnosis.fixes or run.diagnosis.fix_notes:
+            console.print(_fixes_panel(run.diagnosis, run))
+    hints = _next_hints(run)
+    if hints:
+        console.print(Text("next:", style="bold"))
+        for h in hints:
+            console.print(Text("  " + h, style="dim"))
+
+
+@app.command("report")
+def report_cmd(
+    run_ref: str = typer.Argument("last", help="Run id, unique id prefix, or 'last'."),
+) -> None:
+    """One-screen report of a run: outcome, checks and findings, the stored diagnosis
+    (label, step, root cause, quotes), proposed fixes with diffs, and what to run next."""
+    _print_report(_console(), _resolve(Store(), run_ref))
+
+
+def _key_from(console: Console, api_key_env: str | None) -> str | None:
+    if not api_key_env:
+        return None
+    key = os.environ.get(api_key_env)
+    if not key:
+        console.print(f"[red]${_e(api_key_env)} is not set[/]")
+        raise typer.Exit(code=2)
+    return key
+
+
+def _run_fixes(
+    console,
+    store,
+    run,
+    *,
+    model,
+    base_url,
+    api_key,
+    cache,
+    try_it,
+    max_fixes,
+    hide_input,
+    max_chars,
+):
+    from .diagnose import DiagnoseError, propose_fixes, try_fix
+
+    try:
+        fixes = propose_fixes(
+            run,
+            model,
+            base_url=base_url,
+            api_key=api_key,
+            cache=cache,
+            store=store,
+            max_fixes=max_fixes,
+            hide_input=hide_input,
+            max_field=max_chars,
+        )
+    except DiagnoseError as exc:
+        console.print(f"[red]{_e(run.run_id)}: {_e(exc)}[/]")
+        raise typer.Exit(code=1) from exc
+    if try_it and fixes:
+        top = next((f for f in fixes if not f.test_only), fixes[0])
+        console.print(f"[dim]trying {_e(top.fix_id)}: forking {_e(run.run_id[:10])} live ...[/]")
+        try:
+            try_fix(run, top, store=store)
+        except Exception as exc:  # the experiment failed to start: report, keep the fixes
+            top.tried = {
+                "run_id": None,
+                "fork_step": None,
+                "outcome": "error",
+                "failed_checks": [],
+                "error": f"{type(exc).__name__}: {exc}"[:300],
+            }
+        store.save_diagnosis(run, run.diagnosis, (run.diagnosis.method or {}).get("cache_key"))
+    return fixes
+
+
 @app.command("diagnose")
 def diagnose_cmd(
     run_refs: list[str] = typer.Argument(  # noqa: B008
@@ -458,6 +651,10 @@ def diagnose_cmd(
         False, "--show-prompt", help="Print the compacted trace the diagnoser reads; no call."
     ),
     as_json: bool = typer.Option(False, "--json", help="Print the diagnosis as JSON."),
+    fix: bool = typer.Option(
+        False, "--fix", help="Also propose fixes (a second LLM call) and print the report."
+    ),
+    try_it: bool = typer.Option(False, "--try", help="With --fix: fork once with fix-1."),
 ) -> None:
     """Diagnose stored runs: failure label, culprit step, root cause and verbatim evidence
     from one LLM call, validated against the trace (unsupported answers become UNKNOWN)."""
@@ -496,13 +693,95 @@ def diagnose_cmd(
         except DiagnoseError as exc:
             console.print(f"[red]{_e(run.run_id)}: {_e(exc)}[/]")
             raise typer.Exit(code=1) from exc
+        if fix:
+            _run_fixes(
+                console,
+                store,
+                run,
+                model=model,
+                base_url=base_url,
+                api_key=api_key,
+                cache=not no_cache,
+                try_it=try_it,
+                max_fixes=3,
+                hide_input=hide_input,
+                max_chars=max_chars,
+            )
+            d = run.diagnosis or d
         if as_json:
             out.append(d.model_dump(mode="json"))
+        elif fix:
+            _print_report(console, run)
         else:
             console.print(f"[bold]{_e(run.run_id)}[/] {_e(run.name)} · outcome {_e(run.outcome)}")
             console.print(_diagnosis_panel(d))
     if as_json:
         typer.echo(json.dumps(out[0] if len(out) == 1 else out, indent=2, ensure_ascii=False))
+
+
+@app.command("fix")
+def fix_cmd(
+    run_ref: str = typer.Argument("last", help="Run id, unique id prefix, or 'last'."),
+    model: str | None = typer.Option(
+        None, "--model", "-m", help="Fix model (default: $CRASHLAB_DIAGNOSER_MODEL)."
+    ),
+    base_url: str | None = typer.Option(None, "--base-url", help="OpenAI-compatible endpoint."),
+    api_key_env: str | None = typer.Option(
+        None, "--api-key-env", help="Name of the env var holding the API key."
+    ),
+    try_it: bool = typer.Option(
+        False, "--try", help="Fork once with the top fix (live, the agent's own client)."
+    ),
+    max_fixes: int = typer.Option(3, "--max", help="Keep at most N fixes (1-3)."),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Ask again even if cached."),
+    hide_input: list[str] = typer.Option(  # noqa: B008
+        [], "--hide-input", help="Run input key to hide from the models (repeatable)."
+    ),
+    max_chars: int = typer.Option(600, "--max-chars", help="Truncate trace fields at N chars."),
+    as_json: bool = typer.Option(False, "--json", help="Print the fixes as JSON."),
+) -> None:
+    """Propose 1-3 ranked typed patches for a diagnosed run (diagnosing it first if
+    needed), validated against the run and saved as patch files for `crashlab fork --patch`."""
+    from .diagnose import DiagnoseError, diagnose
+
+    console = _console()
+    store = Store()
+    api_key = _key_from(console, api_key_env)
+    run = _resolve(store, run_ref)
+    if run.diagnosis is None or no_cache:
+        try:
+            diagnose(
+                run,
+                model,
+                base_url=base_url,
+                api_key=api_key,
+                cache=not no_cache,
+                store=store,
+                hide_input=hide_input,
+                max_field=max_chars,
+            )
+        except DiagnoseError as exc:
+            console.print(f"[red]{_e(run.run_id)}: {_e(exc)}[/]")
+            raise typer.Exit(code=1) from exc
+    fixes = _run_fixes(
+        console,
+        store,
+        run,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        cache=not no_cache,
+        try_it=try_it,
+        max_fixes=max(1, min(max_fixes, 3)),
+        hide_input=hide_input,
+        max_chars=max_chars,
+    )
+    if as_json:
+        typer.echo(
+            json.dumps([f.model_dump(mode="json") for f in fixes], indent=2, ensure_ascii=False)
+        )
+        return
+    _print_report(console, run)
 
 
 @app.command("replay")
@@ -531,8 +810,10 @@ def replay_cmd(
     except DivergenceError as err:
         console.print(Panel(Text(str(err)), title="[red]replay diverged[/]", title_align="left"))
         if err.replay_run_id:
-            console.print(f"Diverged replay stored as [cyan]{err.replay_run_id}[/] "
-                          f"(crashlab show {err.replay_run_id})")  # fmt: skip
+            console.print(
+                f"Diverged replay stored as [cyan]{err.replay_run_id}[/] "
+                f"(crashlab show {err.replay_run_id})"
+            )
         raise typer.Exit(code=1) from err
     except ReplayError as err:
         console.print(f"[red]cannot replay:[/] {_e(err)}")
@@ -594,8 +875,12 @@ def check_cmd(
     else:
         refs = list(run_refs or ["last"])
     overrides: dict[str, Any] = {}
-    budget = {"max_steps": max_steps, "max_tokens": max_tokens, "max_cost_usd": max_cost,
-              "max_seconds": max_seconds}  # fmt: skip
+    budget = {
+        "max_steps": max_steps,
+        "max_tokens": max_tokens,
+        "max_cost_usd": max_cost,
+        "max_seconds": max_seconds,
+    }
     if any(v is not None for v in budget.values()):
         overrides["budget"] = {k: v for k, v in budget.items() if v is not None}
     if baseline is not None:
@@ -628,21 +913,29 @@ def check_cmd(
             failed = True
         if save:
             store.update_run(run)
-        report.append({
-            "run_id": run.run_id, "name": run.name, "outcome": run.outcome,
-            "outcome_reason": run.outcome_reason,
-            "checks": [c.model_dump() for c in run.checks],
-            "findings": [f.model_dump(mode="json") for f in (found or [])],
-            "cost_usd": run.usage.cost_usd,
-        })  # fmt: skip
+        report.append(
+            {
+                "run_id": run.run_id,
+                "name": run.name,
+                "outcome": run.outcome,
+                "outcome_reason": run.outcome_reason,
+                "checks": [c.model_dump() for c in run.checks],
+                "findings": [f.model_dump(mode="json") for f in (found or [])],
+                "cost_usd": run.usage.cost_usd,
+            }
+        )
         if as_json:
             continue
         if summary is not None:
             kinds = ", ".join(
                 f"{f.kind}:{f.severity}" for f in sorted(found or [], key=lambda f: -f.rank)
             )
-            summary.add_row(run.run_id, run.name, Text(run.outcome,
-                            style=_OUTCOME_STYLE.get(run.outcome, "")), kinds or "-")  # fmt: skip
+            summary.add_row(
+                run.run_id,
+                run.name,
+                Text(run.outcome, style=_OUTCOME_STYLE.get(run.outcome, "")),
+                kinds or "-",
+            )
             continue
         if results:
             console.print(_checks_table(results))
@@ -736,8 +1029,9 @@ def _flag_patches(
             kv[key.strip()] = _json_or_text(value)
         out.append(P.ModelParamPatch(model=model, params=kv))
     if tool_description and tool_description[0] is not None:
-        out.append(P.ToolDescriptionPatch(tool=tool_description[0],
-                                          description=tool_description[1]))  # fmt: skip
+        out.append(
+            P.ToolDescriptionPatch(tool=tool_description[0], description=tool_description[1])
+        )
     if tool_result and tool_result[0] is not None:
         out.append(P.ToolResultPatch(step=tool_result[0], result=_json_or_text(tool_result[1])))
     if message and message[0] is not None:
@@ -764,72 +1058,72 @@ def fork_cmd(
     ),
     system_append: str | None = typer.Option(
         None, "--system-append", help="Append to the system prompt."
-    ),  # fmt: skip
+    ),
     system_prepend: str | None = typer.Option(
         None, "--system-prepend", help="Prepend to the system prompt."
-    ),  # fmt: skip
+    ),
     system_replace: str | None = typer.Option(
         None, "--system-replace", help="Replace the system prompt."
-    ),  # fmt: skip
+    ),
     system_insert_after: tuple[str, str] = typer.Option(
         (None, None),
         "--system-insert-after",
         metavar="ANCHOR TEXT",
         help="Insert TEXT as a new line after the system-prompt line containing ANCHOR.",
-    ),  # fmt: skip
+    ),
     system_sub: tuple[str, str] = typer.Option(
         (None, None),
         "--system-sub",
         metavar="OLD NEW",
         help="Replace OLD with NEW in the system prompt.",
-    ),  # fmt: skip
+    ),
     system_delete_line: str | None = typer.Option(
         None,
         "--system-delete-line",
         metavar="MATCH",
         help="Delete the system-prompt line containing MATCH.",
-    ),  # fmt: skip
+    ),
     model: str | None = typer.Option(None, "--model", help="Use this model from step N on."),
     params: list[str] | None = typer.Option(  # noqa: B008
         None,
         "--param",
         metavar="KEY=VALUE",
         help="Request parameter (JSON value), e.g. temperature=0.7. Repeatable.",
-    ),  # fmt: skip
+    ),
     tool_description: tuple[str, str] = typer.Option(
         (None, None),
         "--tool-description",
         metavar="TOOL TEXT",
         help="Replace a tool's description.",
-    ),  # fmt: skip
+    ),
     tool_result: tuple[int, str] = typer.Option(
         (None, None),
         "--tool-result",
         metavar="STEP JSON",
         help="Serve this result at tool step STEP instead of running the tool.",
-    ),  # fmt: skip
+    ),
     message: tuple[int, int, str] = typer.Option(
         (None, None, None),
         "--message",
         metavar="STEP INDEX TEXT",
         help="Replace message INDEX of the request at chat step STEP.",
-    ),  # fmt: skip
+    ),
     inject_user: tuple[int, str] = typer.Option(
         (None, None),
         "--inject-user",
         metavar="STEP TEXT",
         help="Append a user message to the request at chat step STEP.",
-    ),  # fmt: skip
+    ),
     tools: str = typer.Option(
         "cassette_if_match",
         "--tools",
         help="cassette_if_match (recorded result for identical calls, else live) or live.",
-    ),  # fmt: skip
+    ),
     allow_live_side_effects: bool = typer.Option(
         False,
         "--allow-live-side-effects",
         help="Run side_effects=True tools live after the fork step (sandboxes only).",
-    ),  # fmt: skip
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the patch diff, run nothing."),
     save_patch: str | None = typer.Option(
         None, "--save-patch", metavar="FILE", help="Write the combined patch as JSON."
@@ -854,12 +1148,19 @@ def fork_cmd(
         for path in patch_files or []:
             patches = patches + P.load(path)
         patches = patches + _flag_patches(
-            system_append=system_append, system_prepend=system_prepend,
-            system_replace=system_replace, system_insert_after=system_insert_after,
-            system_sub=system_sub, system_delete_line=system_delete_line, model=model,
-            params=params or [], tool_description=tool_description, tool_result=tool_result,
-            message=message, inject_user=inject_user,
-        )  # fmt: skip
+            system_append=system_append,
+            system_prepend=system_prepend,
+            system_replace=system_replace,
+            system_insert_after=system_insert_after,
+            system_sub=system_sub,
+            system_delete_line=system_delete_line,
+            model=model,
+            params=params or [],
+            tool_description=tool_description,
+            tool_result=tool_result,
+            message=message,
+            inject_user=inject_user,
+        )
         n = len(source.steps)
         fork_step = at + n if at < 0 else at
         rendered = patches.render_diff(source, fork_step=fork_step)
@@ -889,8 +1190,9 @@ def fork_cmd(
             store_dir=store.root,
         )
     except DivergenceError as err:
-        console.print(Panel(Text(str(err)), title="[red]fork prefix diverged[/]",
-                            title_align="left"))  # fmt: skip
+        console.print(
+            Panel(Text(str(err)), title="[red]fork prefix diverged[/]", title_align="left")
+        )
         raise typer.Exit(code=1) from err
     except (ReplayError, P.PatchError) as err:
         console.print(f"[red]cannot fork:[/] {_e(err)}")
@@ -920,8 +1222,13 @@ def _outcome_text(run: Run) -> Text:
 def _print_outcomes(console: Console, a: Run, b: Run) -> None:
     from .compare import diff
 
-    console.print(Text("outcome: ") + _outcome_text(a) + Text(" -> ") + _outcome_text(b)
-                  + Text(f"   ({b.outcome_reason})" if b.outcome_reason else ""))  # fmt: skip
+    console.print(
+        Text("outcome: ")
+        + _outcome_text(a)
+        + Text(" -> ")
+        + _outcome_text(b)
+        + Text(f"   ({b.outcome_reason})" if b.outcome_reason else "")
+    )
     rd = diff(a, b)
     if rd.checks:
         console.print(_checks_diff_table(rd))
@@ -929,10 +1236,22 @@ def _print_outcomes(console: Console, a: Run, b: Run) -> None:
 
 # --- diff ------------------------------------------------------------------------------
 
-_STEP_STYLE = {"same": "green", "response": "yellow", "request": "yellow",
-               "different": "red", "only_a": "magenta", "only_b": "magenta"}  # fmt: skip
-_STEP_LABEL = {"same": "same", "response": "≠ response", "request": "≠ request",
-               "different": "≠ call", "only_a": "only A", "only_b": "only B"}  # fmt: skip
+_STEP_STYLE = {
+    "same": "green",
+    "response": "yellow",
+    "request": "yellow",
+    "different": "red",
+    "only_a": "magenta",
+    "only_b": "magenta",
+}
+_STEP_LABEL = {
+    "same": "same",
+    "response": "≠ response",
+    "request": "≠ request",
+    "different": "≠ call",
+    "only_a": "only A",
+    "only_b": "only B",
+}
 
 
 def _check_cell(result: CheckResult | None) -> Text:
@@ -974,22 +1293,32 @@ def _usage_rows(a: Run, b: Run) -> list[tuple[str, str, str, str]]:
     rows = [
         ("steps", str(ua.steps), str(ub.steps), delta(ua.steps, ub.steps)),
         ("llm calls", str(ua.llm_calls), str(ub.llm_calls), delta(ua.llm_calls, ub.llm_calls)),
-        ("tool calls", str(ua.tool_calls), str(ub.tool_calls),
-         delta(ua.tool_calls, ub.tool_calls)),
+        ("tool calls", str(ua.tool_calls), str(ub.tool_calls), delta(ua.tool_calls, ub.tool_calls)),
         ("errors", str(ua.errors), str(ub.errors), delta(ua.errors, ub.errors)),
-        ("tokens in", str(ua.input_tokens), str(ub.input_tokens),
-         delta(ua.input_tokens, ub.input_tokens)),
-        ("tokens out", str(ua.output_tokens), str(ub.output_tokens),
-         delta(ua.output_tokens, ub.output_tokens)),
-        ("tokens total", str(ua.total_tokens), str(ub.total_tokens),
-         delta(ua.total_tokens, ub.total_tokens)),
-    ]  # fmt: skip
+        (
+            "tokens in",
+            str(ua.input_tokens),
+            str(ub.input_tokens),
+            delta(ua.input_tokens, ub.input_tokens),
+        ),
+        (
+            "tokens out",
+            str(ua.output_tokens),
+            str(ub.output_tokens),
+            delta(ua.output_tokens, ub.output_tokens),
+        ),
+        (
+            "tokens total",
+            str(ua.total_tokens),
+            str(ub.total_tokens),
+            delta(ua.total_tokens, ub.total_tokens),
+        ),
+    ]
     from .pricing import run_cost
 
     ca, cb = run_cost(a), run_cost(b)
     if ua.llm_calls or ub.llm_calls:
-        rows.append(("est. cost", _cost_text(ca), _cost_text(cb),
-                     delta(ca, cb, "{:+.6f}")))  # fmt: skip
+        rows.append(("est. cost", _cost_text(ca), _cost_text(cb), delta(ca, cb, "{:+.6f}")))
     if ua.wall_time_ms is not None or ub.wall_time_ms is not None:
         wa, wb = (ua.wall_time_ms or 0) / 1000, (ub.wall_time_ms or 0) / 1000
         rows.append(("wall time", f"{wa:.2f}s", f"{wb:.2f}s", f"{wb - wa:+.2f}s"))
@@ -1021,16 +1350,29 @@ def diff_cmd(
         b = _resolve(store, run_b)
     rd = diff(a, b)
     if as_json:
-        typer.echo(json.dumps({
-            "a": a.run_id, "b": b.run_id, "relation": rd.relation,
-            "outcome": [a.outcome, b.outcome], "status": [a.status, b.status],
-            "first_divergence": rd.first_divergence, "summary": rd.summary(),
-            "checks": {c.name: [c.a.status if c.a else None, c.b.status if c.b else None]
-                       for c in rd.checks},
-            "steps": [{"idx": s.idx, "status": s.status, "fields": s.fields} for s in rd.steps],
-            "findings": [_finding_diff_json(f) for f in rd.findings],
-            "usage": {"a": a.usage.model_dump(), "b": b.usage.model_dump()},
-        }, indent=2))  # fmt: skip
+        typer.echo(
+            json.dumps(
+                {
+                    "a": a.run_id,
+                    "b": b.run_id,
+                    "relation": rd.relation,
+                    "outcome": [a.outcome, b.outcome],
+                    "status": [a.status, b.status],
+                    "first_divergence": rd.first_divergence,
+                    "summary": rd.summary(),
+                    "checks": {
+                        c.name: [c.a.status if c.a else None, c.b.status if c.b else None]
+                        for c in rd.checks
+                    },
+                    "steps": [
+                        {"idx": s.idx, "status": s.status, "fields": s.fields} for s in rd.steps
+                    ],
+                    "findings": [_finding_diff_json(f) for f in rd.findings],
+                    "usage": {"a": a.usage.model_dump(), "b": b.usage.model_dump()},
+                },
+                indent=2,
+            )
+        )
         return
 
     head = Table(title=f"A {a.run_id}  vs  B {b.run_id}", title_justify="left")
@@ -1041,10 +1383,15 @@ def diff_cmd(
     if rd.relation:
         head.add_row("relation", rd.relation, "", "")
     head.add_row("name", a.name, b.name, "")
-    head.add_row("status", Text(a.status, style=_STATUS_STYLE.get(a.status, "")),
-                 Text(b.status, style=_STATUS_STYLE.get(b.status, "")), "")  # fmt: skip
-    head.add_row("outcome", _outcome_text(a), _outcome_text(b),
-                 "changed" if a.outcome != b.outcome else "")  # fmt: skip
+    head.add_row(
+        "status",
+        Text(a.status, style=_STATUS_STYLE.get(a.status, "")),
+        Text(b.status, style=_STATUS_STYLE.get(b.status, "")),
+        "",
+    )
+    head.add_row(
+        "outcome", _outcome_text(a), _outcome_text(b), "changed" if a.outcome != b.outcome else ""
+    )
     if a.outcome_reason or b.outcome_reason:
         head.add_row("reason", a.outcome_reason or "", b.outcome_reason or "", "")
     models_a = ", ".join(dict.fromkeys(s.name for s in a.chat_steps())) or "-"
@@ -1066,8 +1413,11 @@ def diff_cmd(
         for fd in rd.findings:
             cells = []
             for fs, worst in ((fd.a, fd.worst_a), (fd.b, fd.worst_b)):
-                text = Text(f"{len(fs)} {worst}", style=_SEV_STYLE.get(worst or "", "")) if fs \
-                    else Text("-", style="dim")  # fmt: skip
+                text = (
+                    Text(f"{len(fs)} {worst}", style=_SEV_STYLE.get(worst or "", ""))
+                    if fs
+                    else Text("-", style="dim")
+                )
                 if fs:
                     text += Text(f" ({fs[0].message[:70]})", style="dim")
                 cells.append(text)
@@ -1083,14 +1433,23 @@ def diff_cmd(
         label = _STEP_LABEL[sd.status]
         if sd.fields and sd.status in ("request", "response"):
             label += " (" + ", ".join(sd.fields[:3]) + ")"
-        steps.add_row(str(sd.idx), _step_cell(sd.a), _step_cell(sd.b),
-                      Text(label, style=_STEP_STYLE[sd.status]))  # fmt: skip
+        steps.add_row(
+            str(sd.idx),
+            _step_cell(sd.a),
+            _step_cell(sd.b),
+            Text(label, style=_STEP_STYLE[sd.status]),
+        )
     if rd.steps:
         console.print(steps)
     shown = [s for s in rd.steps if not s.same and s.detail()]
     for sd in shown if full else shown[:1]:
-        console.print(Panel(Text(sd.detail()), title=f"step {sd.idx}: {_STEP_LABEL[sd.status]}",
-                            title_align="left"))  # fmt: skip
+        console.print(
+            Panel(
+                Text(sd.detail()),
+                title=f"step {sd.idx}: {_STEP_LABEL[sd.status]}",
+                title_align="left",
+            )
+        )
     console.print(rd.summary())
 
 
