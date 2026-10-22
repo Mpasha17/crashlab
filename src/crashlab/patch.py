@@ -259,6 +259,10 @@ class SystemPromptPatch(_Patch):
     appends) or an ``after`` / ``before`` anchor (a substring of an existing line);
     ``replace_line`` / ``delete_line`` take ``line`` or ``match``; ``substitute`` replaces
     ``old`` with ``text``.
+
+    ``when`` scopes the edit in multi-agent apps (one client, several agents with their own
+    instructions): only requests whose system prompt contains ``when`` are edited; the
+    others are left alone instead of failing.
     """
 
     kind: Literal["system_prompt"] = "system_prompt"
@@ -271,10 +275,13 @@ class SystemPromptPatch(_Patch):
     before: str | None = None
     match: str | None = None
     old: str | None = None
+    when: str | None = None
     from_step: int | None = None
 
     @model_validator(mode="after")
     def _check(self) -> SystemPromptPatch:
+        if self.when is not None and not self.when.strip():
+            raise ValueError("when must be a non-empty substring of the target prompt")
         anchors = [x for x in (self.line, self.after, self.before) if x is not None]
         if self.op == "insert_line" and len(anchors) != 1:
             raise ValueError("insert_line needs exactly one of line, after, before")
@@ -336,7 +343,10 @@ class SystemPromptPatch(_Patch):
     def apply_chat(self, ed: RequestEditor, idx: int, fork_step: int, state: dict) -> bool:
         if not self.active_at(idx, fork_step):
             return False
-        ed.set_system(self.edit(ed.get_system()))
+        system = ed.get_system()
+        if self.when is not None and self.when not in (system or ""):
+            return False
+        ed.set_system(self.edit(system))
         return True
 
     def describe(self) -> str:
@@ -359,7 +369,8 @@ class SystemPromptPatch(_Patch):
             where = f"{verb[self.op]} {at}" + (":" if self.op != "delete_line" else "")
         text = "" if self.op == "delete_line" else f" {_q(self.text)}"
         frm = f" (from step {self.from_step})" if self.from_step is not None else ""
-        return f"system prompt: {where}{text}{frm}"
+        scope = f" [only prompts containing {_q(self.when, 30)}]" if self.when else ""
+        return f"system prompt{scope}: {where}{text}{frm}"
 
 
 class MessagePatch(_Patch):

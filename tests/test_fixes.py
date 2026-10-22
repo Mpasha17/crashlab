@@ -214,7 +214,7 @@ def test_cli_fix_prints_the_report_with_a_diff(fake_fix_model):
         "--patch",
     ):
         assert want in out, want
-    assert fake_fix_model == ["fix-v1"]
+    assert fake_fix_model == ["fix-v2"]
     stored = crashlab.load(run.run_id).diagnosis
     assert stored.fixes[0].file and stored.fixes[0].kind == "system_prompt"
 
@@ -252,7 +252,7 @@ def test_cli_diagnose_with_fix(fake_fix_model, monkeypatch):
     assert res.exit_code == 0, res.output
     assert "proposed fixes" in res.output and "fix-1" in res.output
     again = runner.invoke(app, ["diagnose", run.run_id, "-m", "fake", "--fix"])
-    assert again.exit_code == 0 and fake_fix_model == ["fix-v1"]  # both calls cached
+    assert again.exit_code == 0 and fake_fix_model == ["fix-v2"]  # both calls cached
 
 
 def test_stray_anchor_on_append_is_flagged_and_dropped():

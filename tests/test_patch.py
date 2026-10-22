@@ -433,3 +433,37 @@ def test_short_aliases_and_top_level_exports():
     assert crashlab.patch.SystemPrompt is crashlab.SystemPromptPatch
     assert crashlab.patch.ToolResult is crashlab.ToolResultPatch
     assert crashlab.patch.Model is crashlab.ModelParamPatch
+
+
+def test_when_scopes_a_system_prompt_patch_to_one_agent():
+    """Multi-agent apps share one client: only the agent whose prompt contains ``when``
+    is edited, and a substitute does not fail on the other agents' prompts."""
+    patch = {
+        "kind": "system_prompt",
+        "op": "substitute",
+        "old": "delegate questions",
+        "text": "always delegate questions",
+        "when": "triaging agent",
+    }
+    triage = {
+        "model": "m",
+        "messages": [
+            {"role": "system", "content": "You are a triaging agent. You delegate questions."},
+            {"role": "user", "content": "hi"},
+        ],
+    }
+    faq = {
+        "model": "m",
+        "messages": [
+            {"role": "system", "content": "You are an FAQ agent."},
+            {"role": "user", "content": "hi"},
+        ],
+    }
+    out, applied = apply(patch, "openai.chat.completions", triage)
+    assert applied == [0]
+    assert out["messages"][0]["content"].endswith("always delegate questions.")
+    out, applied = apply(patch, "openai.chat.completions", faq)
+    assert applied == [] and out["messages"][0]["content"] == "You are an FAQ agent."
+    assert "only prompts containing" in P.as_patchset(patch).patches[0].describe()
+    with pytest.raises(ValueError):
+        P.as_patchset({**patch, "when": " "})

@@ -27,7 +27,7 @@ from .compact import compact
 from .diagnoser import DiagnoseError, Messages, _ask, cache_key, parse_json
 from .heuristics import candidates
 
-FIX_PROMPT_VERSION = "fix-v1"
+FIX_PROMPT_VERSION = "fix-v2"
 MAX_FIXES = 3
 MAX_PATCH_CHARS = 700  # the patch's own text (prompt lines, descriptions ...)
 MAX_PROMPT_LINES = 4
@@ -48,7 +48,9 @@ correctly on this AND similar tasks.
 Patch types (JSON objects; "kind" selects the type):
 - {"kind": "system_prompt", "op": "append" | "insert_line" | "replace_line" | "substitute", \
 "text": "...", "line": N | "after": "<substring of a line>" | "match": "<substring>" | \
-"old": "<exact text>"}: edit the system prompt (lines are 1-based).
+"old": "<exact text>", "when": "<optional>"}: edit the system prompt (lines are 1-based). \
+In a multi-agent run (the trace shows "system prompt changed"), set "when" to a phrase \
+found only in the prompt of the agent to fix, so the other agents' prompts are untouched.
 - {"kind": "tool_description", "tool": "<name>", "op": "append" | "replace", \
 "description": "..."}: clarify what a tool does or returns.
 - {"kind": "tool_schema", "tool": "<name>", "parameters": {<JSON schema>}, "merge": true}: \
