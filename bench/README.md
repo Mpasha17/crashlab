@@ -40,6 +40,7 @@ misses on this same set, so its jump from 51.6% to 80.6% is partly fitted to the
 | heuristic (no LLM), Day 6 rules | 31 | 51.6% | 28.6% | 28.6% | 38.1% | 0 | 9/9 | $0 |
 | Groq openai/gpt-oss-120b, prompt v3 (2026-10-21) | 31 | 90.3% | 85.7% | 71.4% | 90.5% | 0 | 44/46 | $0.017 total, 10.7 s/case |
 | Groq openai/gpt-oss-120b, prompt v2 | 31 | 74.2% | 61.9% | 52.4% | 66.7% | 0 | 46/47 | $0.016 total, 6.3 s/case |
+| gemini-flash-lite-latest, prompt v3 (2026-10-22) | 31 | 87.1% | 81.0% | 76.2% | 90.5% | 0 | 25/27 | free tier ($0.025 at list price), 1.0 s/case |
 | gemini-3.7-flash (partial) | 8 | 87.5% | 87.5% | 87.5% | 87.5% | n/a | 9/10 | free tier |
 | gemini-flash-latest (partial) | 7 | 85.7% | 85.7% | 85.7% | 85.7% | n/a | 7/8 | free tier |
 

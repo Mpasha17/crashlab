@@ -1,0 +1,1083 @@
+{
+ "summary": {
+  "diagnoser": "gemini-flash-lite-latest",
+  "cases": 31,
+  "label_accuracy": 87.1,
+  "failure_cases": 21,
+  "failure_label_accuracy": 81.0,
+  "step_exact": 76.2,
+  "step_in_window": 90.5,
+  "clean_cases": 8,
+  "false_alarms": 0,
+  "unknown": 2,
+  "downgraded": 2,
+  "errors": 0,
+  "evidence_valid": "25/27",
+  "input_tokens": 53739,
+  "output_tokens": 3674,
+  "cost_usd": 0.02531,
+  "seconds_per_case": 1.0
+ },
+ "prompt_version": "diagnose-v3",
+ "cases": [
+  {
+   "run": "01M581H68W",
+   "expected": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "expected_step": 2,
+   "window": [
+    2,
+    2
+   ],
+   "error": null,
+   "label": "WRONG_TOOL_SELECTION",
+   "step": 2,
+   "confidence": 0.9,
+   "root_cause": "The agent explained that it can process a refund but failed to actually call the issue_refund tool.",
+   "evidence": [
+    {
+     "step": 2,
+     "field": "response.text",
+     "quote": "Since the order was delivered 5 days ago, which is within the 30-day limit, and the item is broken, I can process a refund for you. The refund amount will be $49.00, which is the total amount of the order."
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1575,
+   "output_tokens": 137,
+   "cost_usd": 0.000815,
+   "seconds": 2.82,
+   "cached": false
+  },
+  {
+   "run": "01M581GD3Q",
+   "expected": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "expected_step": 2,
+   "window": [
+    2,
+    2
+   ],
+   "error": null,
+   "label": "WRONG_TOOL_SELECTION",
+   "step": 2,
+   "confidence": 0.9,
+   "root_cause": "The agent told the customer it can process a refund without actually calling the issue_refund tool.",
+   "evidence": [
+    {
+     "step": 2,
+     "field": "response.text",
+     "quote": "Since the order was delivered 5 days ago, which is within the 30-day limit, and the item is broken, I can process a refund for you. The refund amount will be $49.00, which is the total amount of the order."
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1564,
+   "output_tokens": 136,
+   "cost_usd": 0.0008092,
+   "seconds": 0.9,
+   "cached": false
+  },
+  {
+   "run": "01M5816HVZ",
+   "expected": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "expected_step": 2,
+   "window": [
+    2,
+    2
+   ],
+   "error": null,
+   "label": "WRONG_TOOL_SELECTION",
+   "step": 2,
+   "confidence": 1.0,
+   "root_cause": "The agent stated an intention to issue a refund but replied to the user without actually calling the issue_refund tool.",
+   "evidence": [
+    {
+     "step": 2,
+     "field": "response.text",
+     "quote": "I have looked up your order. The item was delivered 5 days ago. Let's issue a refund for your order A17."
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1521,
+   "output_tokens": 105,
+   "cost_usd": 0.0007188,
+   "seconds": 0.86,
+   "cached": false
+  },
+  {
+   "run": "01M5815PB2",
+   "expected": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "expected_step": 2,
+   "window": [
+    2,
+    2
+   ],
+   "error": null,
+   "label": "WRONG_TOOL_SELECTION",
+   "step": 2,
+   "confidence": 0.95,
+   "root_cause": "The agent stopped and replied to the customer without calling the issue_refund tool to actually issue the refund.",
+   "evidence": [
+    {
+     "step": 2,
+     "field": "response.text",
+     "quote": "I have looked up your order. It was delivered 5 days ago. We can issue a refund for your broken Ceramic teapot."
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1599,
+   "output_tokens": 128,
+   "cost_usd": 0.0007997,
+   "seconds": 0.87,
+   "cached": false
+  },
+  {
+   "run": "01M5815B9Y",
+   "expected": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "expected_step": 2,
+   "window": [
+    2,
+    2
+   ],
+   "error": null,
+   "label": "WRONG_TOOL_SELECTION",
+   "step": 2,
+   "confidence": 1.0,
+   "root_cause": "The agent claimed it issued a refund without ever calling the issue_refund tool.",
+   "evidence": [
+    {
+     "step": 2,
+     "field": "response.text",
+     "quote": "I have issued a refund for your order A17. Please allow 3-5 business days for the refund to show in your account."
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1589,
+   "output_tokens": 106,
+   "cost_usd": 0.0007417,
+   "seconds": 0.88,
+   "cached": false
+  },
+  {
+   "run": "01M5819CFV",
+   "expected": [
+    "WRONG_TOOL_SELECTION"
+   ],
+   "expected_step": 0,
+   "window": [
+    0,
+    0
+   ],
+   "error": null,
+   "label": "UNKNOWN",
+   "step": null,
+   "confidence": 0.2,
+   "root_cause": "The agent replied immediately without calling the required get_order tool to look up the order.",
+   "evidence": [],
+   "notes": [
+    "dropped quote '{}': not found verbatim in step 0",
+    "downgraded to UNKNOWN: WRONG_TOOL_SELECTION has no evidence quote found verbatim in the cited steps"
+   ],
+   "label_ok": false,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": true,
+   "evidence_valid": 0,
+   "evidence_total": 1,
+   "input_tokens": 1322,
+   "output_tokens": 72,
+   "cost_usd": 0.0005766,
+   "seconds": 0.96,
+   "cached": false
+  },
+  {
+   "run": "01M581H0WA",
+   "expected": [
+    "BAD_TOOL_ARGUMENTS",
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 1,
+   "window": [
+    0,
+    1
+   ],
+   "error": null,
+   "label": "BAD_TOOL_ARGUMENTS",
+   "step": 0,
+   "confidence": 0.95,
+   "root_cause": "The agent called the issue_refund tool with a string instead of a number for the amount parameter, violating the schema.",
+   "evidence": [
+    {
+     "step": 0,
+     "field": "response.tool_calls[0]",
+     "quote": "issue_refund({\"amount\": \"0\", \"order_id\": \"C03\"})"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1570,
+   "output_tokens": 140,
+   "cost_usd": 0.000821,
+   "seconds": 1.0,
+   "cached": false
+  },
+  {
+   "run": "01M581GTXC",
+   "expected": [
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 2,
+   "window": [
+    1,
+    2
+   ],
+   "error": null,
+   "label": "EXTERNAL_FAILURE",
+   "step": 1,
+   "confidence": 0.95,
+   "root_cause": "The get_order tool returned a 502 Bad Gateway HTML error page due to an upstream server failure.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "<!DOCTYPE html>\n<html><head><title>502 Bad Gateway</title></head>\n<body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.25.3</center></body>\n</html>"
+    }
+   ],
+   "notes": [],
+   "label_ok": false,
+   "step_exact": false,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1607,
+   "output_tokens": 129,
+   "cost_usd": 0.0008046,
+   "seconds": 0.93,
+   "cached": false
+  },
+  {
+   "run": "01M58170ZN",
+   "expected": [
+    "STEP_REPETITION"
+   ],
+   "expected_step": 3,
+   "window": [
+    2,
+    5
+   ],
+   "error": null,
+   "label": "STEP_REPETITION",
+   "step": 3,
+   "confidence": 1.0,
+   "root_cause": "The agent repeatedly called get_order with the same arguments multiple times, causing it to exceed the step budget.",
+   "evidence": [
+    {
+     "step": 3,
+     "field": "call",
+     "quote": "get_order({\"order_id\": \"A17\"})"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 2102,
+   "output_tokens": 97,
+   "cost_usd": 0.0008731,
+   "seconds": 0.88,
+   "cached": false
+  },
+  {
+   "run": "01M57GM9Q5",
+   "expected": [
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 3,
+   "window": [
+    1,
+    6
+   ],
+   "error": null,
+   "label": "EXTERNAL_FAILURE",
+   "step": 1,
+   "confidence": 0.9,
+   "root_cause": "The order lookup tool repeatedly failed with a 502 Bad Gateway error due to an external service outage.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "<!DOCTYPE html>\n<html><head><title>502 Bad Gateway</title></head>\n<body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.25.3</center></body>\n</html>"
+    }
+   ],
+   "notes": [],
+   "label_ok": false,
+   "step_exact": false,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 2384,
+   "output_tokens": 133,
+   "cost_usd": 0.0010477,
+   "seconds": 1.06,
+   "cached": false
+  },
+  {
+   "run": "01M57CN3M0",
+   "expected": [
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 3,
+   "window": [
+    1,
+    8
+   ],
+   "error": null,
+   "label": "UNKNOWN",
+   "step": null,
+   "confidence": 0.2,
+   "root_cause": "The order lookup tool returned a 502 Bad Gateway HTML error page due to an upstream external service failure.",
+   "evidence": [],
+   "notes": [
+    "dropped quote '<%}%>\\n<html><head><title>502 Bad Gateway</title></head>': not found verbatim in step 1",
+    "downgraded to UNKNOWN: EXTERNAL_FAILURE has no evidence quote found verbatim in the cited steps"
+   ],
+   "label_ok": false,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": true,
+   "evidence_valid": 0,
+   "evidence_total": 1,
+   "input_tokens": 2665,
+   "output_tokens": 100,
+   "cost_usd": 0.0010495,
+   "seconds": 1.0,
+   "cached": false
+  },
+  {
+   "run": "01M57C0Y43",
+   "expected": [
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 3,
+   "window": [
+    1,
+    8
+   ],
+   "error": null,
+   "label": "STEP_REPETITION",
+   "step": 3,
+   "confidence": 0.95,
+   "root_cause": "The agent repeatedly called get_order with the same arguments despite receiving a 502 Bad Gateway HTML error page every time.",
+   "evidence": [
+    {
+     "step": 3,
+     "field": "args",
+     "quote": "{\"order_id\": \"A17\"}"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 2417,
+   "output_tokens": 93,
+   "cost_usd": 0.0009576,
+   "seconds": 1.24,
+   "cached": false
+  },
+  {
+   "run": "01M5815TN9",
+   "expected": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 3,
+   "window": [
+    2,
+    3
+   ],
+   "error": null,
+   "label": "TASK_SPEC_VIOLATION",
+   "step": 3,
+   "confidence": 1.0,
+   "root_cause": "The agent issued a refund for an order that was delivered 45 days ago, violating the 30-day refund policy window.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "{\"order_id\": \"C03\", \"item\": \"Running shoes\", \"total\": 120.0, \"currency\": \"USD\", \"status\": \"delivered\", \"days_since_delivery\": 45}"
+    },
+    {
+     "step": 3,
+     "field": "result",
+     "quote": "{\"refund_id\": \"R0001\", \"order_id\": \"C03\", \"amount\": 120.0, \"status\": \"issued\"}"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 2,
+   "evidence_total": 2,
+   "input_tokens": 1669,
+   "output_tokens": 217,
+   "cost_usd": 0.0010432,
+   "seconds": 1.07,
+   "cached": false
+  },
+  {
+   "run": "01M57GPCFG",
+   "expected": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 3,
+   "window": [
+    2,
+    3
+   ],
+   "error": null,
+   "label": "TASK_SPEC_VIOLATION",
+   "step": 3,
+   "confidence": 1.0,
+   "root_cause": "The agent issued a refund for an order that was delivered 45 days ago, violating the 30-day refund policy.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "{\"order_id\": \"C03\", \"item\": \"Running shoes\", \"total\": 120.0, \"currency\": \"USD\", \"status\": \"delivered\", \"days_since_delivery\": 45}"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1682,
+   "output_tokens": 130,
+   "cost_usd": 0.0008296,
+   "seconds": 1.07,
+   "cached": false
+  },
+  {
+   "run": "01M57GM7H9",
+   "expected": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 3,
+   "window": [
+    2,
+    3
+   ],
+   "error": null,
+   "label": "TASK_SPEC_VIOLATION",
+   "step": 3,
+   "confidence": 1.0,
+   "root_cause": "The agent issued a refund for an order that was delivered 45 days ago, violating the 30-day return policy.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "{\"order_id\": \"C03\", \"item\": \"Running shoes\", \"total\": 120.0, \"currency\": \"USD\", \"status\": \"delivered\", \"days_since_delivery\": 45}"
+    },
+    {
+     "step": 3,
+     "field": "result",
+     "quote": "{\"refund_id\": \"R0001\", \"order_id\": \"C03\", \"amount\": 120.0, \"status\": \"issued\"}"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 2,
+   "evidence_total": 2,
+   "input_tokens": 1777,
+   "output_tokens": 180,
+   "cost_usd": 0.0009831,
+   "seconds": 0.98,
+   "cached": false
+  },
+  {
+   "run": "01M5816SGW",
+   "expected": [
+    "EXTERNAL_FAILURE"
+   ],
+   "expected_step": 1,
+   "window": [
+    1,
+    2
+   ],
+   "error": null,
+   "label": "EXTERNAL_FAILURE",
+   "step": 1,
+   "confidence": 1.0,
+   "root_cause": "The order lookup tool returned a 502 Bad Gateway HTML error page due to an upstream server failure.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "<!DOCTYPE html>\n<html><head><title>502 Bad Gateway</title></head>\n<body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.25.3</center></body>\n</html>"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1591,
+   "output_tokens": 127,
+   "cost_usd": 0.0007948,
+   "seconds": 0.95,
+   "cached": false
+  },
+  {
+   "run": "01M5815HQQ",
+   "expected": [
+    "EXTERNAL_FAILURE"
+   ],
+   "expected_step": 1,
+   "window": [
+    1,
+    2
+   ],
+   "error": null,
+   "label": "EXTERNAL_FAILURE",
+   "step": 1,
+   "confidence": 1.0,
+   "root_cause": "The get_order tool returned a 502 Bad Gateway HTML error page due to an external service failure.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "<!DOCTYPE html>\n<html><head><title>502 Bad Gateway</title></head>\n<body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.25.3</center></body>\n</html>"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1577,
+   "output_tokens": 128,
+   "cost_usd": 0.0007931,
+   "seconds": 0.99,
+   "cached": false
+  },
+  {
+   "run": "01M57GPSPX",
+   "expected": [
+    "EXTERNAL_FAILURE"
+   ],
+   "expected_step": 1,
+   "window": [
+    1,
+    3
+   ],
+   "error": null,
+   "label": "EXTERNAL_FAILURE",
+   "step": 1,
+   "confidence": 1.0,
+   "root_cause": "The order lookup tool returned a 502 Bad Gateway HTML error page due to an upstream server failure.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "<!DOCTYPE html>\n<html><head><title>502 Bad Gateway</title></head>\n<body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.25.3</center></body>\n</html>"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1777,
+   "output_tokens": 127,
+   "cost_usd": 0.0008506,
+   "seconds": 1.03,
+   "cached": false
+  },
+  {
+   "run": "01M57CJN5R",
+   "expected": [
+    "EXTERNAL_FAILURE"
+   ],
+   "expected_step": 1,
+   "window": [
+    1,
+    2
+   ],
+   "error": null,
+   "label": "EXTERNAL_FAILURE",
+   "step": 1,
+   "confidence": 1.0,
+   "root_cause": "The order lookup tool returned a 502 Bad Gateway HTML error page due to an upstream service failure, and the agent handled it reasonably by informing the customer of technical difficulties.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "<!DOCTYPE html>\n<html><head><title>502 Bad Gateway</title></head>\n<body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.25.3</center></body>\n</html>"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1600,
+   "output_tokens": 168,
+   "cost_usd": 0.0009,
+   "seconds": 0.97,
+   "cached": false
+  },
+  {
+   "run": "01M57C7324",
+   "expected": [
+    "EXTERNAL_FAILURE"
+   ],
+   "expected_step": 1,
+   "window": [
+    1,
+    3
+   ],
+   "error": null,
+   "label": "EXTERNAL_FAILURE",
+   "step": 1,
+   "confidence": 1.0,
+   "root_cause": "The order lookup tool returned a 502 Bad Gateway HTML error page due to an upstream server failure.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "<!DOCTYPE html>\n<html><head><title>502 Bad Gateway</title></head>\n<body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.25.3</center></body>\n</html>"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1783,
+   "output_tokens": 127,
+   "cost_usd": 0.0008524,
+   "seconds": 1.01,
+   "cached": false
+  },
+  {
+   "run": "01M57GN0HZ",
+   "expected": [
+    "EXTERNAL_FAILURE"
+   ],
+   "expected_step": 0,
+   "window": [
+    0,
+    0
+   ],
+   "error": null,
+   "label": "EXTERNAL_FAILURE",
+   "step": 0,
+   "confidence": 1.0,
+   "root_cause": "The LLM API returned a RateLimitError due to quota exhaustion on the upstream service.",
+   "evidence": [
+    {
+     "step": 0,
+     "field": "error",
+     "quote": "openai.RateLimitError: Error code: 429 - [{'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.8-flash\nPlease retry in 11h15m46.205398498s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn mo …"
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": true,
+   "step_in_window": true,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1676,
+   "output_tokens": 269,
+   "cost_usd": 0.0011753,
+   "seconds": 1.23,
+   "cached": false
+  },
+  {
+   "run": "01M57GP6FV",
+   "expected": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "error": null,
+   "label": "NO_FAILURE",
+   "step": null,
+   "confidence": 1.0,
+   "root_cause": "The agent correctly checked the order status and denied the refund because it exceeded the 30-day return window.",
+   "evidence": [],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 0,
+   "evidence_total": 0,
+   "input_tokens": 1544,
+   "output_tokens": 61,
+   "cost_usd": 0.0006157,
+   "seconds": 0.74,
+   "cached": false
+  },
+  {
+   "run": "01M57GMCCD",
+   "expected": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "error": null,
+   "label": "NO_FAILURE",
+   "step": null,
+   "confidence": 1.0,
+   "root_cause": "The agent successfully checked the order status and days since delivery, issued the correct refund amount, and informed the customer.",
+   "evidence": [
+    {
+     "step": 4,
+     "field": "response.text",
+     "quote": "I'm sorry to hear your order arrived broken. I have processed a full refund of $49.00 for order A17."
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1643,
+   "output_tokens": 101,
+   "cost_usd": 0.0007454,
+   "seconds": 1.04,
+   "cached": false
+  },
+  {
+   "run": "01M57GM5RH",
+   "expected": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "error": null,
+   "label": "NO_FAILURE",
+   "step": null,
+   "confidence": 1.0,
+   "root_cause": "The agent correctly checked the order status and adhered to the 30-day refund policy by refusing the refund.",
+   "evidence": [
+    {
+     "step": 1,
+     "field": "result",
+     "quote": "{\"order_id\": \"C03\", \"item\": \"Running shoes\", \"total\": 120.0, \"currency\": \"USD\", \"status\": \"delivered\", \"days_since_delivery\": 45}"
+    },
+    {
+     "step": 2,
+     "field": "response.text",
+     "quote": "I’m sorry, but that order was delivered more than 30 days ago, so it’s outside our refund window. Let us know if there’s anything else we can help with."
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 2,
+   "evidence_total": 2,
+   "input_tokens": 1590,
+   "output_tokens": 194,
+   "cost_usd": 0.000962,
+   "seconds": 1.02,
+   "cached": false
+  },
+  {
+   "run": "01M57GM0VB",
+   "expected": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "error": null,
+   "label": "NO_FAILURE",
+   "step": null,
+   "confidence": 1.0,
+   "root_cause": "The agent correctly retrieved the order, verified the policy conditions, issued the refund successfully, and informed the user.",
+   "evidence": [],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 0,
+   "evidence_total": 0,
+   "input_tokens": 1741,
+   "output_tokens": 60,
+   "cost_usd": 0.0006723,
+   "seconds": 0.73,
+   "cached": false
+  },
+  {
+   "run": "01M57CN1PR",
+   "expected": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "error": null,
+   "label": "NO_FAILURE",
+   "step": null,
+   "confidence": 1.0,
+   "root_cause": "The agent correctly looked up the order, verified the policy, successfully issued the refund, and informed the customer.",
+   "evidence": [],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 0,
+   "evidence_total": 0,
+   "input_tokens": 1699,
+   "output_tokens": 60,
+   "cost_usd": 0.0006597,
+   "seconds": 0.76,
+   "cached": false
+  },
+  {
+   "run": "01M57CDJ50",
+   "expected": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "error": null,
+   "label": "NO_FAILURE",
+   "step": null,
+   "confidence": 1.0,
+   "root_cause": "The agent correctly checked the order status and delivery timeframe before issuing a valid refund and informing the customer.",
+   "evidence": [],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 0,
+   "evidence_total": 0,
+   "input_tokens": 1640,
+   "output_tokens": 58,
+   "cost_usd": 0.000637,
+   "seconds": 0.89,
+   "cached": false
+  },
+  {
+   "run": "01M57C5HKZ",
+   "expected": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "error": null,
+   "label": "NO_FAILURE",
+   "step": null,
+   "confidence": 1.0,
+   "root_cause": "The agent correctly looked up the order, verified it was delivered within policy limits, issued the appropriate refund amount, and informed the customer successfully.",
+   "evidence": [],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 0,
+   "evidence_total": 0,
+   "input_tokens": 1625,
+   "output_tokens": 66,
+   "cost_usd": 0.0006525,
+   "seconds": 0.77,
+   "cached": false
+  },
+  {
+   "run": "01M57C0VT4",
+   "expected": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "error": null,
+   "label": "NO_FAILURE",
+   "step": null,
+   "confidence": 1.0,
+   "root_cause": "The agent correctly looked up the order, verified the policy, issued the refund, and informed the customer.",
+   "evidence": [],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 0,
+   "evidence_total": 0,
+   "input_tokens": 1620,
+   "output_tokens": 59,
+   "cost_usd": 0.0006335,
+   "seconds": 0.9,
+   "cached": false
+  },
+  {
+   "run": "01M57GNYCC",
+   "expected": [
+    "NO_FAILURE",
+    "EXTERNAL_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "error": null,
+   "label": "NO_FAILURE",
+   "step": null,
+   "confidence": 1.0,
+   "root_cause": "The agent correctly looked up the order, verified the refund policy conditions, and successfully issued the appropriate refund.",
+   "evidence": [
+    {
+     "step": 4,
+     "field": "response.text",
+     "quote": "I have issued a full refund of $49.00 for order A17. Please allow a few business days for the funds to appear in your account."
+    }
+   ],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 1,
+   "evidence_total": 1,
+   "input_tokens": 1750,
+   "output_tokens": 103,
+   "cost_usd": 0.0007825,
+   "seconds": 0.81,
+   "cached": false
+  },
+  {
+   "run": "01M57GM3J7",
+   "expected": [
+    "NO_FAILURE",
+    "EXTERNAL_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "error": null,
+   "label": "NO_FAILURE",
+   "step": null,
+   "confidence": 1.0,
+   "root_cause": "The agent correctly retrieved the order, verified the refund policy, successfully issued the refund, and communicated the result to the customer.",
+   "evidence": [],
+   "notes": [],
+   "label_ok": true,
+   "step_exact": false,
+   "step_in_window": false,
+   "false_alarm": false,
+   "downgraded": false,
+   "evidence_valid": 0,
+   "evidence_total": 0,
+   "input_tokens": 1840,
+   "output_tokens": 63,
+   "cost_usd": 0.0007095,
+   "seconds": 0.76,
+   "cached": false
+  }
+ ]
+}
