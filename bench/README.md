@@ -106,3 +106,36 @@ fault cell to fit free-tier quotas.
 (cassette + run header with its diagnosis and fix attempts). `crashlab bench --offline
 --runs-dir bench/runs/seed-<model> --label <model>` rescores them with no keys and no
 network (the heuristic baseline is recomputed; LLM diagnoses are read from the runs).
+
+### Seed results (2026-10-22, n=3 episodes per cell, k=3)
+
+Full tables: `bench/results/seed_*.md`. Each cell below is k/n, then the Wilson 95% CI.
+**Headline = test split (`sql-analyst`, held out; nothing was tuned on it).**
+
+| model (agent = diagnoser) | split | fault triggered | LLM label ok | LLM step in window | heuristic label ok | fix VERIFIED | clean false alarms | cost* |
+|---|---|---|---|---|---|---|---|---|
+| Gemini `gemini-flash-lite-latest` | **test** | 6/12 (25–75%) | **6/6 (61–100%)** | 6/6 (61–100%) | 2/6 (10–70%) | 0/3 (1/3 LIKELY) | 0/3 | $0.072 |
+| Groq `openai/gpt-oss-120b` † | **test** | 11/11 (74–100%) | 3/11 (10–57%) | 5/11 (21–72%) | 0/11 (0–26%) | 0/2 | – (0 clean passes) | $0.025 |
+| Gemini flash-lite | dev | 6/12 | 4/6 (30–90%) | 4/6 | 6/6 | 2/2 | 0/3 | $0.028 |
+| Groq gpt-oss-120b † | dev | 8/12 | 8/8 (68–100%) | 7/8 | 8/8 | 1/2 (2/2 incl. LIKELY) | 0/3 | $0.020 |
+
+\* List-price estimate. Both runs used free tiers, so nothing was actually billed.
+
+**Caveats. Read these before you quote any number from the table.**
+- **The sample is small.** Each cell has 3 episodes and each verify has k=3. Most of the
+  intervals are 40 to 60 points wide, so the two models are not distinguishable on most metrics.
+- † **The Groq test-split numbers are not valid.** On the first run, gpt-oss-120b on Groq
+  ended **every** clean `sql-analyst` episode with an empty reply after a correct query, so
+  the clean baseline failed 3/3. That means "triggered 11/11" mostly measures this agent bug,
+  not the injected faults. The agent now asks once for an answer when it gets an empty reply
+  (commit 87bed39). The rerun after that fix (`seed_groq-gpt-oss-120b-sqlv2`) got through only
+  1 clean episode, which passed, before Groq's tokens-per-day quota ran out. The Groq run is
+  also partial: 29/30 episodes, with the last `misleading_desc` episode missing.
+- The heuristic baseline gets near-perfect labels on dev, where it was tuned, and 0–33% on test.
+  That gap is the overfitting the split was designed to expose.
+- Fixes verified on the dev agent (spec_drop, misleading_desc). On the test agent, the
+  `tool_5xx` and `schema_drift`/`spec_drop` fixes were **REJECTED**: a prompt patch cannot
+  repair a broken tool or database. That rejection is the correct verdict.
+- Several faults did not trigger: `schema_drift` on refund-bot (0/3 on both models), and on
+  Gemini, `tool_5xx` on refund-bot and `schema_drift` on sql-analyst (0/3). Those cells say
+  nothing about diagnosis.
