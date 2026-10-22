@@ -1,0 +1,1908 @@
+{
+ "benchmark": "crashlab seed v0.1",
+ "label": "groq-gpt-oss-120b",
+ "scored_at": "2026-10-22T04:36:22+00:00",
+ "stopped": "daily quota exhausted: RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m57bxym9ebvvgty5rwpvn5wp` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199160, Requested 1408. Please try again in 4m5.376",
+ "faults": {
+  "spec_drop": {
+   "description": "a rule is removed from the system prompt (refund window / revenue definition)",
+   "labels": [
+    "TASK_SPEC_VIOLATION"
+   ]
+  },
+  "tool_5xx": {
+   "description": "a tool returns an HTML 502 page instead of data, every call",
+   "labels": [
+    "EXTERNAL_FAILURE",
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ]
+  },
+  "schema_drift": {
+   "description": "a field/column is renamed upstream (total -> amount_total)",
+   "labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TOOL_ERROR_MISHANDLED"
+   ]
+  },
+  "misleading_desc": {
+   "description": "a tool description is wrong (restocking fee / amounts in cents)",
+   "labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TASK_SPEC_VIOLATION"
+   ]
+  }
+ },
+ "splits": {
+  "refund-bot": "dev",
+  "sql-analyst": "test"
+ },
+ "summary": {
+  "dev": {
+   "llm": {
+    "faulted_runs": 12,
+    "triggered": {
+     "k": 8,
+     "n": 12,
+     "rate": 0.667,
+     "ci95": [
+      0.391,
+      0.862
+     ]
+    },
+    "detected": {
+     "k": 8,
+     "n": 8,
+     "rate": 1.0,
+     "ci95": [
+      0.676,
+      1.0
+     ]
+    },
+    "flagged_by_findings": {
+     "k": 2,
+     "n": 8,
+     "rate": 0.25,
+     "ci95": [
+      0.071,
+      0.591
+     ]
+    },
+    "label_ok": {
+     "k": 8,
+     "n": 8,
+     "rate": 1.0,
+     "ci95": [
+      0.676,
+      1.0
+     ]
+    },
+    "step_exact": {
+     "k": 7,
+     "n": 8,
+     "rate": 0.875,
+     "ci95": [
+      0.529,
+      0.978
+     ]
+    },
+    "in_window": {
+     "k": 7,
+     "n": 8,
+     "rate": 0.875,
+     "ci95": [
+      0.529,
+      0.978
+     ]
+    },
+    "clean_false_positive": {
+     "k": 0,
+     "n": 3,
+     "rate": 0.0,
+     "ci95": [
+      0.0,
+      0.561
+     ]
+    },
+    "fix_verified": {
+     "k": 1,
+     "n": 2,
+     "rate": 0.5,
+     "ci95": [
+      0.095,
+      0.905
+     ]
+    },
+    "fix_verified_or_likely": {
+     "k": 2,
+     "n": 2,
+     "rate": 1.0,
+     "ci95": [
+      0.342,
+      1.0
+     ]
+    },
+    "fix_regressions": 0,
+    "cost_usd": 0.01947,
+    "seconds_per_episode": 31.3
+   },
+   "heuristic": {
+    "faulted_runs": 12,
+    "triggered": {
+     "k": 8,
+     "n": 12,
+     "rate": 0.667,
+     "ci95": [
+      0.391,
+      0.862
+     ]
+    },
+    "detected": {
+     "k": 8,
+     "n": 8,
+     "rate": 1.0,
+     "ci95": [
+      0.676,
+      1.0
+     ]
+    },
+    "flagged_by_findings": {
+     "k": 2,
+     "n": 8,
+     "rate": 0.25,
+     "ci95": [
+      0.071,
+      0.591
+     ]
+    },
+    "label_ok": {
+     "k": 8,
+     "n": 8,
+     "rate": 1.0,
+     "ci95": [
+      0.676,
+      1.0
+     ]
+    },
+    "step_exact": {
+     "k": 6,
+     "n": 8,
+     "rate": 0.75,
+     "ci95": [
+      0.409,
+      0.929
+     ]
+    },
+    "in_window": {
+     "k": 6,
+     "n": 8,
+     "rate": 0.75,
+     "ci95": [
+      0.409,
+      0.929
+     ]
+    },
+    "clean_false_positive": {
+     "k": 0,
+     "n": 3,
+     "rate": 0.0,
+     "ci95": [
+      0.0,
+      0.561
+     ]
+    },
+    "fix_verified": {
+     "k": 1,
+     "n": 2,
+     "rate": 0.5,
+     "ci95": [
+      0.095,
+      0.905
+     ]
+    },
+    "fix_verified_or_likely": {
+     "k": 2,
+     "n": 2,
+     "rate": 1.0,
+     "ci95": [
+      0.342,
+      1.0
+     ]
+    },
+    "fix_regressions": 0,
+    "cost_usd": 0.01947,
+    "seconds_per_episode": 31.3
+   }
+  },
+  "test": {
+   "llm": {
+    "faulted_runs": 11,
+    "triggered": {
+     "k": 11,
+     "n": 11,
+     "rate": 1.0,
+     "ci95": [
+      0.741,
+      1.0
+     ]
+    },
+    "detected": {
+     "k": 5,
+     "n": 11,
+     "rate": 0.455,
+     "ci95": [
+      0.213,
+      0.72
+     ]
+    },
+    "flagged_by_findings": {
+     "k": 3,
+     "n": 11,
+     "rate": 0.273,
+     "ci95": [
+      0.097,
+      0.566
+     ]
+    },
+    "label_ok": {
+     "k": 3,
+     "n": 11,
+     "rate": 0.273,
+     "ci95": [
+      0.097,
+      0.566
+     ]
+    },
+    "step_exact": {
+     "k": 3,
+     "n": 11,
+     "rate": 0.273,
+     "ci95": [
+      0.097,
+      0.566
+     ]
+    },
+    "in_window": {
+     "k": 5,
+     "n": 11,
+     "rate": 0.455,
+     "ci95": [
+      0.213,
+      0.72
+     ]
+    },
+    "clean_false_positive": {
+     "k": 0,
+     "n": 0,
+     "rate": null,
+     "ci95": null
+    },
+    "fix_verified": {
+     "k": 0,
+     "n": 2,
+     "rate": 0.0,
+     "ci95": [
+      0.0,
+      0.658
+     ]
+    },
+    "fix_verified_or_likely": {
+     "k": 0,
+     "n": 2,
+     "rate": 0.0,
+     "ci95": [
+      0.0,
+      0.658
+     ]
+    },
+    "fix_regressions": 0,
+    "cost_usd": 0.02528,
+    "seconds_per_episode": 83.9
+   },
+   "heuristic": {
+    "faulted_runs": 11,
+    "triggered": {
+     "k": 11,
+     "n": 11,
+     "rate": 1.0,
+     "ci95": [
+      0.741,
+      1.0
+     ]
+    },
+    "detected": {
+     "k": 11,
+     "n": 11,
+     "rate": 1.0,
+     "ci95": [
+      0.741,
+      1.0
+     ]
+    },
+    "flagged_by_findings": {
+     "k": 3,
+     "n": 11,
+     "rate": 0.273,
+     "ci95": [
+      0.097,
+      0.566
+     ]
+    },
+    "label_ok": {
+     "k": 0,
+     "n": 11,
+     "rate": 0.0,
+     "ci95": [
+      0.0,
+      0.259
+     ]
+    },
+    "step_exact": {
+     "k": 0,
+     "n": 11,
+     "rate": 0.0,
+     "ci95": [
+      0.0,
+      0.259
+     ]
+    },
+    "in_window": {
+     "k": 8,
+     "n": 11,
+     "rate": 0.727,
+     "ci95": [
+      0.434,
+      0.903
+     ]
+    },
+    "clean_false_positive": {
+     "k": 0,
+     "n": 0,
+     "rate": null,
+     "ci95": null
+    },
+    "fix_verified": {
+     "k": 0,
+     "n": 2,
+     "rate": 0.0,
+     "ci95": [
+      0.0,
+      0.658
+     ]
+    },
+    "fix_verified_or_likely": {
+     "k": 0,
+     "n": 2,
+     "rate": 0.0,
+     "ci95": [
+      0.0,
+      0.658
+     ]
+    },
+    "fix_regressions": 0,
+    "cost_usd": 0.02528,
+    "seconds_per_episode": 83.9
+   }
+  },
+  "all": {
+   "llm": {
+    "faulted_runs": 23,
+    "triggered": {
+     "k": 19,
+     "n": 23,
+     "rate": 0.826,
+     "ci95": [
+      0.629,
+      0.93
+     ]
+    },
+    "detected": {
+     "k": 13,
+     "n": 19,
+     "rate": 0.684,
+     "ci95": [
+      0.46,
+      0.846
+     ]
+    },
+    "flagged_by_findings": {
+     "k": 5,
+     "n": 19,
+     "rate": 0.263,
+     "ci95": [
+      0.118,
+      0.488
+     ]
+    },
+    "label_ok": {
+     "k": 11,
+     "n": 19,
+     "rate": 0.579,
+     "ci95": [
+      0.363,
+      0.769
+     ]
+    },
+    "step_exact": {
+     "k": 10,
+     "n": 19,
+     "rate": 0.526,
+     "ci95": [
+      0.317,
+      0.727
+     ]
+    },
+    "in_window": {
+     "k": 12,
+     "n": 19,
+     "rate": 0.632,
+     "ci95": [
+      0.41,
+      0.809
+     ]
+    },
+    "clean_false_positive": {
+     "k": 0,
+     "n": 3,
+     "rate": 0.0,
+     "ci95": [
+      0.0,
+      0.561
+     ]
+    },
+    "fix_verified": {
+     "k": 1,
+     "n": 4,
+     "rate": 0.25,
+     "ci95": [
+      0.046,
+      0.699
+     ]
+    },
+    "fix_verified_or_likely": {
+     "k": 2,
+     "n": 4,
+     "rate": 0.5,
+     "ci95": [
+      0.15,
+      0.85
+     ]
+    },
+    "fix_regressions": 0,
+    "cost_usd": 0.04475,
+    "seconds_per_episode": 56.7
+   },
+   "heuristic": {
+    "faulted_runs": 23,
+    "triggered": {
+     "k": 19,
+     "n": 23,
+     "rate": 0.826,
+     "ci95": [
+      0.629,
+      0.93
+     ]
+    },
+    "detected": {
+     "k": 19,
+     "n": 19,
+     "rate": 1.0,
+     "ci95": [
+      0.832,
+      1.0
+     ]
+    },
+    "flagged_by_findings": {
+     "k": 5,
+     "n": 19,
+     "rate": 0.263,
+     "ci95": [
+      0.118,
+      0.488
+     ]
+    },
+    "label_ok": {
+     "k": 8,
+     "n": 19,
+     "rate": 0.421,
+     "ci95": [
+      0.231,
+      0.637
+     ]
+    },
+    "step_exact": {
+     "k": 6,
+     "n": 19,
+     "rate": 0.316,
+     "ci95": [
+      0.154,
+      0.54
+     ]
+    },
+    "in_window": {
+     "k": 14,
+     "n": 19,
+     "rate": 0.737,
+     "ci95": [
+      0.512,
+      0.882
+     ]
+    },
+    "clean_false_positive": {
+     "k": 0,
+     "n": 3,
+     "rate": 0.0,
+     "ci95": [
+      0.0,
+      0.561
+     ]
+    },
+    "fix_verified": {
+     "k": 1,
+     "n": 4,
+     "rate": 0.25,
+     "ci95": [
+      0.046,
+      0.699
+     ]
+    },
+    "fix_verified_or_likely": {
+     "k": 2,
+     "n": 4,
+     "rate": 0.5,
+     "ci95": [
+      0.15,
+      0.85
+     ]
+    },
+    "fix_regressions": 0,
+    "cost_usd": 0.04475,
+    "seconds_per_episode": 56.7
+   }
+  }
+ },
+ "episodes": [
+  {
+   "run_id": "01M5GWMG4WSSBQGKE1E5QCDZ4J",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "clean",
+   "episode": 0,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "pass",
+   "failed_checks": [],
+   "triggered": false,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "llm": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.000614,
+   "seconds": 9.0
+  },
+  {
+   "run_id": "01M5GWMWW45ZP7PGW855RREC1E",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "clean",
+   "episode": 1,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "pass",
+   "failed_checks": [],
+   "triggered": false,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "llm": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.000566,
+   "seconds": 6.6
+  },
+  {
+   "run_id": "01M5GWN77BR8G5Y13GQH813436",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "clean",
+   "episode": 2,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "pass",
+   "failed_checks": [],
+   "triggered": false,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "llm": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.000716,
+   "seconds": 6.9
+  },
+  {
+   "run_id": "01M5GWNHWAGBSZJC2432GYE72Q",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "spec_drop",
+   "episode": 0,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "refund_within_policy"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 3,
+   "window": [
+    0,
+    3
+   ],
+   "llm": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 1,
+    "verdict": "VERIFIED",
+    "patched": "3/3",
+    "control": "0/3",
+    "regressions": 0
+   },
+   "cost_usd": 0.002887,
+   "seconds": 74.1
+  },
+  {
+   "run_id": "01M5GWQY4GF5CT8C0CPZ71Q4Y5",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "spec_drop",
+   "episode": 1,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "refund_within_policy"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 3,
+   "window": [
+    0,
+    3
+   ],
+   "llm": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.000842,
+   "seconds": 11.8
+  },
+  {
+   "run_id": "01M5GWRDKMQYENW6TDJ0ZA64A5",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "spec_drop",
+   "episode": 2,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "refund_within_policy"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 3,
+   "window": [
+    0,
+    3
+   ],
+   "llm": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.000735,
+   "seconds": 20.1
+  },
+  {
+   "run_id": "01M5GWS54P9MVQGTSCE608P6NB",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "tool_5xx",
+   "episode": 0,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "within_step_budget"
+   ],
+   "triggered": true,
+   "flagged_by_findings": true,
+   "expected_labels": [
+    "EXTERNAL_FAILURE",
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 1,
+   "window": [
+    1,
+    2
+   ],
+   "llm": {
+    "label": "TOOL_ERROR_MISHANDLED",
+    "step": 8,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "STEP_REPETITION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 1,
+    "verdict": "LIKELY",
+    "patched": "2/2",
+    "control": "2/3",
+    "regressions": 0
+   },
+   "cost_usd": 0.00487,
+   "seconds": 148.8
+  },
+  {
+   "run_id": "01M5GWXTBTPX1CAJ0J612RM23J",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "tool_5xx",
+   "episode": 1,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "pass",
+   "failed_checks": [],
+   "triggered": false,
+   "flagged_by_findings": true,
+   "expected_labels": [
+    "EXTERNAL_FAILURE",
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": null,
+   "window": null,
+   "llm": {
+    "label": "EXTERNAL_FAILURE",
+    "step": 1,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "STEP_REPETITION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001145,
+   "seconds": 18.7
+  },
+  {
+   "run_id": "01M5GWYGFWW3WKXQ3JKDTTM3BH",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "tool_5xx",
+   "episode": 2,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "within_step_budget"
+   ],
+   "triggered": true,
+   "flagged_by_findings": true,
+   "expected_labels": [
+    "EXTERNAL_FAILURE",
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 1,
+   "window": [
+    1,
+    2
+   ],
+   "llm": {
+    "label": "TOOL_ERROR_MISHANDLED",
+    "step": 1,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "STEP_REPETITION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001219,
+   "seconds": 35.0
+  },
+  {
+   "run_id": "01M5GWZPJWCNVAPQR45K25EFG3",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "schema_drift",
+   "episode": 0,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "pass",
+   "failed_checks": [],
+   "triggered": false,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": null,
+   "window": null,
+   "llm": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.00073,
+   "seconds": 15.7
+  },
+  {
+   "run_id": "01M5GX09VJ82E51S8H8RJ4BP1X",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "schema_drift",
+   "episode": 1,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "pass",
+   "failed_checks": [],
+   "triggered": false,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": null,
+   "window": null,
+   "llm": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.000805,
+   "seconds": 19.9
+  },
+  {
+   "run_id": "01M5GX1175KKAAF34V0YRQ3JYH",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "schema_drift",
+   "episode": 2,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "pass",
+   "failed_checks": [],
+   "triggered": false,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": null,
+   "window": null,
+   "llm": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "NO_FAILURE",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.000544,
+   "seconds": 17.0
+  },
+  {
+   "run_id": "01M5GX1NPCMPNJMM0R7DXMXHGY",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "misleading_desc",
+   "episode": 0,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "refund_amount_equals_order_total"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 3,
+   "window": [
+    1,
+    3
+   ],
+   "llm": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001735,
+   "seconds": 33.8
+  },
+  {
+   "run_id": "01M5GX2TMES2QY0W4EJ1YF8F97",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "misleading_desc",
+   "episode": 1,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "refund_amount_equals_order_total"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 3,
+   "window": [
+    1,
+    3
+   ],
+   "llm": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001116,
+   "seconds": 25.0
+  },
+  {
+   "run_id": "01M5GX3PZ8WBNNWC3V7TXGWV86",
+   "task": "refund-bot",
+   "split": "dev",
+   "condition": "misleading_desc",
+   "episode": 2,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "refund_amount_equals_order_total"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 3,
+   "window": [
+    1,
+    3
+   ],
+   "llm": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 3,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.000948,
+   "seconds": 26.9
+  },
+  {
+   "run_id": "01M5GX4N62WK233BMS03ZGD7FM",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "clean",
+   "episode": 0,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": false,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "llm": {
+    "label": "TASK_SPEC_VIOLATION",
+    "step": 6,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 6,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.000955,
+   "seconds": 20.0
+  },
+  {
+   "run_id": "01M5GX5CPHH1VPDM9YWQM1X9NR",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "clean",
+   "episode": 1,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": false,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "llm": {
+    "label": "UNKNOWN",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 8,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001019,
+   "seconds": 31.7
+  },
+  {
+   "run_id": "01M5GX8K5NVSQ5769ESK0YSPDG",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "clean",
+   "episode": 2,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": false,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "NO_FAILURE"
+   ],
+   "expected_step": null,
+   "window": null,
+   "llm": {
+    "label": "UNKNOWN",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 8,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001156,
+   "seconds": 77.3
+  },
+  {
+   "run_id": "01M5GX8YZBDZWH8NB0B9QDX9C4",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "spec_drop",
+   "episode": 0,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 5,
+   "window": [
+    0,
+    6
+   ],
+   "llm": {
+    "label": "UNKNOWN",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 6,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.000757,
+   "seconds": 7.1
+  },
+  {
+   "run_id": "01M5GX99SKN1BAMQ3CW103T4JW",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "spec_drop",
+   "episode": 1,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 7,
+   "window": [
+    0,
+    8
+   ],
+   "llm": {
+    "label": "UNKNOWN",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 8,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001121,
+   "seconds": 10.2
+  },
+  {
+   "run_id": "01M5GX9QPJ3CQNV2PEX82QR3HX",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "spec_drop",
+   "episode": 2,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 7,
+   "window": [
+    0,
+    8
+   ],
+   "llm": {
+    "label": "UNKNOWN",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 8,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001044,
+   "seconds": 25.7
+  },
+  {
+   "run_id": "01M5GXCPN0SD5A0PQPNRG79WPA",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "tool_5xx",
+   "episode": 0,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": true,
+   "expected_labels": [
+    "EXTERNAL_FAILURE",
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 5,
+   "window": [
+    5,
+    6
+   ],
+   "llm": {
+    "label": "TOOL_ERROR_MISHANDLED",
+    "step": 5,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 14,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 1,
+    "verdict": "REJECTED",
+    "patched": "0/3",
+    "control": "0/2",
+    "regressions": 0
+   },
+   "cost_usd": 0.007055,
+   "seconds": 239.7
+  },
+  {
+   "run_id": "01M5GXJ2PCHZ7JK5FZC0271X8P",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "tool_5xx",
+   "episode": 1,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": true,
+   "expected_labels": [
+    "EXTERNAL_FAILURE",
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 7,
+   "window": [
+    7,
+    8
+   ],
+   "llm": {
+    "label": "TOOL_ERROR_MISHANDLED",
+    "step": 7,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 14,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.00172,
+   "seconds": 508.0
+  },
+  {
+   "run_id": "01M5GY1PPSEDY4SNHNM014SKZA",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "tool_5xx",
+   "episode": 2,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": true,
+   "expected_labels": [
+    "EXTERNAL_FAILURE",
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 7,
+   "window": [
+    7,
+    8
+   ],
+   "llm": {
+    "label": "TOOL_ERROR_MISHANDLED",
+    "step": 7,
+    "label_ok": true,
+    "step_exact": true,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 14,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001728,
+   "seconds": 10.4
+  },
+  {
+   "run_id": "01M5GY24QHHS2F5H8K41KT6SQ3",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "schema_drift",
+   "episode": 0,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 5,
+   "window": [
+    5,
+    6
+   ],
+   "llm": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 6,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 6,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 1,
+    "verdict": "REJECTED",
+    "patched": "0/3",
+    "control": "0/3",
+    "regressions": 0
+   },
+   "cost_usd": 0.003855,
+   "seconds": 97.6
+  },
+  {
+   "run_id": "01M5GY5800SQ095PZJ4YB0FVZX",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "schema_drift",
+   "episode": 1,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 7,
+   "window": [
+    7,
+    8
+   ],
+   "llm": {
+    "label": "UNKNOWN",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 8,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.00102,
+   "seconds": 21.1
+  },
+  {
+   "run_id": "01M5GY60GERSHFFZA8CYN2H5HB",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "schema_drift",
+   "episode": 2,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TOOL_ERROR_MISHANDLED"
+   ],
+   "expected_step": 7,
+   "window": [
+    7,
+    8
+   ],
+   "llm": {
+    "label": "UNKNOWN",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 8,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001039,
+   "seconds": 24.5
+  },
+  {
+   "run_id": "01M5GY6WASZJ6X1PFB0JRM06TS",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "misleading_desc",
+   "episode": 0,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 5,
+   "window": [
+    5,
+    6
+   ],
+   "llm": {
+    "label": "UNKNOWN",
+    "step": null,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": false,
+    "is_failure": false
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 6,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001037,
+   "seconds": 87.9
+  },
+  {
+   "run_id": "01M5GY9P2Y1616C4B28N7XF25Q",
+   "task": "sql-analyst",
+   "split": "test",
+   "condition": "misleading_desc",
+   "episode": 1,
+   "model": "openai/gpt-oss-120b",
+   "outcome": "fail",
+   "failed_checks": [
+    "answer_matches_ground_truth"
+   ],
+   "triggered": true,
+   "flagged_by_findings": false,
+   "expected_labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TASK_SPEC_VIOLATION"
+   ],
+   "expected_step": 7,
+   "window": [
+    7,
+    8
+   ],
+   "llm": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 8,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": true,
+    "is_failure": true
+   },
+   "heuristic": {
+    "label": "WRONG_TOOL_SELECTION",
+    "step": 8,
+    "label_ok": false,
+    "step_exact": false,
+    "in_window": true,
+    "is_failure": true
+   },
+   "fix": {
+    "proposed": 0,
+    "verdict": null,
+    "patched": null,
+    "control": null,
+    "regressions": null
+   },
+   "cost_usd": 0.001771,
+   "seconds": 13.0
+  }
+ ]
+}
