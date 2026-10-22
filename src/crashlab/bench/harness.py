@@ -94,7 +94,18 @@ def run_live(
                     prompt = prompts[ep % len(prompts)]
 
                     def once(prompt: str = prompt, cond: str = cond, task: Any = task) -> Run:
-                        task.run(prompt, model, cond)
+                        before = store.load_run("last").run_id if store.list_runs() else None
+                        try:
+                            task.run(prompt, model, cond)
+                        except Exception as e:  # noqa: BLE001
+                            # a model-side failure (e.g. Groq tool_use_failed 400) is an
+                            # episode outcome, recorded as an errored run; anything that
+                            # did not even record a run, or is a quota/5xx, propagates
+                            r = store.load_run("last") if store.list_runs() else None
+                            if r is None or r.run_id == before or r.status != "error":
+                                raise
+                            if LIMITED.search(str(e)) or DAILY.search(str(e)):
+                                raise
                         r = store.load_run("last")
                         if r.status == "error" and is_infra_error(r.error):
                             raise RuntimeError(f"{r.error.type}: {r.error.message}")

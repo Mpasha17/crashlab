@@ -195,3 +195,27 @@ def test_cli_bench_offline(fake_models, tmp_path):
     assert len(data["episodes"]) == 2 and re.search(r"\| test \| heuristic \|", res.output)
     res = runner.invoke(app, ["bench", "--offline", "--runs-dir", str(tmp_path / "nope")])
     assert res.exit_code == 2
+
+
+def test_a_model_side_400_is_kept_as_an_errored_episode(fake_models, monkeypatch):
+    class Bad(SqlModel):
+        def __init__(self) -> None:
+            super().__init__()
+            self.chat.completions = self
+
+        def create(self, **kwargs):
+            raise RuntimeError("Error code: 400 tool_use_failed: name not in request.tools")
+
+    monkeypatch.setattr(sql, "make_client", lambda: crashlab.wrap(Bad()))
+    _, ids, stopped = harness.run_live(
+        "m",
+        base_url="u",
+        api_key="k",
+        tasks=["sql-analyst"],
+        conditions=["clean"],
+        episodes=1,
+        pace_s=0,
+        log=lambda m: None,
+    )
+    assert stopped is None and len(ids) == 1
+    assert crashlab.store.Store().load_run(ids[0]).status == "error"
