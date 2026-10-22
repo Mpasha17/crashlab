@@ -9,6 +9,8 @@ diagnosis prompt were developed on its runs); sql-analyst is the held-out **test
 from __future__ import annotations
 
 import importlib
+import os
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -61,7 +63,16 @@ class Task:
     default_prompts: tuple[str, ...] = ()
 
     def load(self) -> Any:
-        return importlib.import_module(self.module)
+        """The agent module; the example agents live in the repo checkout, so the
+        current directory is tried too (the ``crashlab`` script does not put it on
+        sys.path)."""
+        try:
+            return importlib.import_module(self.module)
+        except ModuleNotFoundError:
+            if os.getcwd() in sys.path:
+                raise
+            sys.path.insert(0, os.getcwd())
+            return importlib.import_module(self.module)
 
     def prompts_for(self, condition: str) -> list[str]:
         return list(self.prompts.get(condition) or self.default_prompts)
