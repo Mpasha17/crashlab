@@ -229,9 +229,10 @@ Or set `CRASHLAB_DIAGNOSER_MODEL` / `CRASHLAB_DIAGNOSER_BASE_URL` /
 `.crashlab/diagnoser/`, apart from your runs.
 
 On 31 hand-labelled live runs of the demo agent (`bench/diagnose_eval.py`, details in
-[bench/README.md](bench/README.md)), Groq `openai/gpt-oss-120b` gets the label right on 74%
-(the heuristic baseline: 52%) and the exact culprit step on 52% of the failing runs
-(baseline: 29%), with no false alarms on clean runs, for about $0.0005 per diagnosis.
+[bench/README.md](bench/README.md)), with prompt v3 Groq `openai/gpt-oss-120b` gets the label
+right on 90% and Gemini `gemini-flash-lite-latest` on 87% (heuristic baseline: 81%, tuned on
+the same set); exact culprit step on 71% / 76% of the failing runs, with no false alarms
+on clean runs.
 
 ### Propose a fix and try it
 
