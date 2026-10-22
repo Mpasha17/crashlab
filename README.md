@@ -26,7 +26,7 @@ agent. On Gemini flash-lite, the LLM diagnoser labelled **6/6 triggered faults c
 on the test agent: 0/3 VERIFIED and 1/3 LIKELY. The tool/DB fixes were correctly rejected.
 Groq gpt-oss-120b's test-split numbers are not valid because of an empty-reply agent bug
 (fixed since then, but the rerun was quota-limited). Details, all CIs and caveats:
-[bench/README.md](bench/README.md#seed-results-2026-10-22-n3-episodes-per-cell-k3).
+[bench/README.md](bench/README.md#seed-results).
 
 ## What works today
 

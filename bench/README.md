@@ -107,7 +107,9 @@ fault cell to fit free-tier quotas.
 --runs-dir bench/runs/seed-<model> --label <model>` rescores them with no keys and no
 network (the heuristic baseline is recomputed; LLM diagnoses are read from the runs).
 
-### Seed results (2026-10-22, n=3 episodes per cell, k=3)
+### Seed results
+
+2026-10-22, n=3 episodes per cell, k=3.
 
 Full tables: `bench/results/seed_*.md`. Each cell below is k/n, then the Wilson 95% CI.
 **Headline = test split (`sql-analyst`, held out; nothing was tuned on it).**
