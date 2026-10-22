@@ -125,3 +125,15 @@ def test_refund_bot_bench_faults_and_ground_truth():
     assert "0.9" in refund.tools_for(frozenset({"misleading_desc"}))[0]["function"]["description"]
     assert refund.tools_for() is refund.TOOLS
     assert refund.ground_truth(_policy_run(), "spec_drop") == (3, (0, 3))
+
+
+def test_an_empty_reply_gets_one_nudge():
+    run = _run(
+        [
+            tool_call_response(1, "run_query", {"sql": GOOD_SQL}),
+            text_response(2, ""),
+            tool_call_response(3, "final_answer", {"answer": "198.99"}),
+        ]
+    )
+    assert run.outcome == "pass"
+    assert sql.NUDGE in str(run.steps[-2].request["messages"][-1])

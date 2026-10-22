@@ -61,6 +61,7 @@ QUESTIONS: dict[str, str] = {
     ),
 }
 
+NUDGE = "Please call final_answer with your answer."
 HTML_502 = """<!DOCTYPE html>
 <html><head><title>502 Bad Gateway</title></head>
 <body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.25.3</center></body>
@@ -261,6 +262,7 @@ def run_agent(
             {"role": "user", "content": question},
         ]
         tools = tools_spec(active)
+        nudged = False
         for _ in range(max_turns):
             resp = client.chat.completions.create(
                 model=model, messages=messages, tools=tools, temperature=0
@@ -271,6 +273,12 @@ def run_agent(
                 out["tool_calls"] = [_tool_call_dict(tc) for tc in msg.tool_calls]
             messages.append(out)
             if not msg.tool_calls:
+                if not (msg.content or "").strip() and not nudged:
+                    # some reasoning models end a turn with an empty reply after a tool
+                    # result; ask once for the answer instead of returning nothing
+                    nudged = True
+                    messages.append({"role": "user", "content": NUDGE})
+                    continue
                 return msg.content or ""
             for tc in msg.tool_calls:
                 content = _run_tool(tc.function.name, tc.function.arguments)
