@@ -131,7 +131,9 @@ Full tables: `bench/results/seed_*.md`. Each cell below is k/n, then the Wilson 
   the clean baseline failed 3/3. That means "triggered 11/11" mostly measures this agent bug,
   not the injected faults. The agent now asks once for an answer when it gets an empty reply
   (commit 87bed39). The rerun after that fix (`seed_groq-gpt-oss-120b-sqlv2`) got through only
-  1 clean episode, which passed, before Groq's tokens-per-day quota ran out. The Groq run is
+  1 clean episode, which passed, before Groq's tokens-per-day quota ran out. A second
+  rerun on 2026-10-22 (`seed_groq-gpt-oss-120b-sqlv3`) recorded 0 episodes: the quota had
+  still not reset. **There are still no valid Groq test-split numbers.** The Groq run is
   also partial: 29/30 episodes, with the last `misleading_desc` episode missing.
 - The heuristic baseline gets near-perfect labels on dev, where it was tuned, and 0–33% on test.
   That gap is the overfitting the split was designed to expose.
