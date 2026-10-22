@@ -701,10 +701,47 @@ def verify_cmd(
 @app.command("report")
 def report_cmd(
     run_ref: str = typer.Argument("last", help="Run id, unique id prefix, or 'last'."),
+    html: Path | None = typer.Option(  # noqa: B008
+        None, "--html", help="Write a self-contained HTML report to this file instead."
+    ),
 ) -> None:
     """One-screen report of a run: outcome, checks and findings, the stored diagnosis
-    (label, step, root cause, quotes), proposed fixes with diffs, and what to run next."""
-    _print_report(_console(), _resolve(Store(), run_ref))
+    (label, step, root cause, quotes), proposed fixes with diffs, verifications, and what
+    to run next. --html writes a shareable single file (no external assets)."""
+    store = Store()
+    run = _resolve(store, run_ref)
+    if html is not None:
+        from .report_html import write_html
+        from .verify import verifications
+
+        out = write_html(run, html, verifications(store, run.run_id))
+        _console().print(f"wrote {_e(out)}")
+        return
+    _print_report(_console(), run)
+
+
+@app.command("export-test")
+def export_test_cmd(
+    run_ref: str = typer.Argument("last", help="Run id, unique id prefix, or 'last'."),
+    fix: str | None = typer.Option(
+        None, "--fix", help="Also pin this fix (fix-N, or 'auto' for the last verified one)."
+    ),
+    out: Path = typer.Option(Path("tests/crashlab"), "--out", "-o", help="Output directory."),  # noqa: B008
+) -> None:
+    """Write an offline pytest regression test for a run: it replays the cassette and
+    asserts the @check results; with --fix it also replays a passing patched run with the
+    fix re-applied and asserts it still passes. Runs with `pytest` (no keys)."""
+    from .export import ExportError, export_test
+
+    console = _console()
+    try:
+        paths = export_test(run_ref, fix=fix, out_dir=out)
+    except (ExportError, RunNotFoundError) as exc:
+        console.print(f"[red]{_e(exc)}[/]")
+        raise typer.Exit(code=2) from exc
+    for path in paths:
+        console.print(f"wrote {_e(path)}")
+    console.print(f"[dim]run it: pytest {_e(paths[-1])}[/]")
 
 
 def _key_from(console: Console, api_key_env: str | None) -> str | None:

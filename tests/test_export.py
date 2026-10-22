@@ -1,0 +1,138 @@
+"""export-test, the pytest plugin and the HTML report. Offline."""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+from typer.testing import CliRunner
+
+import crashlab
+from crashlab.cli import app
+from crashlab.export import ExportError, export_test
+from crashlab.report_html import render_html
+from crashlab.verify import verifications
+from tests.test_verify import PolicyModel, _setup
+
+ROOT = Path(__file__).resolve().parents[1]
+runner = CliRunner()
+
+
+def _pytest(path: Path, *args: str) -> subprocess.CompletedProcess:
+    env = {k: v for k, v in os.environ.items() if not k.endswith("API_KEY")}
+    env.pop("CRASHLAB_DIR", None)
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-o",
+            "addopts=",
+            "--rootdir",
+            str(path),
+            str(path),
+            *args,
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def test_export_failing_run_with_verified_fix_and_run_it(tmp_path):
+    pytest.importorskip("openai")
+    run, _ = _setup()
+    crashlab.verify(run, 1, k=3, regress="none", client=crashlab.wrap(PolicyModel()))
+    out = tmp_path / "exported"
+    paths = export_test(run.run_id, fix="auto", out_dir=out)
+    names = sorted(p.name for p in paths)
+    assert len(paths) == 3 and any(n.endswith("_fixed.jsonl") for n in names)
+    test = next(p for p in paths if p.suffix == ".py")
+    src = test.read_text()
+    assert "pytestmark = pytest.mark.crashlab" in src and "fix_keeps_passing" in src
+    assert '"refund_within_policy": "fail"' in src and "Verification verdict: VERIFIED" in src
+    res = _pytest(out)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "2 passed" in res.stdout
+    if importlib.util.find_spec("ruff"):  # generated code is lint/format clean
+        for cmd in (
+            ["check", "--isolated", "--line-length", "100"],
+            ["format", "--check", "--isolated", "--line-length", "100"],
+        ):
+            lint = subprocess.run(
+                [sys.executable, "-m", "ruff", *cmd, str(test)], capture_output=True, text=True
+            )
+            assert lint.returncode == 0, lint.stdout + lint.stderr
+
+
+def test_exported_test_fails_when_the_run_no_longer_reproduces(tmp_path):
+    pytest.importorskip("openai")
+    run, _ = _setup()
+    out = tmp_path / "exported"
+    [cass, test] = export_test(run.run_id, out_dir=out)
+    # tamper with the pinned expectation: the test must catch it
+    test.write_text(test.read_text().replace('run.outcome == "fail"', 'run.outcome == "pass"'))
+    res = _pytest(out)
+    assert res.returncode == 1 and "1 failed" in res.stdout
+
+
+def test_plugin_flag_selects_only_crashlab_tests(tmp_path):
+    (tmp_path / "test_mixed.py").write_text(
+        "import pytest\n\n@pytest.mark.crashlab\ndef test_a():\n    pass\n\n"
+        "def test_b():\n    pass\n"
+    )
+    res = _pytest(tmp_path, "--crashlab")
+    assert res.returncode == 0 and "1 passed, 1 deselected" in res.stdout, res.stdout
+    res = _pytest(tmp_path)
+    assert "2 passed" in res.stdout
+
+
+def test_export_errors():
+    run, _ = _setup()
+    with pytest.raises(ExportError, match="no passing patched run for fix-1"):
+        export_test(run.run_id, fix="fix-1")
+    v = crashlab.verify(run, 1, k=1, regress="none", client=crashlab.wrap(PolicyModel()))
+    child = v.trials[0].run_id
+    with pytest.raises(ExportError, match="fork/replay"):
+        export_test(child)
+
+
+def test_cli_export_test(tmp_path):
+    run, _ = _setup()
+    res = runner.invoke(app, ["export-test", run.run_id, "-o", str(tmp_path / "t")])
+    assert res.exit_code == 0 and "wrote" in res.output
+    res = runner.invoke(app, ["export-test", run.run_id, "--fix", "fix-1", "-o", str(tmp_path)])
+    assert res.exit_code == 2 and "--fix fix-1" in res.output
+
+
+def test_html_report_is_self_contained_and_escaped(tmp_path):
+    run, _ = _setup()
+    crashlab.verify(run, 1, k=2, regress="none", client=crashlab.wrap(PolicyModel()))
+    run = crashlab.load(run.run_id)
+    run.output = "<script>alert(1)</script>"
+    html = render_html(run, verifications(crashlab.store.Store(), run.run_id))
+    for section in (
+        "Checks",
+        "Diagnosis",
+        "Proposed fixes",
+        "Verification of fix-1",
+        "Step timeline",
+        "Wilson 95% CI",
+    ):
+        assert section in html
+    assert "<script>" not in html and "&lt;script&gt;" in html
+    assert not re.search(r"""(src|href)\s*=|@import|url\(""", html)  # no external assets
+    assert 'class="add"' in html and "TASK_SPEC_VIOLATION" in html and "2/2" in html
+    out = tmp_path / "r.html"
+    res = runner.invoke(app, ["report", run.run_id, "--html", str(out)])
+    assert res.exit_code == 0 and out.read_text().startswith("<!doctype html>")

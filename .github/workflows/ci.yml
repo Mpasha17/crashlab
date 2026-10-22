@@ -43,5 +43,7 @@ jobs:
         env:
           LITELLM_LOCAL_MODEL_COST_MAP: "True"
         run: python -m pytest
+      - name: Exported crashlab regression tests (offline, no keys)
+        run: python -m pytest --crashlab examples/refund_bot/tests
       - name: CLI smoke test
         run: crashlab --version

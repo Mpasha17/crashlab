@@ -47,6 +47,9 @@ dev = [
 [project.scripts]
 crashlab = "crashlab.cli:app"
 
+[project.entry-points.pytest11]
+crashlab = "crashlab.pytest_plugin"
+
 [project.urls]
 Homepage = "https://github.com/Mpasha17/crashlab"
 Repository = "https://github.com/Mpasha17/crashlab"
@@ -75,7 +78,7 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 "tests/**" = ["SIM117"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "examples/refund_bot/tests"]
 asyncio_mode = "auto"
 addopts = "-q"
 filterwarnings = [

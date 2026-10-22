@@ -243,6 +243,12 @@ class PatchedReplayer(Replayer):
         self.at_step = source.fork_step or 0
         self._patch_state: dict[int, dict] = {}
 
+    def prepare_run(self, run: Run) -> None:
+        super().prepare_run(run)
+        run.patch = self.patches
+        run.patch_description = self.patches.describe()
+        run.fork_step = self.at_step
+
     def patch_chat(
         self, idx: int, api: str, kwargs: dict[str, Any]
     ) -> tuple[dict[str, Any], list[str]]:
