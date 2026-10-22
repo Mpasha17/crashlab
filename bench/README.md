@@ -64,3 +64,45 @@ check (25/64 quotes valid, 9 answers downgraded to `UNKNOWN`). Matching now igno
 labels; re-validating the v1 answers gives 77.4%, so v1 vs v2 is within run-to-run noise.
 
 `results/*.json` has every case: label, step, root cause, evidence and validation notes.
+
+## Seed fault-injection benchmark (`crashlab bench`, Day 10)
+
+Pre-registered before the first live run (this section was committed first; fault labels
+and culprit rules live in `src/crashlab/bench/catalog.py` and each agent's
+`ground_truth()`).
+
+**Tasks and split.** `refund-bot` is the **dev** agent: the heuristics and the diagnosis
+prompt were developed on its runs, so its numbers are optimistic. `sql-analyst`
+(`examples/sql_analyst`, SQLite text-to-SQL, written for Day 10) is the held-out **test**
+agent: nothing was tuned on it. Report the test split as the headline.
+
+**Faults** (same four switches on both agents):
+
+| fault | injection | accepted labels | culprit step | window |
+|---|---|---|---|---|
+| `spec_drop` | a rule is removed from the system prompt (30-day window / revenue = paid orders) | TASK_SPEC_VIOLATION | refund: the `issue_refund` call; sql: the first query without a `paid` filter (else the last query) | first step → culprit (refund) / → final answer (sql) |
+| `tool_5xx` | the data tool returns an HTML 502 page on every call | EXTERNAL_FAILURE, TOOL_ERROR_MISHANDLED, STEP_REPETITION | the first 502 result | that step and the next |
+| `schema_drift` | `total` renamed `amount_total` (refund: in the result; sql: in the DB, while the prompt still says `orders.total`) | TOOL_ERROR_MISHANDLED, BAD_TOOL_ARGUMENTS | refund: `issue_refund`; sql: the first failing query | from the fault to the culprit / final answer |
+| `misleading_desc` | a tool description is wrong (refund: "refund total × 0.9"; sql: "money is in cents") | BAD_TOOL_ARGUMENTS, TASK_SPEC_VIOLATION | refund: `issue_refund`; sql: the first query dividing by 100 (else the last query) | first lookup/query → culprit / final answer |
+
+**Episode loop.** For each model, task × condition (clean + 4 faults) × n episodes (n=3):
+run the agent live (same model as agent and diagnoser), then oracles → heuristic
+diagnosis and LLM diagnosis (fault switches, model and provider hidden) → if the run
+failed and the LLM called it a failure, fix → `verify` (k=3 patched forks, 3 unpatched
+controls, regression on up to 2 clean passing runs of the same task), once per task ×
+fault cell to fit free-tier quotas.
+
+**Metrics** (Wilson 95% intervals; small n, so read the intervals, not the points):
+- *fault triggered*: faulted runs whose oracles failed (a fault the agent shrugged off is
+  not scored for diagnosis);
+- *detected*: triggered runs the diagnoser called a failure; *flagged by findings*: an
+  error/critical runtime finding, no oracle needed;
+- *label ok / step exact / step in window*: on triggered runs;
+- *fix VERIFIED* (and VERIFIED-or-LIKELY): of the verified cells; regressions counted;
+- *clean false alarms*: failure labels on clean runs that passed;
+- cost (agent + diagnosis + fix + verify) and seconds per episode.
+
+**Reproduce offline.** Every episode run is exported to `bench/runs/seed-<model>/`
+(cassette + run header with its diagnosis and fix attempts). `crashlab bench --offline
+--runs-dir bench/runs/seed-<model> --label <model>` rescores them with no keys and no
+network (the heuristic baseline is recomputed; LLM diagnoses are read from the runs).
