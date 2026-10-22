@@ -60,7 +60,8 @@ def verdict(
       upper bound (or control failed every trial while the patched arm passed every one,
       over at least 3 trials each).
     - LIKELY: better than control, no regression, not significant (or no control).
-    - INCONCLUSIVE: too few non-errored trials to say anything.
+    - INCONCLUSIVE: too few non-errored trials to say anything (fewer than min(2, k) in
+      the patched arm, or in a control arm that ran).
     """
     reasons: list[str] = []
     fails = [r for r in regression if r.status == "fail"]
@@ -72,6 +73,18 @@ def verdict(
     if patched.n == 0:
         why = f"no usable patched trial ({patched.errored} errored)"
         return "INCONCLUSIVE", [why + ("; budget exhausted" if budget_exhausted else "")]
+    need = min(2, k)
+    thin = [
+        f"{name} {arm_.n}/{need}"
+        for name, arm_ in (("patched", patched), ("control", control))
+        if arm_ is not None and (arm_.n or arm_.errored) and arm_.n < need
+    ]
+    if thin:
+        return "INCONCLUSIVE", [
+            f"too few usable trials ({', '.join(thin)} needed; "
+            f"{patched.errored + (control.errored if control else 0)} errored)"
+            + ("; budget exhausted" if budget_exhausted else "")
+        ]
     if patched.errored:
         reasons.append(f"{patched.errored} patched trial(s) errored (provider), not counted")
     if control is not None and control.errored:

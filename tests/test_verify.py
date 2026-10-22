@@ -265,3 +265,19 @@ def test_attempt_times_are_local():
         .astimezone()
         .strftime("%Y-%m-%d %H:%M")
     )
+
+
+def test_one_usable_trial_per_arm_is_inconclusive_not_likely():
+    """Seen live: a provider's daily quota errored 4 of 5 trials in each arm; 1/1 vs 0/1
+    must not read as LIKELY."""
+    from crashlab.models import ArmStats, RegressionResult
+    from crashlab.verify.stats import verdict
+
+    p = ArmStats(passes=1, fails=0, errored=4, rate=1.0, ci95=(0.21, 1.0))
+    c = ArmStats(passes=0, fails=1, errored=4, rate=0.0, ci95=(0.0, 0.79))
+    reg = [RegressionResult(run_id="r1", status="errored")]
+    v, why = verdict(p, c, reg, k=5)
+    assert v == "INCONCLUSIVE" and "too few usable trials" in why[0]
+    full = ArmStats(passes=3, fails=0, rate=1.0, ci95=(0.44, 1.0))
+    zero = ArmStats(passes=0, fails=3, rate=0.0, ci95=(0.0, 0.56))
+    assert verdict(full, zero, [], k=3)[0] == "VERIFIED"
