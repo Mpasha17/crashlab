@@ -1,0 +1,42 @@
+{
+ "benchmark": "crashlab seed v0.1",
+ "label": "groq-gpt-oss-120b-sqlv3",
+ "scored_at": "2026-10-22T05:41:51+00:00",
+ "stopped": "daily quota exhausted: RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m57bxym9ebvvgty5rwpvn5wp` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199584, Requested 756. Please try again in 2m26.88s",
+ "faults": {
+  "spec_drop": {
+   "description": "a rule is removed from the system prompt (refund window / revenue definition)",
+   "labels": [
+    "TASK_SPEC_VIOLATION"
+   ]
+  },
+  "tool_5xx": {
+   "description": "a tool returns an HTML 502 page instead of data, every call",
+   "labels": [
+    "EXTERNAL_FAILURE",
+    "STEP_REPETITION",
+    "TOOL_ERROR_MISHANDLED"
+   ]
+  },
+  "schema_drift": {
+   "description": "a field/column is renamed upstream (total -> amount_total)",
+   "labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TOOL_ERROR_MISHANDLED"
+   ]
+  },
+  "misleading_desc": {
+   "description": "a tool description is wrong (restocking fee / amounts in cents)",
+   "labels": [
+    "BAD_TOOL_ARGUMENTS",
+    "TASK_SPEC_VIOLATION"
+   ]
+  }
+ },
+ "splits": {
+  "refund-bot": "dev",
+  "sql-analyst": "test"
+ },
+ "summary": {},
+ "episodes": []
+}
