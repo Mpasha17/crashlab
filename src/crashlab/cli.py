@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -668,6 +669,75 @@ def _run_verify(console, store, run, fix, *, k, control, regress, max_cost, pace
     except VerifyError as exc:
         console.print(f"[red]{_e(exc)}[/]")
         raise typer.Exit(code=2) from exc
+
+
+@app.command("bench")
+def bench_cmd(
+    model: str | None = typer.Option(None, "--model", "-m", help="Agent + diagnoser model."),
+    base_url: str | None = typer.Option(None, "--base-url", help="OpenAI-compatible endpoint."),
+    api_key_env: str | None = typer.Option(None, "--api-key-env", help="Env var with the key."),
+    tasks: str = typer.Option("refund-bot,sql-analyst", "--tasks", help="Comma list."),
+    conditions: str = typer.Option(
+        "clean,spec_drop,tool_5xx,schema_drift,misleading_desc", "--conditions", help="Comma list."
+    ),
+    episodes: int = typer.Option(3, "-n", help="Episodes per task x condition."),
+    k: int = typer.Option(3, "-k", help="verify: forks per arm."),
+    verify_per_cell: int = typer.Option(1, "--verify-per-cell", help="Fix+verify per cell."),
+    pace: float = typer.Option(4.0, "--pace", help="Seconds between LLM calls/episodes."),
+    out_dir: Path = typer.Option(Path("bench/results"), "--out-dir"),  # noqa: B008
+    runs_dir: Path | None = typer.Option(  # noqa: B008
+        None, "--runs-dir", help="Exported episode runs (default bench/runs/seed-<model>)."
+    ),
+    label: str | None = typer.Option(None, "--label", help="Results label (default: model)."),
+    offline: bool = typer.Option(
+        False, "--offline", help="Rescore from the exported runs in --runs-dir; no LLM calls."
+    ),
+) -> None:
+    """Seed fault-injection benchmark: each task x (clean + fault) x episode is run live,
+    then checked, diagnosed (LLM and heuristic), fixed and verified; or, with --offline,
+    rescored from the exported cassettes. Writes bench/results/seed_<model>.json + .md."""
+    import tempfile
+
+    from .bench.harness import export_runs, load_runs_dir, run_live, score_runs, write_results
+
+    console = _console()
+    slug = re.sub(r"[^a-z0-9]+", "-", (label or model or "offline").lower()).strip("-")
+    runs_dir = runs_dir or Path("bench/runs") / f"seed-{slug}"
+    stopped = None
+    if offline:
+        if not runs_dir.is_dir():
+            console.print(f"[red]no exported runs in {_e(runs_dir)}[/]")
+            raise typer.Exit(code=2)
+        with tempfile.TemporaryDirectory() as tmp:
+            runs = load_runs_dir(runs_dir, tmp)
+            res = score_runs(runs, label=label or slug)
+    else:
+        if not model:
+            console.print("[red]--model is required (or use --offline)[/]")
+            raise typer.Exit(code=2)
+        key = _key_from(console, api_key_env) or os.environ.get("OPENAI_API_KEY", "")
+        store = Store()
+        _, ids, stopped = run_live(
+            model,
+            base_url=base_url or os.environ.get("OPENAI_BASE_URL", ""),
+            api_key=key,
+            tasks=[t for t in tasks.split(",") if t],
+            conditions=[c for c in conditions.split(",") if c],
+            episodes=episodes,
+            k=k,
+            verify_per_cell=verify_per_cell,
+            pace_s=pace,
+            store_dir=store.root,
+            log=lambda m: console.print(_e(m)),
+        )
+        export_runs(store, ids, runs_dir)
+        runs = [store.load_run(i) for i in ids]
+        res = score_runs(runs, label=label or model, stopped=stopped)
+    j, m = write_results(res, out_dir, slug)
+    console.print(
+        f"wrote {_e(j)} and {_e(m)}" + (f" (runs: {_e(runs_dir)})" if not offline else "")
+    )
+    console.print(Text(m.read_text("utf-8")))
 
 
 @app.command("verify")
