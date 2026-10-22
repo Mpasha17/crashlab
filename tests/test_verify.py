@@ -233,3 +233,23 @@ def test_cli_fix_verify_one_command(policy_client, monkeypatch):
     assert res.exit_code == 0, res.output
     assert "fix-1" in res.output and "2/2" in res.output
     assert crashlab.load(run.run_id).fix_attempts
+
+
+def test_pace_sleeps_between_trials(monkeypatch):
+    from crashlab.verify import runner as r
+
+    naps = []
+    monkeypatch.setattr(r.time, "sleep", naps.append)
+    run, _ = _setup()
+    crashlab.verify(run, 1, k=2, regress="none", pace_s=4, client=crashlab.wrap(PolicyModel()))
+    assert naps == [4, 4, 4]
+
+
+def test_a_patched_fork_replays_offline_with_its_patch():
+    pytest.importorskip("openai")  # the agent builds its own client on replay
+    run, _ = _setup()
+    v = crashlab.verify(run, 1, k=1, regress="none", client=crashlab.wrap(PolicyModel()))
+    patched = next(t for t in v.trials if t.role == "patched")
+    rep = crashlab.replay(patched.run_id)
+    assert rep.outcome == "pass" and rep.replay_of == patched.run_id
+    assert "4. Only refund" in rep.steps[0].request["system"]

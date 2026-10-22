@@ -230,6 +230,30 @@ def _args_key(args: Any) -> str:
     return json.dumps(_numbers(redacted), sort_keys=True, ensure_ascii=False, default=str)
 
 
+class PatchedReplayer(Replayer):
+    """Strict replay of a *fork*: the fork's patches are applied to the outgoing requests
+    from its fork step on (as they were when it ran), so the patched requests match the
+    recording. This is how an exported test pins a fix offline."""
+
+    edits_requests = True
+
+    def __init__(self, source: Run, *, store_dir: str | os.PathLike[str] | None = None) -> None:
+        super().__init__(source, store_dir=store_dir)
+        self.patches = source.patch or PatchSet()
+        self.at_step = source.fork_step or 0
+        self._patch_state: dict[int, dict] = {}
+
+    def patch_chat(
+        self, idx: int, api: str, kwargs: dict[str, Any]
+    ) -> tuple[dict[str, Any], list[str]]:
+        if idx < self.at_step:
+            return kwargs, []
+        new, applied = self.patches.apply_chat(
+            api, idx, kwargs, fork_step=self.at_step, state=self._patch_state
+        )
+        return new, [self.patches.patches[i].describe() for i in applied]
+
+
 class Forker(Replayer):
     """Fork policy: steps ``< at_step`` are a strict replay; from ``at_step`` on, LLM calls
     go live (to whatever client the agent uses) with ``patches`` applied, and tools follow
@@ -515,6 +539,9 @@ def replay(
       ``client`` that was excluded from the recorded input with ``ignore_args``).
     - ``offline``: block network connections and provide placeholder SDK credentials.
 
+    A fork is replayed with its patch re-applied from its fork step, so a patched run
+    reproduces offline too.
+
     Returns the new replay run (``replay_of`` = source id). Raises
     :class:`DivergenceError` if the run does not reproduce exactly; the diverged replay is
     still stored with ``status="error"`` so ``crashlab show`` can display it.
@@ -522,7 +549,10 @@ def replay(
     store = Store(store_dir)
     source = _load_source(store, run)
     target, args, kwargs = _target(source, fn, overrides)
-    replayer = Replayer(source, store_dir=store.root)
+    patched = source.forked_from is not None and source.patch is not None
+    replayer = (PatchedReplayer if patched and source.patch.edits_requests else Replayer)(
+        source, store_dir=store.root
+    )
     error = _execute(replayer, target, args, kwargs, offline=offline)
     if replayer.divergence is not None:
         raise replayer.divergence from (

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
@@ -162,11 +163,13 @@ def verify(
     max_cost_usd: float | None = None,
     on_trial: Callable[[Trial], None] | None = None,
     save: bool = True,
+    pace_s: float = 0.0,
 ) -> Verification:
     """Verify ``fix`` on the failing ``run``; returns (and stores) a :class:`Verification`.
 
     See the module docstring for the arms. ``client`` is passed to every fork (the agent's
-    own client otherwise). ``regress``: see :func:`resolve_regression`."""
+    own client otherwise). ``regress``: see :func:`resolve_regression`. ``pace_s``: sleep
+    between trials (free-tier rate limits)."""
     from ..diagnose.fixes import _fork_step
     from ..patch import as_patchset
     from ..store import Store
@@ -200,6 +203,8 @@ def verify(
         return max_cost_usd is not None and v.cost_usd >= max_cost_usd
 
     def record(t: Trial) -> None:
+        if pace_s and v.trials:
+            time.sleep(pace_s)
         v.trials.append(t)
         v.cost_usd += t.cost_usd
         v.tokens += t.tokens

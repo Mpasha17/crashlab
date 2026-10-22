@@ -629,7 +629,7 @@ def _verification_panel(v: Any) -> Panel:
     return Panel(Group(*parts), title="verification", title_align="left")
 
 
-def _run_verify(console, store, run, fix, *, k, control, regress, max_cost) -> Any:
+def _run_verify(console, store, run, fix, *, k, control, regress, max_cost, pace=0.0) -> Any:
     from .verify import VerifyError, verify
 
     def tick(t: Any) -> None:
@@ -650,6 +650,7 @@ def _run_verify(console, store, run, fix, *, k, control, regress, max_cost) -> A
             store_dir=store.root,
             max_cost_usd=max_cost,
             on_trial=tick,
+            pace_s=pace,
         )
     except VerifyError as exc:
         console.print(f"[red]{_e(exc)}[/]")
@@ -671,6 +672,7 @@ def verify_cmd(
         "Default: passing runs of the same agent (newest 10).",
     ),
     max_cost: float | None = typer.Option(None, "--max-cost", help="Stop at this USD spend."),
+    pace: float = typer.Option(0.0, "--pace", help="Seconds to wait between trials."),
     as_json: bool = typer.Option(False, "--json", help="Print the verification as JSON."),
 ) -> None:
     """Verify a fix: fork the failing run k times with the patch and k times without it
@@ -680,7 +682,15 @@ def verify_cmd(
     store = Store()
     run = _resolve(store, run_ref)
     v = _run_verify(
-        console, store, run, fix, k=k, control=not no_control, regress=regress, max_cost=max_cost
+        console,
+        store,
+        run,
+        fix,
+        k=k,
+        control=not no_control,
+        regress=regress,
+        max_cost=max_cost,
+        pace=pace,
     )
     if as_json:
         typer.echo(json.dumps(v.model_dump(mode="json"), indent=2, ensure_ascii=False))
@@ -881,6 +891,7 @@ def fix_cmd(
     no_control: bool = typer.Option(False, "--no-control", help="With --verify: no controls."),
     regress: str | None = typer.Option(None, "--regress", help="With --verify: see `verify`."),
     max_cost: float | None = typer.Option(None, "--max-cost", help="With --verify: USD cap."),
+    pace: float = typer.Option(0.0, "--pace", help="With --verify: seconds between trials."),
 ) -> None:
     """Propose 1-3 ranked typed patches for a diagnosed run (diagnosing it first if
     needed), validated against the run and saved as patch files for `crashlab fork --patch`."""
@@ -932,6 +943,7 @@ def fix_cmd(
             control=not no_control,
             regress=regress,
             max_cost=max_cost,
+            pace=pace,
         )
     elif verify_it:
         console.print("[yellow]no fix to verify[/]")
