@@ -510,10 +510,13 @@ def _next_hints(run: Run) -> list[str]:
         if f.file:
             at = f.as_patch.target_step() if f.as_patch is not None else None
             hints.append(f"crashlab fork {rid} --at {at or 0} --patch {f.file}")
-        if not f.tried:
+        if not f.tried and not run.fix_attempts:
             hints.append(f"crashlab fix {rid} --model MODEL --try     # fork once with fix-1")
         if not run.fix_attempts:
             hints.append(f"crashlab verify {rid} --fix {f.fix_id} -k 5     # k forks + controls")
+        else:
+            hints.append(f"crashlab export-test {rid} --fix auto     # pytest regression test")
+            hints.append(f"crashlab report {rid} --html report.html  # shareable HTML")
     if run.entrypoint:
         hints.append(f"crashlab replay {rid}                     # strict offline replay")
     return hints
@@ -566,6 +569,16 @@ _VERDICT_STYLE = {
 }
 
 
+def _local_minute(ts: Any) -> str:
+    """An ISO timestamp (stored in UTC) as local time, to the minute."""
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(str(ts)).astimezone().strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return str(ts or "")[:16]
+
+
 def _attempts_table(run: Run) -> Table | None:
     if not run.fix_attempts:
         return None
@@ -574,7 +587,7 @@ def _attempts_table(run: Run) -> Table | None:
         t.add_column(col)
     for a in run.fix_attempts:
         t.add_row(
-            str(a.get("created_at", ""))[:16].replace("T", " "),
+            _local_minute(a.get("created_at")),
             f"{a.get('fix_id')}",
             Text(str(a.get("verdict")), style=_VERDICT_STYLE.get(a.get("verdict"), "")),
             str(a.get("patched")),

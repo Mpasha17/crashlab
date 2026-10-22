@@ -87,8 +87,9 @@ def test_pass_hat_k():
 
 def _arm(p, f, e=0):
     n = p + f
-    return ArmStats(passes=p, fails=f, errored=e, rate=p / n if n else None,
-                    ci95=wilson(p, n) if n else None)  # fmt: skip
+    return ArmStats(
+        passes=p, fails=f, errored=e, rate=p / n if n else None, ci95=wilson(p, n) if n else None
+    )
 
 
 @pytest.mark.parametrize(
@@ -253,3 +254,14 @@ def test_a_patched_fork_replays_offline_with_its_patch():
     rep = crashlab.replay(patched.run_id)
     assert rep.outcome == "pass" and rep.replay_of == patched.run_id
     assert "4. Only refund" in rep.steps[0].request["system"]
+
+
+def test_attempt_times_are_local():
+    from crashlab.cli import _local_minute
+
+    assert _local_minute("2026-10-22T03:32:26+00:00") == (
+        __import__("datetime")
+        .datetime(2026, 10, 22, 3, 32, 26, tzinfo=__import__("datetime").timezone.utc)
+        .astimezone()
+        .strftime("%Y-%m-%d %H:%M")
+    )

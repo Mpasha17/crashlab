@@ -39,7 +39,7 @@ flowchart LR
 | 2 | `context.py` | `contextvars` current run, monotonic step counter, mode (`record` / `replay` / `fork`) |
 | 3 | `store/` | `sqlite.py` index (runs, steps metadata, flags, diagnoses), `cassette.py` JSONL read/write, `redact.py` strips keys/headers + user regex hook |
 | 4 | `capture/` | `normalize.py` (provider -> common request/response shape + request hash), `openai.py`, `anthropic.py`, `litellm.py` proxies, `_chat.py` (single LLM-call interception point), `streams.py` (pass-through stream wrappers + assemblers), `tools.py` (`@tool(side_effects=...)`), `agent.py` (`@agent`, `record()` context manager); `integrations/litellm.py` exposes `patch()` / `unpatch()` |
-| 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `diagnose`, `fix`, `report`, `fork`, `diff`, `verify`; later `export-test`, `bench` |
+| 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `diagnose`, `fix`, `report`, `fork`, `diff`, `verify`, `export-test`, `report --html`; later `bench` |
 | 6 | `replay/`, `patch.py`, `compare.py` | `engine.py` (strict replay; fork = cassette for steps < N, patch from N, live after), `patch.py` (typed patches: `SystemPrompt`, `Message`, `InjectMessage`, `ToolResult`, `ToolDescription`, `ToolSchema`, `ModelParams`), `divergence.py` (hash mismatch -> `DivergenceError` with diff), `compare.py` (run diff) |
 | 7 | `checks/` | Inline findings (built, see below): `loop` (same tool+args >= 3 in last 8 steps), `tool_error_streak` (>= 3), `bad_tool_args`, `suspicious_tool_result` (HTML/empty where JSON expected), `budget`, `length_cutoff` |
 | 8 | `diagnose/` | `compact.py` step table with truncation handles, `heuristics.py` candidate steps from flags/errors, `diagnoser.py` one LLM call returning JSON (failing_step, label, evidence, explanation, confidence), `evidence.py` drops quotes not found verbatim -> UNKNOWN if none, `fixes.py` separate LLM call producing 1-3 typed fixes, `taxonomy.py` enum + definitions |
@@ -295,6 +295,21 @@ fixes with their diffs, rejections and `--try` result, and next-command hints;
 - **Storage:** `runs/<id>/verifications/<vid>.json` (all trials with child run ids,
   cost, tokens), a summary appended to `run.fix_attempts`, child runs tagged
   `verify:<vid>` and `verify-patched|control|regression`. Cost counts live chat steps only.
+
+## Test export and the HTML report (as built)
+
+- `export.py`: `export_test(run, fix=None|"fix-N"|"auto", out_dir)` writes
+  `test_<agent>_<id>.py` plus `cassettes/<slug>.jsonl` (and `<slug>_fixed.jsonl`, the
+  newest passing patched child from `verify` or `--try`). Store/home paths are replaced.
+  The generated module is ruff-clean and asserts the outcome and every check status;
+  the fixed test asserts `patch_description` (the pinned fix) and all checks pass.
+- Replaying a fork (`PatchedReplayer`) re-applies the fork's patch from its fork step,
+  so patched runs reproduce offline (before Day 9 this diverged).
+- `pytest_plugin.py` (`pytest11` entry point): `--crashlab` selects marked tests;
+  `crashlab_store` isolates `CRASHLAB_DIR`; `crashlab_replay(path)` imports and strictly
+  replays (network blocked); a missing provider SDK skips.
+- `report_html.py`: `crashlab report RUN --html FILE`, escaped, inline CSS only, times in
+  local time.
 
 ## Key design rules
 

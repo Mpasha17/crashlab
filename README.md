@@ -14,7 +14,8 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
 > **replays** them strictly offline, grades them with **`@crashlab.check`** oracles,
 > **forks** them at any step with typed **patches** and **diffs** two runs. It also
 > **diagnoses** failed runs, **proposes fixes** and **verifies** them with repeated live
-> forks; test export is in progress (see [ARCHITECTURE.md](ARCHITECTURE.md)). Not on PyPI yet.
+> forks, then **exports** a pytest regression test and a shareable HTML report (see
+> [ARCHITECTURE.md](ARCHITECTURE.md)). Not on PyPI yet.
 
 ## What works today
 
@@ -111,7 +112,7 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
   `crashlab diagnose`, `crashlab fix`, `crashlab report`, `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
   `crashlab.load("last")`.
 
-Not yet: test export, HTML report. Streamed calls replay as a synthetic stream rebuilt from the recorded
+Not yet: a live HTML viewer server. Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response (same content, different chunk boundaries).
 Also not intercepted yet: Anthropic `client.beta.messages`, OpenAI
 `chat.completions.stream()` / `responses.stream()` helpers, `with_raw_response` calls.
@@ -259,9 +260,27 @@ or controls all fail and patched all pass; no regression), **LIKELY** (better, b
 significant or incomplete), **INCONCLUSIVE** (too few usable trials), **REJECTED** (a
 past good run now fails, or no better than control). Provider errors (429/5xx) are
 counted as `errored`, never as fails. `--no-control`, `--regress none|tag:X|ID,ID`,
-`--json`. Child runs are tagged `verify:<id>`; `crashlab report` lists fix attempts.
+`--json`, `--pace SECONDS` (free-tier rate limits). Child runs are tagged `verify:<id>`; `crashlab report` lists fix attempts.
 On Groq gpt-oss-120b: policy_drop fix-1 went 5/5 vs control 0/5, 2/2 good runs still
 pass (VERIFIED, $0.002).
+
+### Export a regression test and an HTML report
+
+```bash
+crashlab export-test 01M5GTK1FR --fix auto -o tests/crashlab   # test + cassettes
+pytest --crashlab            # runs only exported tests: offline, no keys, no network
+crashlab report 01M5GTK1FR --html report.html   # one self-contained file to share
+```
+
+The exported test replays the failing run and asserts its `@check` results, and (with
+`--fix`) replays a passing patched run from `crashlab verify` with the fix re-applied,
+asserting it still passes. The pytest plugin (auto-loaded) adds `--crashlab`, the
+`@pytest.mark.crashlab` marker and the `crashlab_replay(path)` / `crashlab_store`
+fixtures. Store and home paths are replaced in exported cassettes. See
+[examples/refund_bot/tests](examples/refund_bot/tests), which CI runs.
+The HTML report has the outcome, checks, findings, diagnosis with quotes, fixes with
+diffs, verification stats and the step timeline; inline CSS, no scripts, no external
+assets.
 
 Running the fork for real (without `--dry-run`) needs a model, for example a local one:
 
