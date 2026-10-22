@@ -18,9 +18,11 @@ from ..context import (
     RunContext,
     check_mode,
     current,
+    register_live,
     reset_current,
     set_current,
     take_pending_replay,
+    unregister_live,
 )
 from ..models import Run, utcnow
 from ..store import Store
@@ -151,6 +153,7 @@ class record:
         )
         self._setup_checks(run, store, replayer)
         self._token = set_current(self.ctx)
+        register_live(self.ctx)
         self._t0 = time.perf_counter()
         return run
 
@@ -195,6 +198,7 @@ class record:
             self._run_checks(run, keep_outcome=user_outcome)
             self.ctx.store.end_run(run)
         finally:
+            unregister_live(self.ctx)
             reset_current(self._token)
             self._token = None
         return False

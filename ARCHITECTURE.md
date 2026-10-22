@@ -74,7 +74,10 @@ flowchart LR
   Anthropic `signature` / `redacted_thinking`, and OpenAI `encrypted_content` are stored
   verbatim, since the provider needs them back.
 - **Threads.** Context vars do not cross plain threads; `crashlab.bind_context`,
-  `ContextThreadPoolExecutor` and `run_in_thread` carry the active run into workers.
+  `ContextThreadPoolExecutor` and `run_in_thread` carry the active run into workers. A worker thread
+  that was not bound (e.g. smolagents' CodeAgent runs each code block in a fresh
+  `ThreadPoolExecutor`) falls back to the only live run in the process, never when two runs
+  are live; `CRASHLAB_THREAD_FALLBACK=0` disables this.
 
 ## Replay and checks (as built)
 

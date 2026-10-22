@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextvars
 import functools
 import json
+import os
 import threading
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -167,18 +168,48 @@ _current_span: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 
+# Runs being recorded in this process, with the thread that started each. Frameworks that
+# run tools in a fresh worker thread without copying context vars (smolagents' CodeAgent
+# executes every code block in a new ThreadPoolExecutor) would otherwise drop those tool
+# calls silently. A worker thread with no run of its own falls back to the only live run,
+# never when two runs are live. CRASHLAB_THREAD_FALLBACK=0 turns this off.
+_live: dict[int, tuple[RunContext, int]] = {}
+_live_lock = threading.Lock()
+
+
+def register_live(ctx: RunContext) -> None:
+    with _live_lock:
+        _live[id(ctx)] = (ctx, threading.get_ident())
+
+
+def unregister_live(ctx: RunContext) -> None:
+    with _live_lock:
+        _live.pop(id(ctx), None)
+
+
+def _thread_fallback() -> RunContext | None:
+    if os.environ.get("CRASHLAB_THREAD_FALLBACK", "1") == "0":
+        return None
+    with _live_lock:
+        if len(_live) != 1:
+            return None
+        ctx, owner = next(iter(_live.values()))
+    return ctx if owner != threading.get_ident() else None
+
+
 def current() -> RunContext | None:
     """Return the active run context, or None when no run is being recorded."""
-    return _current_run.get()
+    ctx = _current_run.get()
+    return ctx if ctx is not None else _thread_fallback()
 
 
 def current_run() -> Run | None:
-    ctx = _current_run.get()
+    ctx = current()
     return ctx.run if ctx else None
 
 
 def current_mode() -> Mode:
-    ctx = _current_run.get()
+    ctx = current()
     return ctx.mode if ctx else "record"
 
 
@@ -215,7 +246,7 @@ def pending_replay(rp: Replayer) -> Iterator[None]:
 
 def is_replaying() -> bool:
     """True inside a run that is being replayed from a cassette (strict replay or fork)."""
-    ctx = _current_run.get()
+    ctx = current()
     return ctx is not None and ctx.mode in ("replay", "fork")
 
 

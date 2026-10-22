@@ -12,8 +12,14 @@ def square(x: int) -> int:
     return x * x
 
 
-def test_plain_thread_is_not_recorded_without_binding():
+def test_plain_thread_falls_back_to_the_only_live_run(monkeypatch):
     with crashlab.record("no-bind"):
+        t = threading.Thread(target=square, args=(3,))
+        t.start()
+        t.join()
+    assert [s.args["x"] for s in crashlab.load("last").steps] == [3]
+    monkeypatch.setenv("CRASHLAB_THREAD_FALLBACK", "0")
+    with crashlab.record("no-bind-off"):
         t = threading.Thread(target=square, args=(3,))
         t.start()
         t.join()
