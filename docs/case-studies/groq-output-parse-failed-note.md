@@ -17,3 +17,7 @@ string (often free-form reasoning that already contains the answer, e.g. `"Germa
 Consider also catching `output_parse_failed` / parsing prose-or-JSON `failed_generation`
 when an answer is recoverable — without weakening oracles. Until then, treat **20b sql
 clean as red** on this account.
+
+## Also
+Same afternoon, gpt-oss-120b TPD (~200k/day) repeatedly 429'd mid-smoke; treat
+partial reconfirms as quota, not regressions when earlier 3/3 passed.

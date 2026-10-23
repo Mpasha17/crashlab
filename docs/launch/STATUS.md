@@ -45,7 +45,7 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
   - CrewAI recheck ~12:02 IST: still **3/3 pass**.
   - Groq sql_analyst on **gpt-oss-20b**: **0/3** — Groq `output_parse_failed` (recovery only handles
     `tool_use_failed`; report for Worker A). Gemini lite refund clean recheck **pass**.
-  - Groq sql_analyst **gpt-oss-120b** reconfirm ~12:17 IST: **1/3**.
+  - Groq sql_analyst **gpt-oss-120b** reconfirm ~12:17 IST: Q0 **pass**; Q1–Q2 **TPD 429** (not agent fail; earlier 3/3 stands).
   - Quota after: gpt-oss-120b **688/1000** req (TPD rolling; was near cap earlier).
 - [ ] No PyPI; no force-push; secret-scan still required on every push
 
