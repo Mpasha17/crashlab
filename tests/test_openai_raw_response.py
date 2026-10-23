@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 import crashlab
 from crashlab.capture.openai import WrappedOpenAI
 
@@ -120,3 +122,54 @@ def test_responses_with_raw_response_create_records(crashlab_dir):
     assert step.attributes.get("crashlab.api") == "openai.responses"
     assert step.response is not None
     assert inner.responses.calls == 1
+
+
+class _AsyncCompletions:
+    """Completions whose ``create`` is a coroutine (triggers async invoke path)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+        async def raw_create(**kwargs: Any) -> Any:
+            self.calls += 1
+            parsed = _completion(**kwargs)
+
+            class _Raw:
+                status_code = 200
+                headers = {}
+
+                def parse(self):
+                    return parsed
+
+            return _Raw()
+
+        self.with_raw_response = SimpleNamespace(create=raw_create)
+
+    async def create(self, **kwargs: Any) -> Any:
+        self.calls += 1
+        return _completion(**kwargs)
+
+
+class _AsyncClient:
+    def __init__(self) -> None:
+        self.chat = SimpleNamespace(completions=_AsyncCompletions())
+        self.base_url = "https://example.test/v1"
+
+
+@pytest.mark.asyncio
+async def test_async_with_raw_response_create_records(crashlab_dir):
+    inner = _AsyncClient()
+    wrapped = WrappedOpenAI(inner)
+
+    @crashlab.agent(name="raw-async")
+    async def run() -> str:
+        resp = await wrapped.chat.completions.with_raw_response.create(
+            model="m", messages=[{"role": "user", "content": "hi"}]
+        )
+        return resp.parse().choices[0].message.content
+
+    assert await run() == "ok"
+    rec = crashlab.load("last")
+    assert len(rec.steps) == 1 and rec.steps[0].operation == "chat"
+    assert rec.steps[0].response and rec.steps[0].response.get("messages")
+    assert inner.chat.completions.calls == 1

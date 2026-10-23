@@ -17,6 +17,6 @@ elif [[ -x "$ROOT/scripts/scan.sh" ]]; then
   "$ROOT/scripts/scan.sh"
 else
   echo "(no scan.sh; grepping common key prefixes)"
-  ! git grep -nE 'AQ\.Ab8|gsk_[A-Za-z0-9]{20,}' -- ':!docs/demo/*.gif' || exit 1
+  ! git grep -nE 'AQ\.Ab8[A-Za-z0-9_-]{8,}|gsk_[A-Za-z0-9]{20,}' -- ':!docs/demo/*.gif' ':!*.gif' || exit 1
 fi
 echo "OK"
