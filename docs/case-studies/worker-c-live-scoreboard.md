@@ -1,6 +1,6 @@
 # Worker C live scoreboard — 2026-10-23 (Asia/Calcutta)
 
-Session ~11:39–14:00 IST. Keys via sourced env only. Live store not committed.
+**Session closed ~13:41 IST** (soft stop before 14:00). Keys via sourced env only. Live store not committed.
 
 ## Verifies (honest labels)
 
@@ -18,7 +18,7 @@ Session ~11:39–14:00 IST. Keys via sourced env only. Live store not committed.
 
 | smoke | result |
 |---|---|
-| Groq refund clean A17 (120b / 20b) | **pass** / **pass** (reconfirmed) |
+| Groq refund clean A17 (120b / 20b) | **pass** / **pass** (reconfirmed through ~13:30) |
 | Groq sql clean (120b) | **3/3** earlier; TPD flake mid-day |
 | Groq sql clean (20b) | **fixed** `output_parse_failed` → **3/3** (reconfirmed) |
 | Groq schema_drift (120b / 20b) | **pass** / **pass** |
@@ -29,20 +29,27 @@ Session ~11:39–14:00 IST. Keys via sourced env only. Live store not committed.
 | Gemini sql clean | **3/3** |
 
 ## sql fault smokes (1q)
+
 | provider | schema_drift | spec_drop | tool_5xx | misleading |
 |---|---|---|---|---|
 | gpt-oss-20b | pass | fail | fail | fail |
 | gemini-flash-lite | 429 | fail | fail | — |
 
-## Code fix
-`examples/sql_analyst`: recover Groq `output_parse_failed` (`069876b`+). Tests green.
+## Code fix this session
+- `examples/sql_analyst`: recover Groq `output_parse_failed` via `failed_generation` prose/JSON
+  (`069876b` + follow-ups). Offline tests green; live 20b sql **3/3**.
 
 ## Offline pins (`tests/crashlab/`)
-- `test_refund_bot_01m5kq4eee` misleading fail (20b)
-- `test_refund_bot_01m5ksfg22` policy_drop fail (20b)
-- `test_refund_bot_01m5ksj8sf` policy_drop fail (Gemini)
-- `test_refund_bot_01m5ksmj8q` misleading fail (Gemini)
-- `test_refund_bot_01m5kpm44v` html_502 fail + `_fixed` (120b)
+- `test_refund_bot_01m5kq4eee` — misleading_desc fail (20b)
+- `test_refund_bot_01m5ksfg22` — policy_drop fail (20b)
+- `test_refund_bot_01m5ksj8sf` — policy_drop fail (Gemini)
+- `test_refund_bot_01m5ksmj8q` — misleading_desc fail (Gemini)
+- `test_refund_bot_01m5kpm44v` — html_502 fail + `_fixed` (120b)
 
-## Quota
-Prefer **20b** / Gemini. gpt-oss-120b TPD ~200k/day fragile.
+## Quota at close (~13:41 IST)
+- gpt-oss-20b: **667/1000** req remaining
+- gpt-oss-120b: **727/1000** req remaining (TPD still the fragile limit ~200k/day)
+- Prefer **20b** / Gemini for further live work
+
+## Worker C commits (selected)
+`069876b` fix sql recovery · docs verifies/scoreboard · `tests/crashlab/` exports · tip near `2faf260`/`f777371`/this close
