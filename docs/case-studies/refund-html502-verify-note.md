@@ -28,3 +28,9 @@ Cost ~$0.0024 list / free tier. Log: `/workspace/crashlab-live/worker_c_html502_
 ## Honesty
 Not VERIFIED. Control sometimes stops without the patch, so the fault is partly
 stochastic. Matches Day-10 refund-bot `tool_5xx` **LIKELY** band.
+
+
+## Follow-up: model variance (same day)
+- **gpt-oss-20b** html_502 A17 ×3: all **pass** (stopped/apologized within budget; 3–7 steps). No verify needed.
+- **gpt-oss-120b** earlier parent looped to 11 steps (**fail**); later 120b calls hit **TPD** (~199k/200k used).
+- Explains control **1/3 pass** in the 120b LIKELY verify — stopping without a patch is common on smaller/faster models.

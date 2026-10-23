@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 12:00 Asia/Calcutta
+**Last updated:** 2026-10-23 12:04 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -26,7 +26,7 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
 - [x] Groq clean smoke 2026-10-23 10:57 IST: **3/3 pass** after failed_generation recovery
   (`b31ca7e`). sqlv4 clean 1/3 was pre-fix; denominator can be treated as healthy.
 - [ ] Confirm CI green on the soft-launch HEAD (3.10–3.13)
-- [x] Worker C live 2026-10-23 ~11:41–12:00 IST Asia/Calcutta:
+- [x] Worker C live 2026-10-23 ~11:41–12:04 IST Asia/Calcutta:
   - Groq refund_bot clean A17: **pass** (4/4) `01M5KP4VCRTZ1D4DYRE7B6QQT7`
   - Groq sql_analyst clean: **3/3 pass** (gpt-oss-120b)
   - CrewAI demo (gpt-oss-20b): **3/3 pass**; steps recorded
@@ -41,6 +41,8 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
   - Groq misleading_desc: parent fail ($44.10); 120b `fix --verify` **INCONCLUSIVE** (TPD 429s);
     20b manual k=3+control+regression: **VERIFIED** patched 3/3 control 0/3 (fix from 120b diagnoser).
     See `docs/case-studies/refund-misleading-desc-note.md`.
+  - Groq html_502 on **gpt-oss-20b** ×3: all **pass** (stops); 120b TPD nearly exhausted (~199k/200k) — pause 120b.
+  - CrewAI recheck ~12:02 IST: still **3/3 pass**.
   - Quota after: openai/gpt-oss-120b 687/1000 req; tok 7927; openai/gpt-oss-20b 965/1000 req; tok 7794.
 - [ ] No PyPI; no force-push; secret-scan still required on every push
 
