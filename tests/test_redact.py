@@ -146,3 +146,11 @@ def test_groq_and_dashscope_shaped_values_redacted_but_prefix_names_kept():
     assert r.redact_str("look for gsk_ and AQ.Ab8 in scan.sh") == (
         "look for gsk_ and AQ.Ab8 in scan.sh"
     )
+
+
+def test_groq_shaped_token_in_nested_message_content():
+    r = Redactor()
+    key = SECRETS["groq"]
+    out = r.redact({"messages": [{"role": "user", "content": f"use {key} please"}]})
+    assert key not in str(out)
+    assert "use " in out["messages"][0]["content"]
