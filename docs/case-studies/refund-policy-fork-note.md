@@ -42,3 +42,6 @@ patched **3/3 pass**, control **3/3 fail** → **VERIFIED** on 20b as well.
 ## gemini-flash-lite-latest replicate (same day)
 Parent `01M5KSJ8SFV917KPRM0SS9MMCK`. Same restore-policy patch:
 patched **3/3 pass**, control **3/3 fail** → **VERIFIED** on Gemini flash-lite too.
+
+## gpt-oss-20b re-verify (~13:26 IST)
+Parent `01M5KW2300EJ1TKEA6BRDB5ZK7`. patched **3/3**, control **3/3 fail** — **VERIFIED** again.
