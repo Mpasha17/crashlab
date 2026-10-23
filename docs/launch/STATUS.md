@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 12:46 Asia/Calcutta
+**Last updated:** 2026-10-23 12:47 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -14,7 +14,7 @@
 - Launch drafts: announcement, Show HN, one-pager, checklist, STATUS, Day 11 report
 - Clean-venv offline quickstart verified (`docs/demo/quickstart-offline.sh`)
 - CHANGELOG 0.0.1, CONTRIBUTING, SECURITY.md, LICENSE (Apache-2.0)
-- CI: greens include `320be73`, `020a467`, `9f12d8f`; tip `9ea84ad`; intermediate fail `d8ccd2e` (responses-only test) later superseded — confirm soft-launch HEAD green
+- CI: tip `a136809`; recent greens include `9f12d8f` / `020a467` / `320be73`; docs commit `065fff7` failed CI (check Actions) — confirm soft-launch HEAD green
 - Offline suite: 450 tests (see `pytest` locally; CI 3.10–3.13)
 
 Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
@@ -54,6 +54,7 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
   - Gemini flash-lite misleading_desc: **VERIFIED** patched 3/3 control 0/3 (+ regression pass).
   - Gemini/20b html_502: **pass** (stop/apologize); reinforces LIKELY not VERIFIED on 120b loop.
   - sql 20b fault smokes (1q): schema_drift pass; spec_drop/tool_5xx/misleading fail (oracles honest).
+  - Gemini sql reconfirm: **3/3**.
   - Quota after: gpt-oss-20b 921/1000 req; gpt-oss-120b 699/1000 req.
 - [ ] No PyPI; no force-push; secret-scan still required on every push
 
