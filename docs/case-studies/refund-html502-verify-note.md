@@ -34,3 +34,9 @@ stochastic. Matches Day-10 refund-bot `tool_5xx` **LIKELY** band.
 - **gpt-oss-20b** html_502 A17 ×3: all **pass** (stopped/apologized within budget; 3–7 steps). No verify needed.
 - **gpt-oss-120b** earlier parent looped to 11 steps (**fail**); later 120b calls hit **TPD** (~199k/200k used).
 - Explains control **1/3 pass** in the 120b LIKELY verify — stopping without a patch is common on smaller/faster models.
+
+
+## More model variance
+- **gemini-flash-lite-latest** html_502 A17 ×2: both **pass** (apology within budget).
+- Together with gpt-oss-20b passes, the 120b step-budget loop looks **model-specific / stochastic**,
+  which is why control scored 1/3 in the LIKELY verify — not a broken oracle.

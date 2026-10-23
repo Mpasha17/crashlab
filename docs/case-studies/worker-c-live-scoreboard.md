@@ -18,22 +18,23 @@ Session ~11:39–14:00 IST. Keys via sourced env only. Live store not committed.
 
 | smoke | result |
 |---|---|
-| Groq refund_bot clean A17 (120b) | **pass** 4/4 |
+| Groq refund_bot clean A17 (120b / 20b) | **pass** / **pass** |
 | Groq sql_analyst clean (120b) | **3/3 pass** (earlier; mid-day TPD flake on reconfirm) |
-| Groq sql_analyst clean (20b) | was **0/3** `output_parse_failed` → **fixed** → **3/3** |
-| Groq schema_drift A17 (120b) | **pass** |
-| Groq html_502 (20b) ×3 | **pass** (stops); 120b earlier **fail** loop |
+| Groq sql_analyst clean (20b) | was 0/3 `output_parse_failed` → **fixed** → **3/3** |
+| Groq schema_drift A17 (120b / 20b) | **pass** / **pass** |
+| Groq html_502 | 120b: **fail** loop once; 20b: **pass** (stops) ×4 |
+| Gemini html_502 ×2 | **pass** (stops) |
 | CrewAI lookup ×3 (20b) | **3/3 pass** (+ recheck 3/3) |
 | Gemini flash-lite refund clean / C03 refuse | **pass** / **pass** |
-| Gemini flash-lite sql clean | **3/3** (with occasional 429 retry) |
+| Gemini flash-lite sql clean | **3/3** |
 
 ## Code fix this session
 - `examples/sql_analyst`: recover Groq `output_parse_failed` via `failed_generation` prose/JSON
-  (`069876b`). Offline tests green; live 20b sql **3/3**.
+  (`069876b` + follow-ups). Offline tests green; live 20b sql **3/3**.
 
 ## Quota notes
 - Groq **gpt-oss-120b** TPD ~200k/day — near cap mid-session; prefer **20b** / Gemini after.
 - Gemini free-tier: intermittent 429; usually recovers quickly.
 
 ## Commits (Worker C)
-Docs + sql_analyst fix only; secret-scan green; no PyPI / force-push / upstream issues.
+Docs + sql_analyst fix only; secret-scan (`scripts/scan.sh`) green; no PyPI / force-push / upstream.
