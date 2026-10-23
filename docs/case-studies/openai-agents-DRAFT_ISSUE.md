@@ -51,5 +51,5 @@ keywords would fix that.
 ### Status of verification
 
 A scoped crashlab patch of the triage prompt was proposed. Full `VERIFIED` (k=5 +
-controls + regression) was blocked by free-tier quotas on earlier attempts; the general triage rewrite was **REJECTED** (k=5): 2/5 patched vs 0/5 control, but 1/4 regression runs failed (bags). Do not file until a non-regressing fix verifies.
+controls + regression) was blocked by free-tier quotas on earlier attempts; two prompt patches were **REJECTED** (general rewrite: 2/5 vs 0/5 but bags regression; wifi-only append: 0/3 and 2/4 regression fails). Do **not** file until a non-regressing fix verifies. Gemini flash-lite already passes without a patch.
 

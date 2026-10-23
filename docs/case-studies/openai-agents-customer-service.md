@@ -47,3 +47,19 @@ The patch helps the wifi follow-up sometimes, but the stronger "never answer you
 rule made a previously-passing baggage question fail. A narrower wifi-only append
 (`crashlab-fix-v2.yaml`) is the next candidate.
 
+### Wifi-only append (`crashlab-fix-v2.yaml`, same day)
+
+k=5 attempt on Groq qwen3.8-27b:
+
+| arm | result |
+|---|---|
+| patched | **0/3** usable (2 errored) |
+| control | **0/4** usable |
+| regression | 2/4 fail |
+| **verdict** | **REJECTED** |
+
+A prompt-only triage tweak is not enough on this model: it neither reliably routes the
+wifi follow-up nor stays safe on past FAQ runs. **Do not file the upstream issue until a
+non-regressing fix exists** (likely a stronger routine in the example, or a model that
+already follows the handoff prompt — Gemini flash-lite did).
+
