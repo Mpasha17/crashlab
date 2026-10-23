@@ -22,11 +22,20 @@ Session ~11:39–14:00 IST. Keys via sourced env only. Live store not committed.
 | Groq sql_analyst clean (120b) | **3/3 pass** (earlier; mid-day TPD flake on reconfirm) |
 | Groq sql_analyst clean (20b) | was 0/3 `output_parse_failed` → **fixed** → **3/3** |
 | Groq schema_drift A17 (120b / 20b) | **pass** / **pass** |
-| Groq html_502 | 120b: **fail** loop once; 20b: **pass** (stops) ×4 |
+| Groq html_502 | 120b: **fail** loop once; 20b: **pass** (stops) |
 | Gemini html_502 ×2 | **pass** (stops) |
-| CrewAI lookup ×3 (20b) | **3/3 pass** (+ recheck 3/3) |
+| CrewAI lookup ×3 (20b) | **3/3 pass** (+ rechecks) |
 | Gemini flash-lite refund clean / C03 refuse | **pass** / **pass** |
-| Gemini flash-lite sql clean | **3/3** |
+| Gemini flash-lite sql clean | **3/3** (reconfirmed) |
+
+## sql 20b fault smokes (1q, after recovery fix)
+
+| fault | outcome |
+|---|---|
+| schema_drift | **pass** |
+| spec_drop | **fail** (wrong recovered 848.99 — oracle honest) |
+| tool_5xx | **fail** |
+| misleading_desc | **fail** |
 
 ## Code fix this session
 - `examples/sql_analyst`: recover Groq `output_parse_failed` via `failed_generation` prose/JSON
@@ -37,4 +46,4 @@ Session ~11:39–14:00 IST. Keys via sourced env only. Live store not committed.
 - Gemini free-tier: intermittent 429; usually recovers quickly.
 
 ## Commits (Worker C)
-Docs + sql_analyst fix only; secret-scan (`scripts/scan.sh`) green; no PyPI / force-push / upstream.
+Docs + sql_analyst fix only; `scripts/scan.sh` green; no PyPI / force-push / upstream issues.
