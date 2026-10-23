@@ -31,7 +31,7 @@ which hides the bug. A one-line engine change (`StaticPool` + `check_same_thread
 fixes it; a no-LLM A/B through smolagents' own `LocalPythonExecutor` confirms upstream →
 error, fixed → `('Woodrow Wilson',)`.
 
-Full write-up: [docs/case-studies/smolagents-text-to-sql.md](docs/case-studies/smolagents-text-to-sql.md).
+Case studies: [docs/case-studies/](docs/case-studies/README.md). Flagship write-up: [smolagents text_to_sql](docs/case-studies/smolagents-text-to-sql.md).
 Terminal demo (no keys): [docs/demo/](docs/demo/README.md). Draft upstream issue text
 was prepared locally and has **not** been filed.
 
