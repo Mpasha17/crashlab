@@ -143,3 +143,26 @@ Full tables: `bench/results/seed_*.md`. Each cell below is k/n, then the Wilson 
 - Several faults did not trigger: `schema_drift` on refund-bot (0/3 on both models), and on
   Gemini, `tool_5xx` on refund-bot and `schema_drift` on sql-analyst (0/3). Those cells say
   nothing about diagnosis.
+
+### Groq sql-analyst rerun (sqlv4, 2026-10-23)
+
+After the empty-reply nudge (`87bed39`) and mid-run tool_use_failed nudge (`f0b6e3e`),
+`seed_groq-gpt-oss-120b-sqlv4` completed **15/15** sql-analyst episodes on
+`openai/gpt-oss-120b`. Offline rescore matched.
+
+| split | diagnoser | triggered | LLM label ok | step in window | fix VERIFIED | clean false alarms | cost |
+|---|---|---|---|---|---|---|---|
+| **test** | groq gpt-oss-120b | 11/12 (65–98%) | **3/11 (10–57%)** | 7/11 (35–85%) | 0/3 | 0/1 | $0.030 |
+| test | heuristic | 11/12 | 0/11 (0–26%) | 8/11 | – | 0/1 | $0 |
+
+Caveats:
+- Clean baseline is still thin: **1/3 pass**. ep0 passed; ep1/ep2 died on Groq
+  `tool_use_failed` (malformed `<|channel|>commentary` tool name) *before* the
+  tool_use_failed nudge landed in the running process. Re-run clean cells to get a
+  real false-alarm denominator.
+- LLM label accuracy on the held-out agent remains low (3/11); heuristic labels 0/11
+  but detects 11/11. Fix VERIFIED 0/3 — prompt patches cannot repair tool/DB faults
+  (REJECTED is correct for tool_5xx / spec_drop / misleading_desc cells).
+- Small n; read the intervals. This run **replaces** sqlv1/sqlv2/sqlv3 as the Groq
+  test-split reference (those were invalid or empty).
+

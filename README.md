@@ -47,8 +47,7 @@ Seed fault-injection benchmark (`crashlab bench`). It injects 4 faults into 2 ag
 agent. On Gemini flash-lite, the LLM diagnoser labelled **6/6 triggered faults correctly
 (Wilson 95% CI 61–100%)**. The tuned heuristic baseline labelled 2/6 (10–70%). No fix verified
 on the test agent: 0/3 VERIFIED and 1/3 LIKELY. The tool/DB fixes were correctly rejected.
-Groq gpt-oss-120b's test-split numbers are not valid because of an empty-reply agent bug
-(fixed since then, but the rerun was quota-limited). Details, all CIs and caveats:
+Groq gpt-oss-120b sqlv4 (after empty-reply + tool_use_failed nudges): LLM label ok **3/11 (10–57%)** on the test agent; 1/3 clean pass; 0/3 fixes verified. Earlier Groq test-split rows were invalid (empty-reply) or empty (quota). Details, all CIs and caveats:
 [bench/README.md](bench/README.md#seed-results).
 
 ## What works today
