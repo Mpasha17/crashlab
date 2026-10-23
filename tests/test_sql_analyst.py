@@ -170,7 +170,7 @@ def test_a_groq_output_parse_failed_recovers_prose_answer():
     prose = "We have revenue 198.99. Need to output final answer with number 2 decimals."
     boom = RuntimeError(
         "Error code: 400 - {'error': {'code': 'output_parse_failed', "
-        "'failed_generation': %r}}" % prose
+        "'failed_generation': " + repr(prose) + "}}"
     )
     run = _run([tool_call_response(1, "run_query", {"sql": GOOD_SQL}), boom])
     assert run.outcome == "pass"
@@ -182,7 +182,7 @@ def test_a_groq_output_parse_failed_recovers_quoted_name():
     prose = 'We have the result: Germany revenue 363.5. So "Germany" and revenue 363.50.'
     boom = RuntimeError(
         "Error code: 400 - {'error': {'code': 'output_parse_failed', "
-        "'failed_generation': %r}}" % prose
+        "'failed_generation': " + repr(prose) + "}}"
     )
     run = _run(
         [tool_call_response(1, "run_query", {"sql": sql.QUESTIONS[q]}), boom],
