@@ -120,13 +120,37 @@ def _render(
     return "\n".join(out) + "\n"
 
 
+def _local_roots(store: Store) -> list[tuple[str, str]]:
+    """Absolute prefixes that must not land in a committed cassette (longest first)."""
+    import crashlab as _pkg
+
+    roots = [
+        (str(Path(store.root).resolve()), "$CRASHLAB_DIR"),
+        (str(Path.home().resolve()), "~"),
+        (str(Path.cwd().resolve()), "$PWD"),
+        # editable install: .../src/crashlab/__init__.py → repo root; wheel: site-packages
+        (str(Path(_pkg.__file__).resolve().parents[2]), "$CRASHLAB_REPO"),
+    ]
+    # longest first so /a/b wins over /a
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for local, token in sorted(roots, key=lambda x: -len(x[0])):
+        if local in seen or len(local) < 2:
+            continue
+        seen.add(local)
+        out.append((local, token))
+    return out
+
+
 def _export(store: Store, run_id: str, path: Path) -> Path:
-    """``export_run`` with this machine's store / home paths replaced (the run header
-    carries fix-file paths), so the cassette can be committed."""
+    """``export_run`` with this machine's store / home / cwd / install paths replaced
+    (run headers carry fix-file paths; error stack traces carry local files), so the
+    cassette can be committed."""
     out = export_run(store, run_id, path)
     text = out.read_text("utf-8")
-    for local, token in ((str(store.root), "$CRASHLAB_DIR"), (str(Path.home()), "~")):
+    for local, token in _local_roots(store):
         text = text.replace(json.dumps(local)[1:-1], token)
+        text = text.replace(local, token)  # raw paths inside stack traces / messages
     out.write_text(text, "utf-8")
     return out
 

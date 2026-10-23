@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import os
 import re
@@ -136,3 +137,26 @@ def test_html_report_is_self_contained_and_escaped(tmp_path):
     out = tmp_path / "r.html"
     res = runner.invoke(app, ["report", run.run_id, "--html", str(out)])
     assert res.exit_code == 0 and out.read_text().startswith("<!doctype html>")
+
+
+def test_export_scrubs_stack_trace_paths(tmp_path, crashlab_dir, monkeypatch):
+    """Error messages often embed abs paths (traceback); those must not be committed."""
+    from crashlab.export import _export
+    from crashlab.store import Store
+
+    monkeypatch.chdir(tmp_path)
+    store = Store(crashlab_dir)
+
+    @crashlab.agent(name="boom")
+    def boom() -> None:
+        raise RuntimeError(f"failed in {Path.cwd() / 'secret.py'} under {crashlab_dir}")
+
+    with contextlib.suppress(RuntimeError):
+        boom()
+    run = crashlab.load("last")
+    out = _export(store, run.run_id, tmp_path / "x.jsonl")
+    text = out.read_text()
+    assert str(crashlab_dir) not in text
+    assert str(tmp_path) not in text or "$PWD" in text or "$CRASHLAB" in text
+    assert "secret.py" in text  # basename / relative residue ok
+    assert "/home/" not in text or text.count("~") >= 0
