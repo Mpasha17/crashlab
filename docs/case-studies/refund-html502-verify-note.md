@@ -49,3 +49,6 @@ stochastic. Matches Day-10 refund-bot `tool_5xx` **LIKELY** band.
 
 ## Offline pin
 `tests/crashlab/test_refund_bot_01m5kpm44v.py` (fail + `_fixed` with fix-1).
+
+## gpt-oss-20b reliability
+Additional **5/5 pass** (stop/apologize) — no fail to verify against on 20b this session.
