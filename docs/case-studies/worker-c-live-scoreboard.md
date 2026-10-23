@@ -50,6 +50,7 @@ Session ~11:39–14:00 IST. Keys via sourced env only. Live store not committed.
 Docs + sql_analyst fix only; `scripts/scan.sh` green; no PyPI / force-push / upstream issues.
 
 ## Offline cassettes (tests/crashlab/)
+- `test_refund_bot_01m5kpm44v`
 - `test_refund_bot_01m5kq4eee`
 - `test_refund_bot_01m5ksfg22`
 - `test_refund_bot_01m5ksj8sf`
