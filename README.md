@@ -339,6 +339,8 @@ PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... MODEL=claude-haiku-4-5 \
 
 See [examples/refund_bot](examples/refund_bot/README.md) for details.
 
+Launch drafts (unpublished): [docs/launch/](docs/launch/).
+
 ## Development
 
 ```bash

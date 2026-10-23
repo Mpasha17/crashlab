@@ -47,3 +47,7 @@ See [docs/demo/](../demo/README.md) to replay the terminal capture.
 Recorded the live failing run, failed a `@crashlab.check` oracle, and (separately)
 fixed a crashlab bug: tool calls from CodeAgent's unbound worker thread were silently
 not recorded. That is `CRASHLAB_THREAD_FALLBACK` (commit `419235a`).
+
+## Draft upstream issue
+
+Prepared, **not filed**: [smolagents-DRAFT_ISSUE.md](smolagents-DRAFT_ISSUE.md).
