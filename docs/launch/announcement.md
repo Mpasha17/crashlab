@@ -25,9 +25,11 @@ Wrap your client. Decorate your tools. When a run fails, crashlab:
 4. Verifies the fix with repeated live forks + regression on past good runs
 5. Exports a pytest regression test
 
-Day-11 evidence: on the unmodified smolagents text-to-sql example, the agent hit
-`no such table: receipts` because SQLAlchemy's `:memory:` pool is per-thread and
-CodeAgent runs tools in a fresh ThreadPoolExecutor. A StaticPool one-liner fixes it;
-we reproduced it with no LLM.
+Day-11 evidence:
+- smolagents text-to-sql: empty `:memory:` SQLite across threads. StaticPool fix;
+  no-LLM A/B. Flagship.
+- OpenAI Agents customer_service: triage answers FAQ follow-ups on a small open
+  model. Two prompt patches correctly REJECTED for regression — that rejection is
+  the point of verify.
 
 Pre-alpha. Feedback welcome. github.com/Mpasha17/crashlab
