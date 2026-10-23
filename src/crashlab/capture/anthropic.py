@@ -63,7 +63,16 @@ class WrappedAnthropic(WrappedClient):
                 return AsyncRecordingMessageStreamManager(manager, call)
             return RecordingMessageStreamManager(manager, call)
 
-        overrides: dict[str, Any] = {"messages": Proxy(messages, create=create, stream=stream)}
+        messages_kw: dict[str, Any] = {"create": create, "stream": stream}
+        if getattr(messages, "with_raw_response", None) is not None:
+            raw = messages.with_raw_response
+
+            def raw_create(*args: Any, **kwargs: Any) -> Any:
+                return invoke(MESSAGES, raw.create, args, kwargs, server=server, is_async=is_async)
+
+            raw_create.__doc__ = getattr(raw.create, "__doc__", None)
+            messages_kw["with_raw_response"] = Proxy(raw, create=raw_create)
+        overrides: dict[str, Any] = {"messages": Proxy(messages, **messages_kw)}
         super().__init__(client, **overrides)
 
     def _rewrap(self, client: Any) -> WrappedAnthropic:
