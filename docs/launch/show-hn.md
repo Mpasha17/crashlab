@@ -20,6 +20,11 @@ example and found a real bug — CodeAgent was querying an empty `:memory:` SQLi
 because the default pool is per-thread and the executor hops threads. A StaticPool
 fix works; no-LLM A/B confirms it. Write-up in the repo under docs/case-studies/.
 
+We also crashed the OpenAI Agents SDK customer_service example (triage answers
+follow-ups itself on a smaller open model). Two prompt patches were correctly
+REJECTED by crashlab verify for regressing past good FAQ runs — the interesting
+outcome is the rejection, not a fake green check.
+
 Pre-alpha (0.0.1), not on PyPI yet. Looking for people building agents who will
 break it.
 
