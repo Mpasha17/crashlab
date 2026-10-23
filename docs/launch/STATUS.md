@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 12:55 Asia/Calcutta
+**Last updated:** 2026-10-23 12:56 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -59,6 +59,7 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
   - Offline pins: 4 exported fail cassettes under `tests/crashlab/`.
   - html_502 k=5 re-verify: **INCONCLUSIVE** (120b TPD); LIKELY k=3 stands.
   - 20b sql reconfirm: **3/3**; CrewAI still green.
+  - Gemini sql faults (1q): spec_drop/tool_5xx **fail**; schema_drift **429**.
   - Quota after: gpt-oss-20b 921/1000 req; gpt-oss-120b 699/1000 req.
 - [ ] No PyPI; no force-push; secret-scan still required on every push
 

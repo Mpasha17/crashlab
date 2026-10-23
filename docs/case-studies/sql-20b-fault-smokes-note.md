@@ -12,3 +12,10 @@ After `output_parse_failed` recovery. One question (March revenue). Observationa
 
 Takeaway: prose recovery does **not** invent oracle passes — wrong recovered
 numbers still fail `answer_matches_ground_truth`.
+
+## Gemini flash-lite (1q, same day)
+| fault | outcome |
+|---|---|
+| spec_drop | **fail** (848.99 vs 198.99) |
+| tool_5xx | **fail** |
+| schema_drift | **429** mid-smoke (free-tier) |
