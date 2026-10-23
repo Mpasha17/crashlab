@@ -1,6 +1,6 @@
 # Pre-launch checklist (Thu 29 Oct 17:30 IST)
 
-_Last checked: 2026-10-23 11:43 Asia/Calcutta_
+_Last checked: 2026-10-23 11:46 Asia/Calcutta_
 
 ## Must
 - [ ] CI green on origin/main (3.10–3.13) — last full green `5e8943b`; re-check at soft launch
@@ -9,7 +9,7 @@ _Last checked: 2026-10-23 11:43 Asia/Calcutta_
   policy fail, `replay` of policy run reproduces). Verified 2026-10-23 ~11:43 IST.
 - [x] Flagship case study linked from README (`docs/case-studies/smolagents-text-to-sql.md`)
 - [x] Demo opens: `docs/demo/terminal.html`, GIF, and `demoscript.sh`
-- [ ] Secret-scan clean on HEAD (`./scripts/scan.sh`); no keys in history of launch commits
+- [x] Secret-scan clean on tip `32b67e5` (`./scripts/scan.sh` green at 2026-10-23 11:46 Asia/Calcutta); re-run before every push
 - [ ] Decide: file smolagents DRAFT_ISSUE.md upstream or not (user decision)
 - [ ] Decide: file openai-agents triage follow-up issue or not (user decision — default **no**
   until a non-regressing fix exists)
