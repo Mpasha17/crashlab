@@ -174,3 +174,31 @@ def test_export_scrubs_stack_trace_paths(tmp_path, crashlab_dir, monkeypatch):
     assert "$CRASHLAB" in text or "$CRASHLAB_REPO" in text or "$SITE_PACKAGES" in text
     assert "secret.py" in text  # basename / relative residue ok
     assert "/home/" not in text or text.count("~") >= 0
+
+
+def test_local_roots_wheel_vs_editable(tmp_path, monkeypatch):
+    """Wheel → $SITE_PACKAGES; editable src layout → $CRASHLAB_REPO."""
+    import sys
+
+    import crashlab as real_pkg
+    import crashlab.export as exp
+    from crashlab.store import Store
+
+    store = Store(tmp_path / "store")
+
+    tokens = {t for _, t in exp._local_roots(store)}
+    assert "$CRASHLAB" in tokens
+    assert "$CRASHLAB_REPO" in tokens  # preferred over $PWD when cwd is the repo
+
+    site = tmp_path / "site-packages" / "crashlab"
+    site.mkdir(parents=True)
+    init = site / "__init__.py"
+    init.write_text("# fake\n")
+
+    class _Fake:
+        __file__ = str(init)
+
+    monkeypatch.setitem(sys.modules, "crashlab", _Fake())
+    tokens_w = {t for _, t in exp._local_roots(store)}
+    assert "$SITE_PACKAGES" in tokens_w and "$CRASHLAB" in tokens_w
+    monkeypatch.setitem(sys.modules, "crashlab", real_pkg)

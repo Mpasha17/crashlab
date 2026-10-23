@@ -138,15 +138,24 @@ def _local_roots(store: Store) -> list[tuple[str, str]]:
         roots.append((str(install_parent), "$SITE_PACKAGES"))
     else:
         roots.append((str(pkg_file.parents[2]), "$CRASHLAB_REPO"))
-    # longest first so /a/b wins over /a
-    seen: set[str] = set()
-    out: list[tuple[str, str]] = []
-    for local, token in sorted(roots, key=lambda x: -len(x[0])):
-        if local in seen or len(local) < 2:
+    # longest first so /a/b wins over /a; on equal paths prefer a named install
+    # token over $PWD (cwd often is the editable repo root).
+    rank = {
+        "$CRASHLAB_DIR": 0,
+        "$CRASHLAB": 1,
+        "$CRASHLAB_REPO": 2,
+        "$SITE_PACKAGES": 2,
+        "~": 3,
+        "$PWD": 4,
+    }
+    best: dict[str, str] = {}
+    for local, token in roots:
+        if len(local) < 2:
             continue
-        seen.add(local)
-        out.append((local, token))
-    return out
+        prev = best.get(local)
+        if prev is None or rank.get(token, 9) < rank.get(prev, 9):
+            best[local] = token
+    return sorted(best.items(), key=lambda x: -len(x[0]))
 
 
 def _export(store: Store, run_id: str, path: Path) -> Path:
