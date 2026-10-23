@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 13:00 Asia/Calcutta
+**Last updated:** 2026-10-23 13:02 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -71,4 +71,4 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
 - That `with_raw_response` is still unintercepted — false (`create` path is recorded)
 - policy_drop fork **k=2 alone** as VERIFIED — false; k=3+control **is** VERIFIED (see case-study note)
 - misleading_desc **120b** formal verify as VERIFIED — false (INCONCLUSIVE/TPD); **20b** k=3+control **is** VERIFIED
-- html_502 fix-1 as VERIFIED — false (**LIKELY**; CIs overlap)
+- html_502 fix-1 as VERIFIED — false (**LIKELY**; CIs overlap; k=5 re-verify **INCONCLUSIVE** on 120b TPD)
