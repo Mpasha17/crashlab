@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 12:18 Asia/Calcutta
+**Last updated:** 2026-10-23 12:33 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -14,7 +14,7 @@
 - Launch drafts: announcement, Show HN, one-pager, checklist, STATUS, Day 11 report
 - Clean-venv offline quickstart verified (`docs/demo/quickstart-offline.sh`)
 - CHANGELOG 0.0.1, CONTRIBUTING, SECURITY.md, LICENSE (Apache-2.0)
-- CI: last green `320be73` (docs tip success); current tip `7b44726` — confirm CI green before soft launch
+- CI: greens include `320be73`, `020a467`, `9f12d8f`; tip `9ea84ad`; intermediate fail `d8ccd2e` (responses-only test) later superseded — confirm soft-launch HEAD green
 - Offline suite: 450 tests (see `pytest` locally; CI 3.10–3.13)
 
 Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).

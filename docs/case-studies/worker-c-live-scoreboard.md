@@ -29,5 +29,5 @@ Session ~11:39–14:00 IST. Keys via sourced env only. Live store not committed.
 - Groq **gpt-oss-120b** TPD ~200k/day — repeatedly near cap; prefer 20b for forks after ~12:00.
 - Gemini free-tier: intermittent 429; recovered same session.
 
-## Commits (Worker C docs only)
-See `git log --author` / STATUS stamps; secret-scan green on each push.
+## Pointers
+Live details also mirrored in [../launch/STATUS.md](../launch/STATUS.md). Do not treat scoreboard rows as large-n superiority claims.

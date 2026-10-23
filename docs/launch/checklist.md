@@ -1,15 +1,15 @@
 # Pre-launch checklist (Thu 29 Oct 17:30 IST)
 
-_Last checked: 2026-10-23 12:07 Asia/Calcutta_
+_Last checked: 2026-10-23 12:33 Asia/Calcutta_
 
 ## Must
-- [ ] CI green on origin/main (3.10–3.13) — last docs-tip green `320be73`; later pushes may cancel earlier runs — re-check soft-launch HEAD
+- [ ] CI green on origin/main (3.10–3.13) — recent greens `020a467` / `9f12d8f`; tip may still be in flight; re-check soft-launch HEAD
 - [x] README offline quickstart works from a **clean** venv with no keys
   (`docs/demo/quickstart-offline.sh`: import 5 demos, `check --all` exits 1 on expected
   policy fail, `replay` of policy run reproduces). Verified 2026-10-23 ~11:43 IST.
 - [x] Flagship case study linked from README (`docs/case-studies/smolagents-text-to-sql.md`)
 - [x] Demo opens: `docs/demo/terminal.html`, GIF, and `demoscript.sh`
-- [x] Secret-scan clean on tip `7b44726` (`./scripts/scan.sh` green at 2026-10-23 12:07 Asia/Calcutta); re-run before every push
+- [x] Secret-scan clean on tip `9ea84ad` (`./scripts/scan.sh` green at 2026-10-23 12:33 Asia/Calcutta); re-run before every push
 - [ ] Decide: file smolagents DRAFT_ISSUE.md upstream or not (user decision)
 - [ ] Decide: file openai-agents triage follow-up issue or not (user decision — default **no**
   until a non-regressing fix exists)
