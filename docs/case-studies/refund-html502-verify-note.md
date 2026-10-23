@@ -40,3 +40,9 @@ stochastic. Matches Day-10 refund-bot `tool_5xx` **LIKELY** band.
 - **gemini-flash-lite-latest** html_502 A17 ×2: both **pass** (apology within budget).
 - Together with gpt-oss-20b passes, the 120b step-budget loop looks **model-specific / stochastic**,
   which is why control scored 1/3 in the LIKELY verify — not a broken oracle.
+
+
+## k=5 re-attempt (12:50 IST)
+`crashlab fix --verify -k 5` on same parent: **INCONCLUSIVE** — mostly Groq 120b TPD
+429s (2/2 patched usable pass, 1/1 control usable pass, 7 errored). Prior **LIKELY**
+(k=3) still stands; do not upgrade.
