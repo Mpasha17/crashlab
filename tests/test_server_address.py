@@ -71,8 +71,9 @@ def test_responses_only_client_records_with_raw_response(crashlab_dir):
 
 
 def test_wrap_responses_only_custom_provider_name(crashlab_dir):
-    import crashlab
     from types import SimpleNamespace
+
+    import crashlab
 
     class _Responses:
         def create(self, **kwargs):
