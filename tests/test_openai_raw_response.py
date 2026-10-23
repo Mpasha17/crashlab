@@ -204,3 +204,28 @@ def test_with_options_rewrap_keeps_raw_response_recording(crashlab_dir):
     assert run() == "ok"
     rec = crashlab.load("last")
     assert len(rec.steps) == 1 and rec.steps[0].operation == "chat"
+
+
+def test_copy_rewrap_keeps_raw_response_recording(crashlab_dir):
+    class _Inner:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=_Completions())
+            self.base_url = "https://example.test/v1"
+
+        def copy(self, **kwargs):
+            other = _Inner()
+            other._opts = kwargs
+            return other
+
+    child = WrappedOpenAI(_Inner()).copy(max_retries=0)
+    assert isinstance(child, WrappedOpenAI)
+
+    @crashlab.agent(name="raw-after-copy")
+    def run() -> str:
+        resp = child.chat.completions.with_raw_response.create(
+            model="m", messages=[{"role": "user", "content": "hi"}]
+        )
+        return resp.parse().choices[0].message.content
+
+    assert run() == "ok"
+    assert len(crashlab.load("last").steps) == 1
