@@ -1,11 +1,11 @@
 # Pre-launch checklist (Thu 29 Oct 17:30 IST)
 
-_Last checked: 2026-10-23 11:41 Asia/Calcutta_
+_Last checked: 2026-10-23 11:42 Asia/Calcutta_
 
 ## Must
 - [ ] CI green on origin/main (3.10–3.13) — last full green `5e8943b`; re-check at soft launch
-- [ ] README quickstart works from a clean venv with no keys (offline path /
-  `docs/demo/quickstart-offline.sh`)
+- [ ] README quickstart works from a **clean** venv with no keys (still verify clean install)
+  — helper `docs/demo/quickstart-offline.sh` imports 5 refund_bot demos offline (checked 2026-10-23)
 - [x] Flagship case study linked from README (`docs/case-studies/smolagents-text-to-sql.md`)
 - [x] Demo opens: `docs/demo/terminal.html`, GIF, and `demoscript.sh`
 - [ ] Secret-scan clean on HEAD (`./scripts/scan.sh`); no keys in history of launch commits

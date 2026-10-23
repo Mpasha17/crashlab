@@ -1,6 +1,26 @@
 # Draft launch posts — not published
 
-## X / Twitter (short)
+## X / Twitter (≤280, paste-ready)
+
+Crash-test your AI agents.
+
+crashlab: record → offline replay → diagnose → verify a typed patch.
+
+Found a real bug in huggingface/smolagents text-to-sql (empty :memory: SQLite across threads). StaticPool fix.
+
+github.com/Mpasha17/crashlab (pre-alpha, not on PyPI)
+
+## X alt (≤280, mentions REJECTED)
+
+Crash-test your AI agents.
+
+Record LLM+tool calls, replay failures offline, diagnose with evidence, verify patches (incl. REJECTED).
+
+Real bug in smolagents text-to-sql: empty :memory: SQLite across threads.
+
+github.com/Mpasha17/crashlab · pre-alpha, not on PyPI
+
+## X / Twitter (longer / thread starter)
 
 Crash-test your AI agents.
 
