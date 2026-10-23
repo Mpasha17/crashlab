@@ -40,3 +40,8 @@ CLI `crashlab verify` path (blocked on 120b TPD). Logs:
 Parent `01M5KSMJ8QRWSQ3Y4YF29NYKCP` fail ($44.10). Same fix-1.yaml from 120b diagnoser:
 manual k=3+control+regression → patched **3/3**, control **0/3**, regression **pass**.
 **VERIFIED** on Gemini flash-lite (cross-provider confirmation of the tool_description fix).
+
+
+## Offline pin
+Failure cassette exported: `tests/crashlab/test_refund_bot_01m5kq4eee.py` (20b parent
+`01M5KQ4EEE…`). Replay asserts the under-refund oracle fail without keys.

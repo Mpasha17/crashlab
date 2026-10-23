@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 12:48 Asia/Calcutta
+**Last updated:** 2026-10-23 12:49 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -55,6 +55,7 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
   - Gemini/20b html_502: **pass** (stop/apologize); reinforces LIKELY not VERIFIED on 120b loop.
   - sql 20b fault smokes (1q): schema_drift pass; spec_drop/tool_5xx/misleading fail (oracles honest).
   - Gemini sql reconfirm: **3/3**.
+  - Offline pin: `tests/crashlab/test_refund_bot_01m5kq4eee.py` (misleading_desc fail cassette).
   - Quota after: gpt-oss-20b 921/1000 req; gpt-oss-120b 699/1000 req.
 - [ ] No PyPI; no force-push; secret-scan still required on every push
 
