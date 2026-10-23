@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 12:04 Asia/Calcutta
+**Last updated:** 2026-10-23 12:07 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -14,7 +14,7 @@
 - Launch drafts: announcement, Show HN, one-pager, checklist, STATUS, Day 11 report
 - Clean-venv offline quickstart verified (`docs/demo/quickstart-offline.sh`)
 - CHANGELOG 0.0.1, CONTRIBUTING, SECURITY.md, LICENSE (Apache-2.0)
-- CI: last green on docs tip `320be73` (success); current tip `a80ec7d` — confirm CI green on soft-launch HEAD
+- CI: last green `320be73` (docs tip success); current tip `7b44726` — confirm CI green before soft launch
 - Offline suite: 450 tests (see `pytest` locally; CI 3.10–3.13)
 
 Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
@@ -52,3 +52,5 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
 - Large-n statistical superiority of any model — intervals are wide
 - That `with_raw_response` is still unintercepted — false (`create` path is recorded)
 - policy_drop fork **k=2 alone** as VERIFIED — false; k=3+control **is** VERIFIED (see case-study note)
+- misleading_desc **120b** formal verify as VERIFIED — false (INCONCLUSIVE/TPD); **20b** k=3+control **is** VERIFIED
+- html_502 fix-1 as VERIFIED — false (**LIKELY**; CIs overlap)
