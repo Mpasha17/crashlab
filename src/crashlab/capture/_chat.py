@@ -197,13 +197,25 @@ class ChatCall:
             self.pending.finish(norm, raw_response=raw, attributes=attrs)  # type: ignore[union-attr]
 
 
+def _parsed_for_record(result: Any) -> Any:
+    """OpenAI ``with_raw_response.create`` returns a LegacyAPIResponse; record the parsed
+    completion while still returning the raw object to the caller (CrewAI needs it)."""
+    parse = getattr(result, "parse", None)
+    if callable(parse) and hasattr(result, "status_code") and hasattr(result, "headers"):
+        try:
+            return parse()
+        except Exception:  # noqa: BLE001 - fall back to recording the raw object
+            return result
+    return result
+
+
 def _wrap_result(call: ChatCall, result: Any, *, is_async: bool) -> Any:
     if call.stream and call.active:
         asm = call.adapter.new_assembler()
         if is_async or (hasattr(result, "__aiter__") and not hasattr(result, "__iter__")):
             return AsyncRecordingStream(result, call, asm)
         return RecordingStream(result, call, asm)
-    call.finish(result)
+    call.finish(_parsed_for_record(result))
     return result
 
 

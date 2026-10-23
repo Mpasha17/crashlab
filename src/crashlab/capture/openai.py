@@ -56,6 +56,19 @@ def _create(inner: Any, adapter: ChatAdapter, server: str | None):
     return create
 
 
+def _raw_create(inner_completions: Any, adapter: ChatAdapter, server: str | None) -> Any:
+    """Record ``with_raw_response.create`` (CrewAI) without losing the raw return value."""
+    raw_resource = inner_completions.with_raw_response
+    is_async = _is_async(inner_completions)
+
+    def create(*args: Any, **kwargs: Any) -> Any:
+        # invoke records via normalize; _parsed_for_record unwraps LegacyAPIResponse
+        return invoke(adapter, raw_resource.create, args, kwargs, server=server, is_async=is_async)
+
+    create.__doc__ = getattr(raw_resource.create, "__doc__", None)
+    return create
+
+
 class WrappedOpenAI(WrappedClient):
     """Thin proxy around ``openai.OpenAI`` / ``openai.AsyncOpenAI`` (or compatible)."""
 
@@ -64,10 +77,16 @@ class WrappedOpenAI(WrappedClient):
         overrides: dict[str, Any] = {"_crashlab_provider": provider}
         chat = getattr(client, "chat", None)
         if chat is not None and getattr(chat, "completions", None) is not None:
-            completions = Proxy(
-                chat.completions,
-                create=_create(chat.completions, _adapter(CHAT, provider), server),
-            )
+            adapter = _adapter(CHAT, provider)
+            create = _create(chat.completions, adapter, server)
+            completions_kw: dict[str, Any] = {"create": create}
+            # CrewAI calls with_raw_response.create; bind recording onto that path too
+            if getattr(chat.completions, "with_raw_response", None) is not None:
+                completions_kw["with_raw_response"] = Proxy(
+                    chat.completions.with_raw_response,
+                    create=_raw_create(chat.completions, adapter, server),
+                )
+            completions = Proxy(chat.completions, **completions_kw)
             overrides["chat"] = Proxy(chat, completions=completions)
         responses = getattr(client, "responses", None)
         if responses is not None and callable(getattr(responses, "create", None)):

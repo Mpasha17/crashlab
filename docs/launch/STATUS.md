@@ -3,6 +3,8 @@
 **Target:** Thu 29 Oct 17:30 IST · **Now building continuously** · Not on PyPI
 
 ## Ready
+- CrewAI integration: `with_raw_response` recording fixed; 3/3 live scenarios pass
+  (`examples/integrations/crewai.md`)
 - Flagship story: smolagents empty-`:memory:` bug — case study, DRAFT_ISSUE (not filed),
   demo GIF + terminal.html + demoscript, README section
 - Seed bench + sqlv4 Groq test-split documented with CIs and caveats
