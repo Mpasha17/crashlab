@@ -4,10 +4,12 @@ Drafts only. Nothing here is published until Mahaboob says so.
 
 | file | purpose |
 |---|---|
-| [announcement.md](announcement.md) | X / LinkedIn / HN short post |
+| [STATUS.md](STATUS.md) | Live readiness — keep honest and current |
+| [checklist.md](checklist.md) | Pre-launch checklist |
+| [announcement.md](announcement.md) | X / LinkedIn short posts |
 | [show-hn.md](show-hn.md) | Show HN draft |
 | [one-pager.md](one-pager.md) | One-pager for friends / early users |
-| [checklist.md](checklist.md) | Pre-launch checklist |
+| [DAY11_REPORT.md](DAY11_REPORT.md) | Day 11 narrative for Mahaboob |
 
 Flagship evidence: [../case-studies/smolagents-text-to-sql.md](../case-studies/smolagents-text-to-sql.md),
 demo [../demo/](../demo/).

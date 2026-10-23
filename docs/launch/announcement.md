@@ -31,5 +31,7 @@ Day-11 evidence:
 - OpenAI Agents customer_service: triage answers FAQ follow-ups on a small open
   model. Two prompt patches correctly REJECTED for regression — that rejection is
   the point of verify.
+- CrewAI: no logic bug in the crew; found a crashlab recording gap
+  (`with_raw_response`) and fixed it.
 
 Pre-alpha. Feedback welcome. github.com/Mpasha17/crashlab

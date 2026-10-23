@@ -36,9 +36,10 @@ Terminal demo (no keys): [docs/demo/](docs/demo/README.md) · ![demo](docs/demo/
 was prepared locally and has **not** been filed.
 
 Also tried: OpenAI Agents SDK `examples/customer_service` (Triage Agent answers
-follow-up FAQ questions itself on a smaller open model; a scoped prompt fix was proposed
-but free-tier quotas blocked a full `VERIFIED` verdict). Integration notes:
-[examples/integrations/](examples/integrations/).
+follow-up FAQ questions itself on a smaller open model; two scoped prompt patches were
+correctly **REJECTED** by `crashlab verify` for regressing past FAQ runs — the rejection
+is the point). CrewAI: recording gap on `with_raw_response.create` fixed; 3/3 live
+scenarios pass. Integration notes: [examples/integrations/](examples/integrations/).
 
 ## Benchmark headline (seed, small n)
 
@@ -148,7 +149,8 @@ Groq gpt-oss-120b sqlv4 (after empty-reply + tool_use_failed nudges): LLM label 
 Not yet: a live HTML viewer server. Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response (same content, different chunk boundaries).
 Also not intercepted yet: Anthropic `client.beta.messages`, OpenAI
-`chat.completions.stream()` / `responses.stream()` helpers, `with_raw_response` calls.
+`chat.completions.stream()` / `responses.stream()` helpers. OpenAI
+`chat.completions.with_raw_response.create` **is** recorded (CrewAI path).
 OpenAI streams only report token usage if you pass `stream_options={"include_usage": True}`.
 
 ## Quickstart

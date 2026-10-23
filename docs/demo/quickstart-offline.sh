@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
-# Offline README quickstart path — no API keys. Run from a venv with crashlab installed.
+# Offline README quickstart path — no API keys. Run from repo root in a venv with
+# crashlab installed (`pip install -e ".[openai]"`).
 set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT"
 export CRASHLAB_DIR="${CRASHLAB_DIR:-$(mktemp -d /tmp/crashlab-demo.XXXX)}"
 echo "CRASHLAB_DIR=$CRASHLAB_DIR"
-python - <<'PY'
+python3 - <<'PY'
 import crashlab
-from openai import OpenAI
-# use the built-in refund_bot cassette path if present, else a minimal record
-print("crashlab", crashlab.__version__ if hasattr(crashlab,"__version__") else "ok")
-print("commands: crashlab ls | show | check | replay | diagnose | fix | verify | export-test | report --html")
-print("see README Quickstart for the no-key path using examples/refund_bot")
+print("crashlab", getattr(crashlab, "__version__", "ok"))
 PY
-crashlab --help | head -20
+shopt -s nullglob
+demos=(examples/refund_bot/demo/*.jsonl)
+if ((${#demos[@]})); then
+  for f in "${demos[@]}"; do
+    crashlab import "$f"
+  done
+  crashlab ls
+  echo "next: crashlab show <id> · crashlab check --all · crashlab replay <id>"
+else
+  echo "no examples/refund_bot/demo/*.jsonl found; see README Quickstart"
+  crashlab --help | head -20
+fi

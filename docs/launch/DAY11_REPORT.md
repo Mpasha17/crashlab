@@ -1,6 +1,6 @@
 # Day 11 report (for Mahaboob)
 
-**Window:** 2026-10-22 → 2026-10-23 ~11:25 IST (continuing toward 14:00)  
+**Window:** 2026-10-22 → 2026-10-23 ~11:42 IST (continuing toward 14:00)  
 **HEAD at write time:** see `git log -1` on main
 
 ## Projects tried
@@ -39,8 +39,8 @@
 - **`with_raw_response.create` recording (CrewAI)**
 
 ## Launch-ready vs open
-**Ready:** flagship story + demo + drafts in `docs/launch/` + CHANGELOG + SECURITY + integrations  
-**Open:** Mahaboob review of copy; decide on filing smolagents issue; no openai-agents issue until non-regressing fix; CI queue clearing; no PyPI
+**Ready:** flagship story + demo + drafts in `docs/launch/` + CHANGELOG + SECURITY + integrations + CrewAI case study  
+**Open:** Mahaboob review of copy; decide on filing smolagents issue; no openai-agents issue until non-regressing fix; confirm CI green on soft-launch HEAD; no PyPI
 
 ## Case study / draft paths
 - `docs/case-studies/smolagents-text-to-sql.md` + `smolagents-DRAFT_ISSUE.md`

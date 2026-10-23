@@ -29,8 +29,13 @@ are not counted as fails.
   ok 6/6 triggered (CI 61–100%); heuristic 2/6. Small n — see bench/README.md.
 - Real bug in smolagents text-to-sql (empty `:memory:` DB across threads). Fix
   verified with a no-LLM A/B. Upstream issue not filed yet.
-- Groq sql-analyst clean smoke: 3/3 pass after recovering gpt-oss `failed_generation` answers.
+- OpenAI Agents customer_service: genuine triage follow-up failure on a smaller open
+  model; two prompt patches correctly **REJECTED** (regression / no gain).
+- CrewAI path: crashlab now records `with_raw_response.create` (was silently empty);
+  3/3 live scenarios pass after the fix.
+- Groq sql-analyst clean smoke: 3/3 pass after recovering gpt-oss `failed_generation`
+  answers (sqlv4 test-split still documented separately with CIs).
 
-**Status.** Pre-alpha. Not on PyPI. Apache? check LICENSE. Works on Python 3.10–3.13.
+**Status.** Pre-alpha (0.0.1). Not on PyPI. Apache-2.0. Works on Python 3.10–3.13.
 
 **Links.** github.com/Mpasha17/crashlab · docs/demo/ · docs/case-studies/

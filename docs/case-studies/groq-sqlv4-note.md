@@ -14,3 +14,11 @@ invalid Groq numbers (empty-reply bug).
 
 Full table: `bench/results/seed_groq-gpt-oss-120b-sqlv4.md`. Replaces sqlv1–v3 as the
 Groq test-split reference.
+
+## After `failed_generation` recovery (`b31ca7e`)
+
+A separate **clean smoke** on the same agent (no injected faults) passed **3/3** on
+2026-10-23 ~10:57 IST Asia/Calcutta. That does not rewrite the sqlv4 test-split table
+above (still 1/3 clean during the 15/15 run, before the recovery was in-process); it
+means the denominator agent is healthy again for further work. See
+`docs/launch/STATUS.md`.
