@@ -45,13 +45,13 @@ Wrap your client. Decorate your tools. When a run fails, crashlab:
 4. Verifies the fix with repeated live forks + regression on past good runs
 5. Exports a pytest regression test
 
-Day-11 evidence:
-- smolagents text-to-sql: empty `:memory:` SQLite across threads. StaticPool fix;
-  no-LLM A/B. Flagship.
-- OpenAI Agents customer_service: triage answers FAQ follow-ups on a small open
-  model. Two prompt patches correctly REJECTED for regression — that rejection is
-  the point of verify.
-- CrewAI: no logic bug in the crew; found a crashlab recording gap
-  (`with_raw_response`) and fixed it.
+Evidence (honest labels):
+- **Flagship:** smolagents text-to-sql empty `:memory:` across threads. StaticPool fix;
+  no-LLM A/B.
+- OpenAI Agents customer_service: triage answers FAQ follow-ups on a small open model.
+  Two prompt patches correctly **REJECTED** for regression — that rejection is the point.
+- refund-bot demos: policy_drop **VERIFIED** (Groq 120b/20b + Gemini); misleading_desc
+  **VERIFIED** (20b + Gemini); html_502 **LIKELY** only. Small n.
+- CrewAI: crashlab recording gap (`with_raw_response`) found and fixed; 3/3 pass.
 
-Pre-alpha. Feedback welcome. github.com/Mpasha17/crashlab
+Pre-alpha. Not on PyPI. Feedback welcome. github.com/Mpasha17/crashlab

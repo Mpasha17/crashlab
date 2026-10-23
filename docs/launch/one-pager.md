@@ -27,21 +27,19 @@ are not counted as fails.
 **Evidence so far.**
 - Seed fault-injection bench on a held-out SQL agent (Gemini flash-lite): LLM label
   ok 6/6 triggered (CI 61–100%); heuristic 2/6. Small n — see bench/README.md.
-- Real bug in smolagents text-to-sql (empty `:memory:` DB across threads). Fix
-  verified with a no-LLM A/B. Upstream issue not filed yet.
+- **Flagship:** real bug in smolagents text-to-sql (empty `:memory:` DB across threads).
+  StaticPool fix verified with a no-LLM A/B. Upstream issue not filed yet.
 - OpenAI Agents customer_service: genuine triage follow-up failure on a smaller open
   model; two prompt patches correctly **REJECTED** (regression / no gain).
-- CrewAI path: crashlab now records `with_raw_response.create` (was silently empty);
-  3/3 live scenarios pass after the fix.
-- Groq sql-analyst clean smoke: 3/3 pass after recovering gpt-oss `failed_generation`
-  answers (sqlv4 test-split still documented separately with CIs).
-- refund-bot demo (Groq): policy_drop restore-policy patch **VERIFIED** 3/3 vs
-  control 0/3; misleading_desc tool-desc patch **VERIFIED** on gpt-oss-20b 3/3 vs
-  0/3 (120b verify INCONCLUSIVE on TPD); html_502 no-retry patch **LIKELY** 3/3 vs
-  control 1/3 (CIs overlap — not VERIFIED).
-- Gemini flash-lite: policy_drop / misleading_desc restores also **VERIFIED**
-  (3/3 vs control 0/3) in Worker C live notes — small n; see case-studies.
+- CrewAI path: crashlab now records `with_raw_response.create`; 3/3 live scenarios pass.
+- refund-bot **policy_drop** restore-policy: **VERIFIED** on Groq gpt-oss-120b, gpt-oss-20b,
+  and Gemini flash-lite (3/3 vs control 0/3 each).
+- refund-bot **misleading_desc**: **VERIFIED** on Groq 20b + Gemini flash-lite; Groq 120b
+  formal verify **INCONCLUSIVE** (TPD).
+- refund-bot **html_502** no-retry patch: **LIKELY** only (3/3 vs control 1/3 — not VERIFIED).
+- Groq sql-analyst clean smoke: 3/3 after `failed_generation` / `output_parse_failed` recovery
+  (sqlv4 test-split still documented separately with CIs).
 
 **Status.** Pre-alpha (0.0.1). Not on PyPI. Apache-2.0. Works on Python 3.10–3.13.
 
-**Links.** github.com/Mpasha17/crashlab · docs/demo/ · docs/case-studies/
+**Links.** github.com/Mpasha17/crashlab · docs/demo/ · docs/case-studies/ · docs/launch/REVIEW.md

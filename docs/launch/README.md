@@ -4,6 +4,7 @@ Drafts only. Nothing here is published until Mahaboob says so.
 
 | file | purpose |
 |---|---|
+| [REVIEW.md](REVIEW.md) | **Start here** — decisions for Mahaboob |
 | [STATUS.md](STATUS.md) | Live readiness — keep honest and current |
 | [checklist.md](checklist.md) | Pre-launch checklist |
 | [announcement.md](announcement.md) | X / LinkedIn short posts |
@@ -12,4 +13,4 @@ Drafts only. Nothing here is published until Mahaboob says so.
 | [DAY11_REPORT.md](DAY11_REPORT.md) | Day 11 narrative for Mahaboob |
 
 Flagship evidence: [../case-studies/smolagents-text-to-sql.md](../case-studies/smolagents-text-to-sql.md),
-demo [../demo/](../demo/).
+demo [../demo/](../demo/). Scoreboard: [../case-studies/worker-c-live-scoreboard.md](../case-studies/worker-c-live-scoreboard.md).
