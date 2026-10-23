@@ -90,9 +90,14 @@ class WrappedOpenAI(WrappedClient):
             overrides["chat"] = Proxy(chat, completions=completions)
         responses = getattr(client, "responses", None)
         if responses is not None and callable(getattr(responses, "create", None)):
-            overrides["responses"] = Proxy(
-                responses, create=_create(responses, _adapter(RESPONSES, provider), server)
-            )
+            resp_adapter = _adapter(RESPONSES, provider)
+            resp_kw: dict[str, Any] = {"create": _create(responses, resp_adapter, server)}
+            if getattr(responses, "with_raw_response", None) is not None:
+                resp_kw["with_raw_response"] = Proxy(
+                    responses.with_raw_response,
+                    create=_raw_create(responses, resp_adapter, server),
+                )
+            overrides["responses"] = Proxy(responses, **resp_kw)
         super().__init__(client, **overrides)
 
     def _rewrap(self, client: Any) -> WrappedOpenAI:

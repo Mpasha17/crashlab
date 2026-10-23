@@ -6,7 +6,7 @@ First public-shaped cut. Not on PyPI yet.
 
 ### Record / replay
 - `crashlab.wrap` for OpenAI, Anthropic, LiteLLM (sync + async + streaming assembled)
-- OpenAI `chat.completions.with_raw_response.create` recorded (CrewAI path)
+- OpenAI `chat.completions.with_raw_response.create` and `responses.with_raw_response.create` recorded (CrewAI path)
 - `@crashlab.agent`, `@crashlab.tool`, `@crashlab.check`
 - Strict offline replay and fork-at-step with typed patches
 - Thread fallback: unbound worker threads attach to the only live run (smolagents CodeAgent)
@@ -28,6 +28,7 @@ First public-shaped cut. Not on PyPI yet.
 - `scripts/check.sh` / `scripts/scan.sh` for local pre-push (key-shaped suffixes only)
 - SECURITY.md + CONTRIBUTING secret-scan notes
 - `py.typed` shipped; sdist includes docs/, CHANGELOG, scripts/
+- Redactor value patterns include Groq `gsk_` and DashScope-shaped `AQ.Ab8…`
 
 ### Evidence (Day 10–11)
 - Post-sqlv4 Groq clean smoke: **3/3 pass** after failed_generation recovery

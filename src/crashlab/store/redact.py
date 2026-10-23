@@ -32,6 +32,8 @@ DEFAULT_VALUE_PATTERNS: list[str] = [
     r"\bAIza[0-9A-Za-z_\-]{35}\b",  # Google API key
     r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b",  # Slack
     r"\bhf_[A-Za-z0-9]{20,}\b",  # Hugging Face
+    r"\bgsk_[A-Za-z0-9]{20,}\b",  # Groq
+    r"\bAQ\.Ab8[A-Za-z0-9_\-]{8,}\b",  # Alibaba / DashScope-shaped
 ]
 
 Hook = Callable[[str], str]

@@ -15,6 +15,8 @@ SECRETS = {
     "bearer": "Bearer eyJhbGciOiJIUzI1NiJ9.CCCCCCCCCCCC",
     "github": "ghp_DDDDDDDDDDDDDDDDDDDDDDDDDD",
     "aws": "AKIAEEEEEEEEEEEEEEEE",
+    "groq": "gsk_" + "F" * 30,
+    "dashscope": "AQ.Ab8" + "G" * 16,
 }
 
 
@@ -134,3 +136,13 @@ def test_error_messages_redacted(crashlab_dir):
     assert run.steps[0].error.status_code == 401
     assert SECRETS["openai"] not in json.dumps(run.model_dump(mode="json"))
     _assert_clean(crashlab_dir)
+
+
+def test_groq_and_dashscope_shaped_values_redacted_but_prefix_names_kept():
+    r = Redactor()
+    assert SECRETS["groq"] not in r.redact_str(f"key={SECRETS['groq']}")
+    assert SECRETS["dashscope"] not in r.redact_str(f"key={SECRETS['dashscope']}")
+    # docs that only name the prefix must stay readable
+    assert r.redact_str("look for gsk_ and AQ.Ab8 in scan.sh") == (
+        "look for gsk_ and AQ.Ab8 in scan.sh"
+    )

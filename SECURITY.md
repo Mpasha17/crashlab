@@ -4,9 +4,9 @@ crashlab is a local-first debugging tool. Treat recorded runs as sensitive.
 
 ## Secrets
 - API keys and auth headers are redacted before anything is written under `.crashlab/`.
-- Never commit `.crashlab/`, live stores, or env files. The repo's `scan.sh` (or
-  equivalent) should be run before every push; look for `AQ.Ab8`, `gsk_`, and full
-  key values.
+- Never commit `.crashlab/`, live stores, or env files. Run `scripts/scan.sh` (or an equivalent) before every push. It flags real
+  `AQ.Ab8…` / `gsk_…` *values*; naming those prefixes in docs is fine. Never commit
+  full key values.
 - Do not paste keys into issues, PRs, case studies, or demo transcripts.
 
 ## Supply chain
