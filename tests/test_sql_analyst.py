@@ -139,8 +139,18 @@ def test_an_empty_reply_gets_one_nudge():
     assert sql.NUDGE in str(run.steps[-2].request["messages"][-1])
 
 
-def test_a_groq_tool_use_failed_gets_one_nudge():
-    """gpt-oss on Groq sometimes invents a tool name; nudge once for final_answer."""
+def test_a_groq_tool_use_failed_recovers_the_embedded_answer():
+    """gpt-oss on Groq sometimes invents a tool name but embeds the answer in the 400."""
+    payload = '{"name": "assistant<|channel|>commentary", "arguments": {"answer": "198.99"}}'
+    boom = RuntimeError(
+        "Error code: 400 - {'error': {'code': 'tool_use_failed', "
+        f"'failed_generation': {payload!r}" + "}}"
+    )
+    run = _run([tool_call_response(1, "run_query", {"sql": GOOD_SQL}), boom])
+    assert run.outcome == "pass" and run.output == "198.99"
+
+
+def test_a_groq_tool_use_failed_without_answer_gets_one_nudge():
     boom = RuntimeError(
         "Error code: 400 - tool_use_failed: attempted to call tool "
         "'assistant<|channel|>commentary' which was not in request.tools"

@@ -62,6 +62,31 @@ QUESTIONS: dict[str, str] = {
 }
 
 NUDGE = "Please call final_answer with your answer."
+
+
+def _answer_from_failed_generation(text: str) -> str | None:
+    """If Groq's tool_use_failed payload embeds {"arguments": {"answer": ...}}, use it."""
+    m = re.search(r"failed_generation['\"]?\s*[:=]\s*['\"](\{.*\})['\"]", text)
+    if not m:
+        return None
+    raw = m.group(1)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            data = json.loads(bytes(raw, "utf-8").decode("unicode_escape"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+    args = data.get("arguments") or {}
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except json.JSONDecodeError:
+            return None
+    ans = args.get("answer") if isinstance(args, dict) else None
+    return str(ans) if ans is not None else None
+
+
 HTML_502 = """<!DOCTYPE html>
 <html><head><title>502 Bad Gateway</title></head>
 <body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.25.3</center></body>
@@ -270,10 +295,14 @@ def run_agent(
                 )
             except Exception as exc:  # noqa: BLE001 - recover from a known Groq gpt-oss quirk
                 # gpt-oss on Groq sometimes emits a tool call named
-                # "assistant<|channel|>commentary" with the real answer in arguments;
-                # treat it as an empty turn and nudge once for final_answer.
+                # "assistant<|channel|>commentary" with the real answer in arguments.
                 text = f"{type(exc).__name__}: {exc}"
-                if "tool_use_failed" in text and not nudged:
+                if "tool_use_failed" not in text:
+                    raise
+                recovered = _answer_from_failed_generation(text)
+                if recovered is not None:
+                    return recovered
+                if not nudged:
                     nudged = True
                     messages.append({"role": "user", "content": NUDGE})
                     continue
