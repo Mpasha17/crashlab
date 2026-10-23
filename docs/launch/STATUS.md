@@ -1,3 +1,5 @@
+**Last updated:** 2026-10-23 11:25 Asia/Calcutta
+
 # Launch readiness (updated live)
 
 **Target:** Thu 29 Oct 17:30 IST · **Now building continuously** · Not on PyPI
