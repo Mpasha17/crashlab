@@ -354,6 +354,8 @@ The tests use fake clients and the real SDKs over mocked HTTP transports (LiteLL
 `mock_response`), so they need no network access and no API key. Tests for SDKs that are
 not installed are skipped.
 
+Security notes: [SECURITY.md](SECURITY.md).
+
 ## License
 
 Apache-2.0
