@@ -173,3 +173,34 @@ async def test_async_with_raw_response_create_records(crashlab_dir):
     assert len(rec.steps) == 1 and rec.steps[0].operation == "chat"
     assert rec.steps[0].response and rec.steps[0].response.get("messages")
     assert inner.chat.completions.calls == 1
+
+
+def test_with_options_rewrap_keeps_raw_response_recording(crashlab_dir):
+    """``client.with_options(...)`` must return a wrap that still records raw create."""
+
+    class _Inner:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=_Completions())
+            self.base_url = "https://example.test/v1"
+
+        def with_options(self, **kwargs):
+            other = _Inner()
+            other._opts = kwargs
+            return other
+
+    inner = _Inner()
+    wrapped = WrappedOpenAI(inner)
+    child = wrapped.with_options(timeout=30)
+    assert isinstance(child, WrappedOpenAI)
+    assert child is not wrapped
+
+    @crashlab.agent(name="raw-after-options")
+    def run() -> str:
+        resp = child.chat.completions.with_raw_response.create(
+            model="m", messages=[{"role": "user", "content": "hi"}]
+        )
+        return resp.parse().choices[0].message.content
+
+    assert run() == "ok"
+    rec = crashlab.load("last")
+    assert len(rec.steps) == 1 and rec.steps[0].operation == "chat"

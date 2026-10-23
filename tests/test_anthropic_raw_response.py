@@ -129,3 +129,30 @@ async def test_async_anthropic_with_raw_response_records(crashlab_dir):
     assert len(rec.steps) == 1
     assert rec.steps[0].attributes.get("crashlab.api") == "anthropic.messages"
     assert inner.messages.calls == 1
+
+
+def test_anthropic_with_options_rewrap_keeps_raw_recording(crashlab_dir):
+    class _Inner:
+        def __init__(self):
+            self.messages = _Messages()
+            self.base_url = "https://api.anthropic.com"
+
+        def with_options(self, **kwargs):
+            other = _Inner()
+            other._opts = kwargs
+            return other
+
+    wrapped = WrappedAnthropic(_Inner())
+    child = wrapped.with_options(timeout=10)
+
+    @crashlab.agent(name="anthropic-raw-opts")
+    def run() -> str:
+        resp = child.messages.with_raw_response.create(
+            model="m",
+            max_tokens=16,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        return resp.parse().content[0].text
+
+    assert run() == "ok"
+    assert crashlab.load("last").steps[0].attributes.get("crashlab.api") == "anthropic.messages"
