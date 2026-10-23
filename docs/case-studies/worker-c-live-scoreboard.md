@@ -47,3 +47,8 @@ Session ~11:39–14:00 IST. Keys via sourced env only. Live store not committed.
 
 ## Commits (Worker C)
 Docs + sql_analyst fix only; `scripts/scan.sh` green; no PyPI / force-push / upstream issues.
+
+## Offline cassettes (tests/crashlab/)
+- `test_refund_bot_01m5kq4eee` — misleading_desc fail (20b)
+- `test_refund_bot_01m5ksfg22` — policy_drop fail (20b)
+- Gemini fail parents also exportable same session
