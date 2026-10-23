@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 11:41 Asia/Calcutta
+**Last updated:** 2026-10-23 11:42 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -13,7 +13,7 @@
 - OpenAI Agents triage failure documented; both prompt fixes **REJECTED** (honest)
 - Launch drafts: announcement, Show HN, one-pager, checklist, STATUS, Day 11 report
 - CHANGELOG 0.0.1, CONTRIBUTING, SECURITY.md, LICENSE (Apache-2.0)
-- CI: last fully green on `5e8943b`; HEAD `3290013` (docs polish) pushed; re-check CI on soft-launch HEAD
+- CI: last fully green on `5e8943b`; docs HEAD `9c6d234`; packaging/docs CI runs in flight — confirm green before soft launch
   (packaging/sdist) was in flight at last STATUS stamp — re-check before soft launch
 - Offline suite: 450 tests (see `pytest` locally; CI 3.10–3.13)
 
