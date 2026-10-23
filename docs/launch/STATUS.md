@@ -13,7 +13,7 @@
 - OpenAI Agents triage failure documented; both prompt fixes **REJECTED** (honest)
 - Launch drafts: announcement, Show HN, one-pager, checklist, STATUS, Day 11 report
 - CHANGELOG 0.0.1, CONTRIBUTING, SECURITY.md, LICENSE (Apache-2.0)
-- CI: last fully green on `5e8943b`; later pushes canceled to free runners; `2ec9ae4`
+- CI: last fully green on `5e8943b`; HEAD `3290013` (docs polish) pushed; re-check CI on soft-launch HEAD
   (packaging/sdist) was in flight at last STATUS stamp — re-check before soft launch
 - Offline suite: 450 tests (see `pytest` locally; CI 3.10–3.13)
 
