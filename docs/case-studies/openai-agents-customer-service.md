@@ -6,7 +6,7 @@ Oracles from the example's own routines (FAQ grounded in the lookup tool; seat u
 use only customer-supplied details).
 
 **Status:** Failure is reproducible on `qwen/qwen3.8-27b` (0/9 unpatched). A scoped
-system-prompt fix sometimes works; a full `VERIFIED` (k=5) has been quota-limited.
+system-prompt fix sometimes works; the general triage rewrite was **REJECTED** for regressing a bags FAQ run; a narrower wifi-only fix is next.
 **No upstream issue filed.** Draft: [openai-agents-DRAFT_ISSUE.md](openai-agents-DRAFT_ISSUE.md).
 
 ## Failure
@@ -30,3 +30,20 @@ were correctly **REJECTED** by regression (they polluted the FAQ agent's prompt)
 - `when` on `SystemPromptPatch` for multi-agent shared clients
 - verify `INCONCLUSIVE` when an arm has fewer than min(2,k) usable trials
 - note: close `AsyncOpenAI` after each `asyncio.run()` in verify trials
+
+## Verification result (2026-10-23, Groq `qwen/qwen3.8-27b`)
+
+Hand-written scoped triage rewrite (`fix-triage.yaml`), k=5 + 5 controls + 4 regression:
+
+| arm | result |
+|---|---|
+| patched | **2/5** pass (CI 12–77%) |
+| control | **0/5** pass |
+| regression | 3/4 pass, **1 fail** (bags FAQ run `01M5H2P0S6`) |
+| **verdict** | **REJECTED** (regression) |
+| cost | 83,158 tokens · $0 on free tier |
+
+The patch helps the wifi follow-up sometimes, but the stronger "never answer yourself"
+rule made a previously-passing baggage question fail. A narrower wifi-only append
+(`crashlab-fix-v2.yaml`) is the next candidate.
+

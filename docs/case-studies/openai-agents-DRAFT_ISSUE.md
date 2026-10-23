@@ -51,6 +51,5 @@ keywords would fix that.
 ### Status of verification
 
 A scoped crashlab patch of the triage prompt was proposed. Full `VERIFIED` (k=5 +
-controls + regression) was blocked by free-tier quotas on earlier attempts; a fresh
-verify is in progress. Do not file until a clean VERIFIED (or honest LIKELY) exists.
+controls + regression) was blocked by free-tier quotas on earlier attempts; the general triage rewrite was **REJECTED** (k=5): 2/5 patched vs 0/5 control, but 1/4 regression runs failed (bags). Do not file until a non-regressing fix verifies.
 
