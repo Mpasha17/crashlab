@@ -9,7 +9,7 @@ Upstream issues/PRs are **not** filed from these notes unless Mahaboob decides t
 | [OpenAI Agents SDK triage follow-up](openai-agents-customer-service.md) | failure real; both prompt fixes **REJECTED** (no routing gain + regression) | [DRAFT](openai-agents-DRAFT_ISSUE.md) |
 | [CrewAI `with_raw_response` recording](crewai-integration.md) | crashlab gap fixed; 3/3 live scenarios pass | — |
 | [Groq sqlv4 test-split note](groq-sqlv4-note.md) | bench rerun, not an upstream bug | — |
-| [refund-bot policy_drop fork](refund-policy-fork-note.md) | patched 2/2 pass, control 2/2 fail (k=2 anecdote) | — |
+| [refund-bot policy_drop fork](refund-policy-fork-note.md) | **VERIFIED** patched 3/3 control 0/3 (Groq); k=2 was anecdote | — |
 
 Demo for the flagship smolagents finding: [../demo/](../demo/).
 
