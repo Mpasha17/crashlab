@@ -207,32 +207,39 @@ def test_a_groq_output_parse_failed_without_blob_gets_one_nudge():
     assert run.outcome == "pass"
     assert sql.NUDGE in str(run.steps[-2].request["messages"][-1])
 
-
 def test_answer_from_failed_generation_handles_live_error_shapes():
     """Exact Groq/OpenAI-SDK message shapes seen on 2026-10-23 Worker C smokes."""
+    prose_num = "We have revenue 198.99. Need to output final answer with number 2 decimals."
+    prose_name = (
+        "We have the result: Germany revenue 363.5. "
+        'Need to output final answer with number 2 decimals. So "Germany" and revenue 363.50.'
+    )
+    json_payload = (
+        '{"name": "assistant<|channel|>commentary", "arguments": {"answer": "493.50"}}'
+    )
     samples = [
         (
-            "BadRequestError: Error code: 400 - {'error': {'message': "Parsing failed. "
-            "The model generated output that could not be parsed. Please adjust your prompt. "
-            "See 'failed_generation' for more details.", 'type': 'invalid_request_error', "
+            "BadRequestError: Error code: 400 - {'error': {"
+            "'message': "Parsing failed.", 'type': 'invalid_request_error', "
             "'code': 'output_parse_failed', 'failed_generation': "
-            "'We have revenue 198.99. Need to output final answer with number 2 decimals.'}}",
-            "198.99",
+            + repr(prose_num)
+            + "}}"
         ),
         (
-            "BadRequestError: Error code: 400 - {'error': {'code': 'output_parse_failed', "
-            "'failed_generation': 'We have the result: Germany revenue 363.5. "
-            "Need to output final answer with number 2 decimals. So "Germany" and revenue 363.50.'}}",
-            "Germany",
+            "BadRequestError: Error code: 400 - {'error': {"
+            "'code': 'output_parse_failed', 'failed_generation': "
+            + repr(prose_name)
+            + "}}"
         ),
         (
             "Error code: 400 - {'error': {'code': 'tool_use_failed', "
-            "'failed_generation': '{"name": "assistant<|channel|>commentary", "
-            ""arguments": {"answer": "493.50"}}'}}",
-            "493.50",
+            "'failed_generation': "
+            + repr(json_payload)
+            + "}}"
         ),
     ]
-    for text, needle in samples:
+    needles = ["198.99", "Germany", "493.50"]
+    for text, needle in zip(samples, needles, strict=True):
         got = sql._answer_from_failed_generation(text)
         assert got is not None and needle.lower() in got.lower(), (needle, got)
 
