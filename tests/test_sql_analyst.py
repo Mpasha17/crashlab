@@ -164,3 +164,46 @@ def test_a_groq_tool_use_failed_without_answer_gets_one_nudge():
     )
     assert run.outcome == "pass"
     assert sql.NUDGE in str(run.steps[-2].request["messages"][-1])
+
+def test_a_groq_output_parse_failed_recovers_prose_answer():
+    """gpt-oss-20b on Groq sometimes 400s with output_parse_failed; answer is in prose."""
+    prose = "We have revenue 198.99. Need to output final answer with number 2 decimals."
+    boom = RuntimeError(
+        "Error code: 400 - {'error': {'code': 'output_parse_failed', "
+        "'failed_generation': %r}}" % prose
+    )
+    run = _run([tool_call_response(1, "run_query", {"sql": GOOD_SQL}), boom])
+    assert run.outcome == "pass"
+    assert "198.99" in (run.output or "")
+
+
+def test_a_groq_output_parse_failed_recovers_quoted_name():
+    q = "Which country generated the most revenue in Q1 2026 (January to March)?"
+    prose = 'We have the result: Germany revenue 363.5. So "Germany" and revenue 363.50.'
+    boom = RuntimeError(
+        "Error code: 400 - {'error': {'code': 'output_parse_failed', "
+        "'failed_generation': %r}}" % prose
+    )
+    run = _run(
+        [tool_call_response(1, "run_query", {"sql": sql.QUESTIONS[q]}), boom],
+        question=q,
+    )
+    assert run.outcome == "pass"
+    assert "germany" in (run.output or "").lower()
+
+
+def test_a_groq_output_parse_failed_without_blob_gets_one_nudge():
+    boom = RuntimeError(
+        "Error code: 400 - {'error': {'code': 'output_parse_failed', "
+        "'message': 'Parsing failed.'}}"
+    )
+    run = _run(
+        [
+            tool_call_response(1, "run_query", {"sql": GOOD_SQL}),
+            boom,
+            tool_call_response(3, "final_answer", {"answer": "198.99"}),
+        ]
+    )
+    assert run.outcome == "pass"
+    assert sql.NUDGE in str(run.steps[-2].request["messages"][-1])
+

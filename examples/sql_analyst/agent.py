@@ -64,12 +64,25 @@ QUESTIONS: dict[str, str] = {
 NUDGE = "Please call final_answer with your answer."
 
 
-def _answer_from_failed_generation(text: str) -> str | None:
-    """If Groq's tool_use_failed payload embeds {"arguments": {"answer": ...}}, use it."""
-    m = re.search(r"failed_generation['\"]?\s*[:=]\s*['\"](\{.*\})['\"]", text)
-    if not m:
-        return None
-    raw = m.group(1)
+def _failed_generation_blob(text: str) -> str | None:
+    """Pull Groq's ``failed_generation`` string out of an exception message / repr."""
+    m = re.search(
+        r"failed_generation['\"]?\s*[:=]\s*(['\"])(.*?)\1",
+        text,
+        flags=re.DOTALL,
+    )
+    if m:
+        raw = m.group(2)
+        try:
+            return bytes(raw, "utf-8").decode("unicode_escape")
+        except UnicodeDecodeError:
+            return raw
+    m = re.search(r"failed_generation['\"]?\s*[:=]\s*(\{.*\})", text)
+    return m.group(1) if m else None
+
+
+def _answer_from_json_blob(raw: str) -> str | None:
+    """If ``raw`` is a tool-call JSON with ``arguments.answer``, return that answer."""
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -77,6 +90,8 @@ def _answer_from_failed_generation(text: str) -> str | None:
             data = json.loads(bytes(raw, "utf-8").decode("unicode_escape"))
         except (json.JSONDecodeError, UnicodeDecodeError):
             return None
+    if not isinstance(data, dict):
+        return None
     args = data.get("arguments") or {}
     if isinstance(args, str):
         try:
@@ -85,6 +100,19 @@ def _answer_from_failed_generation(text: str) -> str | None:
             return None
     ans = args.get("answer") if isinstance(args, dict) else None
     return str(ans) if ans is not None else None
+
+
+def _answer_from_failed_generation(text: str) -> str | None:
+    """Recover an answer from Groq ``failed_generation`` payloads.
+
+    Handles ``tool_use_failed`` (JSON with ``arguments.answer``) and
+    ``output_parse_failed`` (free-form prose that still contains the answer).
+    Oracles accept ``run.output`` when ``final_answer`` was never called.
+    """
+    blob = _failed_generation_blob(text)
+    if blob is None:
+        return None
+    return _answer_from_json_blob(blob) or (blob.strip() or None)
 
 
 HTML_502 = """<!DOCTYPE html>
@@ -293,11 +321,11 @@ def run_agent(
                 resp = client.chat.completions.create(
                     model=model, messages=messages, tools=tools, temperature=0
                 )
-            except Exception as exc:  # noqa: BLE001 - recover from a known Groq gpt-oss quirk
-                # gpt-oss on Groq sometimes emits a tool call named
-                # "assistant<|channel|>commentary" with the real answer in arguments.
+            except Exception as exc:  # noqa: BLE001 - recover from known Groq gpt-oss quirks
+                # tool_use_failed: invented tool name; answer often in arguments JSON.
+                # output_parse_failed: free-form failed_generation still holds the answer.
                 text = f"{type(exc).__name__}: {exc}"
-                if "tool_use_failed" not in text:
+                if "tool_use_failed" not in text and "output_parse_failed" not in text:
                     raise
                 recovered = _answer_from_failed_generation(text)
                 if recovered is not None:
