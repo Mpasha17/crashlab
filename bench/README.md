@@ -166,3 +166,4 @@ Caveats:
 - Small n; read the intervals. This run **replaces** sqlv1/sqlv2/sqlv3 as the Groq
   test-split reference (those were invalid or empty).
 
+**Update 2026-10-23 ~10:57 IST:** a post-sqlv4 clean smoke on the same model with `b31ca7e` (recover answer from Groq `failed_generation`) got **3/3 pass**. The sqlv4 clean 1/3 row is therefore a lower bound caused by a now-fixed agent quirk, not the diagnoser.

@@ -15,8 +15,8 @@
 - [ ] Mahaboob review of `docs/launch/*` copy
 - [ ] Decide whether to file smolagents DRAFT_ISSUE upstream
 - [ ] Do **not** file openai-agents issue until a non-regressing fix exists
-- [ ] Optional: re-run 2–3 Groq sql-analyst **clean** episodes with tool_use_failed nudge
-  to thicken the false-alarm denominator (currently n=1)
+- [x] Groq clean smoke 2026-10-23 10:57 IST: **3/3 pass** after failed_generation recovery
+  (`b31ca7e`). sqlv4 clean 1/3 was pre-fix; denominator can be treated as healthy.
 - [ ] No PyPI; no force-push; secret-scan still required on every push
 
 ## Do not claim
