@@ -156,3 +156,29 @@ def test_anthropic_with_options_rewrap_keeps_raw_recording(crashlab_dir):
 
     assert run() == "ok"
     assert crashlab.load("last").steps[0].attributes.get("crashlab.api") == "anthropic.messages"
+
+
+def test_anthropic_copy_rewrap_keeps_raw_recording(crashlab_dir):
+    class _Inner:
+        def __init__(self):
+            self.messages = _Messages()
+            self.base_url = "https://api.anthropic.com"
+
+        def copy(self, **kwargs):
+            other = _Inner()
+            other._opts = kwargs
+            return other
+
+    child = WrappedAnthropic(_Inner()).copy(max_retries=0)
+
+    @crashlab.agent(name="anthropic-raw-copy")
+    def run() -> str:
+        resp = child.messages.with_raw_response.create(
+            model="m",
+            max_tokens=16,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        return resp.parse().content[0].text
+
+    assert run() == "ok"
+    assert crashlab.load("last").steps[0].attributes.get("crashlab.api") == "anthropic.messages"
