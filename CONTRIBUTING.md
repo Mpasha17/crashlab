@@ -12,6 +12,7 @@ Please do **not** commit API keys, `.crashlab/` live stores, or `crashlab-live/`
 Do not publish to PyPI from a fork.
 
 Dev setup: `python -m venv .venv && .venv/bin/pip install -e ".[dev,openai,anthropic,litellm]"`.
+Pre-push: `./scripts/check.sh` (ruff + offline pytest + secret-scan).
 
 ## Secrets
 Run the repo secret-scan (or equivalent greps for `AQ.Ab8`, `gsk_`, and full key

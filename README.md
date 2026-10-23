@@ -32,7 +32,7 @@ fixes it; a no-LLM A/B through smolagents' own `LocalPythonExecutor` confirms up
 error, fixed → `('Woodrow Wilson',)`.
 
 Case studies: [docs/case-studies/](docs/case-studies/README.md). Flagship write-up: [smolagents text_to_sql](docs/case-studies/smolagents-text-to-sql.md).
-Terminal demo (no keys): [docs/demo/](docs/demo/README.md). Draft upstream issue text
+Terminal demo (no keys): [docs/demo/](docs/demo/README.md) · ![demo](docs/demo/smolagents-text-to-sql.gif). Draft upstream issue text
 was prepared locally and has **not** been filed.
 
 Also tried: OpenAI Agents SDK `examples/customer_service` (Triage Agent answers
