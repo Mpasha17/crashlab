@@ -8,6 +8,7 @@ Session ~11:39–14:00 IST. Keys via sourced env only. Live store not committed.
 |---|---|---|---|
 | policy_drop → restore-policy `SystemPromptPatch` | gpt-oss-120b | **VERIFIED** | patched 3/3, control 0/3 |
 | policy_drop → restore-policy (replicate) | gpt-oss-20b | **VERIFIED** | patched 3/3, control 0/3 |
+| policy_drop → restore-policy (replicate) | gemini-flash-lite-latest | **VERIFIED** | patched 3/3, control 0/3 |
 | html_502 → no-retry system prompt | gpt-oss-120b | **LIKELY** | patched 3/3, control 1/3 + 1 regression |
 | misleading_desc → `tool_description` fix | gpt-oss-20b (fix from 120b diagnoser) | **VERIFIED** | patched 3/3, control 0/3, regression 1/1 |
 | misleading_desc `crashlab fix --verify` | gpt-oss-120b | **INCONCLUSIVE** | TPD 429s (Limit 200000) |

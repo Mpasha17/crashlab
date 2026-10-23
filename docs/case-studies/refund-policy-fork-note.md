@@ -37,3 +37,8 @@ gpt-oss-120b. It is not a claim about other faults, models, or large-n superiori
 ## gpt-oss-20b replicate (same day)
 Parent `01M5KSFG22862JEBVSRN1S24YT` (policy_drop C03 fail). Same restore-policy patch:
 patched **3/3 pass**, control **3/3 fail** → **VERIFIED** on 20b as well.
+
+
+## gemini-flash-lite-latest replicate (same day)
+Parent `01M5KSJ8SFV917KPRM0SS9MMCK`. Same restore-policy patch:
+patched **3/3 pass**, control **3/3 fail** → **VERIFIED** on Gemini flash-lite too.
