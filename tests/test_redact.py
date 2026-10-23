@@ -154,3 +154,12 @@ def test_groq_shaped_token_in_nested_message_content():
     out = r.redact({"messages": [{"role": "user", "content": f"use {key} please"}]})
     assert key not in str(out)
     assert "use " in out["messages"][0]["content"]
+
+
+def test_dashscope_shaped_token_in_nested_message_content():
+    r = Redactor()
+    key = SECRETS["dashscope"]
+    out = r.redact({"messages": [{"role": "user", "content": f"token {key} end"}]})
+    assert key not in str(out)
+    assert out["messages"][0]["content"].startswith("token ")
+    assert out["messages"][0]["content"].endswith(" end")

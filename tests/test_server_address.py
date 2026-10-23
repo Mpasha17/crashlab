@@ -99,3 +99,14 @@ def test_wrap_responses_only_custom_provider_name(crashlab_dir):
     step = crashlab.load("last").steps[0]
     assert step.attributes.get("gen_ai.provider.name") == "groq"
     assert step.attributes.get("server.address") == "api.groq.com"
+
+
+def test_server_address_whitespace_and_url_object():
+    assert server_address(SimpleNamespace(base_url="   ")) is None
+
+    # OpenAI SDK often stores httpx.URL; str() must still yield a host
+    class _URL:
+        def __str__(self) -> str:
+            return "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+    assert server_address(SimpleNamespace(base_url=_URL())) == "generativelanguage.googleapis.com"
