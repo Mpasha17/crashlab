@@ -11,6 +11,8 @@ REAL_AGENTS=/path/to/real-agents bash docs/demo/demoscript.sh
 cat docs/demo/transcript.txt
 ```
 
+Animated GIF: [`smolagents-text-to-sql.gif`](smolagents-text-to-sql.gif).
+
 Open [`terminal.html`](terminal.html) in a browser for a self-contained play-through of
 the same transcript (no network assets).
 
