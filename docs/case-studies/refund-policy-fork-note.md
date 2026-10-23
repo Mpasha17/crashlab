@@ -32,3 +32,8 @@ Log: `/workspace/crashlab-live/worker_c_policy_fork_k3.log` (live store, not com
 ## Honesty
 This verifies the **restore-policy SystemPromptPatch** on this recorded parent under Groq
 gpt-oss-120b. It is not a claim about other faults, models, or large-n superiority.
+
+
+## gpt-oss-20b replicate (same day)
+Parent `01M5KSFG22862JEBVSRN1S24YT` (policy_drop C03 fail). Same restore-policy patch:
+patched **3/3 pass**, control **3/3 fail** → **VERIFIED** on 20b as well.
