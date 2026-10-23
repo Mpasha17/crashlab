@@ -33,6 +33,7 @@ def test_package_ships_py_typed_and_version():
 
     assert __version__ == "0.0.1"
     assert (Path(crashlab.__file__).parent / "py.typed").is_file()
+    assert '"Typing :: Typed"' in (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
 
 
 def test_scripts_check_and_scan_exist_and_scan_is_quiet_on_docs():

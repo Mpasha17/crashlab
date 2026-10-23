@@ -27,7 +27,7 @@ First public-shaped cut. Not on PyPI yet.
 - `sql_analyst`: recover answer from Groq gpt-oss `tool_use_failed` / `failed_generation` (and empty-reply nudge)
 - `scripts/check.sh` / `scripts/scan.sh` for local pre-push (key-shaped suffixes only)
 - SECURITY.md + CONTRIBUTING secret-scan notes
-- `py.typed` shipped; sdist includes docs/, CHANGELOG, scripts/
+- `py.typed` shipped (`Typing :: Typed`); sdist includes docs/, CHANGELOG, scripts/
 - Redactor value patterns include Groq `gsk_` and DashScope-shaped `AQ.Ab8…`
 
 ### Evidence (Day 10–11)
