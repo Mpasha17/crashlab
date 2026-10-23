@@ -39,3 +39,10 @@ def test_wrap_is_idempotent():
     first = crashlab.wrap(client)
     second = crashlab.wrap(first)
     assert second is first
+
+
+def test_looks_like_openai_chat_completions():
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **k: None))
+    )
+    assert looks_like_openai(client) is True
