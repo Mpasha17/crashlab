@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 12:42 Asia/Calcutta
+**Last updated:** 2026-10-23 12:43 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -26,7 +26,7 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
 - [x] Groq clean smoke 2026-10-23 10:57 IST: **3/3 pass** after failed_generation recovery
   (`b31ca7e`). sqlv4 clean 1/3 was pre-fix; denominator can be treated as healthy.
 - [ ] Confirm CI green on the soft-launch HEAD (3.10–3.13)
-- [x] Worker C live 2026-10-23 ~11:41–12:42 IST Asia/Calcutta:
+- [x] Worker C live 2026-10-23 ~11:41–12:43 IST Asia/Calcutta:
   - Groq refund_bot clean A17: **pass** (4/4) `01M5KP4VCRTZ1D4DYRE7B6QQT7`
   - Groq sql_analyst clean: **3/3 pass** (gpt-oss-120b)
   - CrewAI demo (gpt-oss-20b): **3/3 pass**; steps recorded
@@ -51,6 +51,7 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
   - policy_drop on **gpt-oss-20b**: **VERIFIED** patched 3/3 control 0/3 (same restore patch).
   - Groq 20b extras: schema_drift A17 **pass**; refund clean A17 **pass**; Gemini sql **3/3**.
   - Gemini flash-lite policy_drop: **VERIFIED** patched 3/3 control 0/3.
+  - Gemini flash-lite misleading_desc: **VERIFIED** patched 3/3 control 0/3 (+ regression pass).
   - Quota after: gpt-oss-20b 921/1000 req; gpt-oss-120b 699/1000 req.
 - [ ] No PyPI; no force-push; secret-scan still required on every push
 

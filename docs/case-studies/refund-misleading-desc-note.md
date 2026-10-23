@@ -34,3 +34,9 @@ Parent `01M5KQ4EEE…`. Agent model 20b (forks follow parent model).
 caveats: fix authored by **120b** diagnoser; confirmations run on **20b**; not the
 CLI `crashlab verify` path (blocked on 120b TPD). Logs:
 `worker_c_misleading*.log` in the live store (not committed).
+
+
+## gemini-flash-lite-latest (same day)
+Parent `01M5KSMJ8QRWSQ3Y4YF29NYKCP` fail ($44.10). Same fix-1.yaml from 120b diagnoser:
+manual k=3+control+regression → patched **3/3**, control **0/3**, regression **pass**.
+**VERIFIED** on Gemini flash-lite (cross-provider confirmation of the tool_description fix).
