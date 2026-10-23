@@ -22,7 +22,7 @@ First public-shaped cut. Not on PyPI yet.
 - `export-test` + pytest plugin (`--crashlab`)
 - Self-contained HTML report
 - Seed fault-injection bench (`crashlab bench`) with offline rescoring
-- Export scrub of cwd / install paths from cassette stack traces
+- Export scrub of cwd / install paths from cassette stack traces (editable `$CRASHLAB_REPO` vs wheel `$SITE_PACKAGES`)
 
 ### Examples / packaging / hygiene
 - `sql_analyst`: recover answer from Groq gpt-oss `tool_use_failed` / `failed_generation` (and empty-reply nudge)

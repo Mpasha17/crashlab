@@ -154,9 +154,23 @@ def test_export_scrubs_stack_trace_paths(tmp_path, crashlab_dir, monkeypatch):
     with contextlib.suppress(RuntimeError):
         boom()
     run = crashlab.load("last")
+    import crashlab as _pkg
+
+    pkg_dir = Path(_pkg.__file__).resolve().parent
+    with contextlib.suppress(RuntimeError):
+        # second boom embedding the install path
+        @crashlab.agent(name="boom-pkg")
+        def boom_pkg() -> None:
+            raise RuntimeError(f"from {pkg_dir / 'export.py'}")
+
+        boom_pkg()
+    run2 = crashlab.load("last")
     out = _export(store, run.run_id, tmp_path / "x.jsonl")
-    text = out.read_text()
+    out2 = _export(store, run2.run_id, tmp_path / "y.jsonl")
+    text = out.read_text() + out2.read_text()
     assert str(crashlab_dir) not in text
     assert str(tmp_path) not in text or "$PWD" in text or "$CRASHLAB" in text
+    assert str(pkg_dir) not in text
+    assert "$CRASHLAB" in text or "$CRASHLAB_REPO" in text or "$SITE_PACKAGES" in text
     assert "secret.py" in text  # basename / relative residue ok
     assert "/home/" not in text or text.count("~") >= 0

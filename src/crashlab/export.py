@@ -124,13 +124,20 @@ def _local_roots(store: Store) -> list[tuple[str, str]]:
     """Absolute prefixes that must not land in a committed cassette (longest first)."""
     import crashlab as _pkg
 
+    pkg_file = Path(_pkg.__file__).resolve()
+    pkg_dir = pkg_file.parent
+    install_parent = pkg_dir.parent
     roots = [
         (str(Path(store.root).resolve()), "$CRASHLAB_DIR"),
         (str(Path.home().resolve()), "~"),
         (str(Path.cwd().resolve()), "$PWD"),
-        # editable install: .../src/crashlab/__init__.py → repo root; wheel: site-packages
-        (str(Path(_pkg.__file__).resolve().parents[2]), "$CRASHLAB_REPO"),
+        (str(pkg_dir), "$CRASHLAB"),
     ]
+    # editable: .../src/crashlab → repo root; wheel/venv: .../site-packages/crashlab
+    if install_parent.name in {"site-packages", "dist-packages"}:
+        roots.append((str(install_parent), "$SITE_PACKAGES"))
+    else:
+        roots.append((str(pkg_file.parents[2]), "$CRASHLAB_REPO"))
     # longest first so /a/b wins over /a
     seen: set[str] = set()
     out: list[tuple[str, str]] = []
