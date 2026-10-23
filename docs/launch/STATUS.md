@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 12:52 Asia/Calcutta
+**Last updated:** 2026-10-23 12:53 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -58,6 +58,7 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
   - Offline pin: `tests/crashlab/test_refund_bot_01m5kq4eee.py` (misleading_desc fail cassette).
   - Offline pins: 4 exported fail cassettes under `tests/crashlab/`.
   - html_502 k=5 re-verify: **INCONCLUSIVE** (120b TPD); LIKELY k=3 stands.
+  - 20b sql reconfirm: **3/3**; CrewAI still green.
   - Quota after: gpt-oss-20b 921/1000 req; gpt-oss-120b 699/1000 req.
 - [ ] No PyPI; no force-push; secret-scan still required on every push
 
