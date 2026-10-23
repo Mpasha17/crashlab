@@ -26,7 +26,7 @@ First public-shaped cut. Not on PyPI yet.
 - Export scrub of cwd / install paths from cassette stack traces (editable `$CRASHLAB_REPO` vs wheel `$SITE_PACKAGES`)
 
 ### Examples / packaging / hygiene
-- `sql_analyst`: recover answer from Groq gpt-oss `tool_use_failed` / `failed_generation` (and empty-reply nudge)
+- `sql_analyst`: recover answer from Groq gpt-oss `tool_use_failed` / `output_parse_failed` / `failed_generation` (and empty-reply nudge)
 - `scripts/check.sh` / `scripts/scan.sh` for local pre-push (key-shaped suffixes only)
 - SECURITY.md + CONTRIBUTING secret-scan notes
 - `py.typed` shipped (`Typing :: Typed`); sdist includes docs/, CHANGELOG, scripts/
