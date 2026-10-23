@@ -340,6 +340,8 @@ See [examples/refund_bot](examples/refund_bot/README.md) for details.
 
 Launch drafts (unpublished): [docs/launch/](docs/launch/).
 
+See [CHANGELOG.md](CHANGELOG.md) for what landed in 0.0.1.
+
 ## Development
 
 ```bash
