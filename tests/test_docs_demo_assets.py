@@ -33,3 +33,14 @@ def test_package_ships_py_typed_and_version():
 
     assert __version__ == "0.0.1"
     assert (Path(crashlab.__file__).parent / "py.typed").is_file()
+
+
+def test_scripts_check_and_scan_exist_and_scan_is_quiet_on_docs():
+    assert (ROOT / "scripts" / "check.sh").is_file()
+    scan = ROOT / "scripts" / "scan.sh"
+    assert scan.is_file() and scan.stat().st_mode & 0o111
+    import subprocess
+
+    res = subprocess.run(["bash", str(scan)], cwd=ROOT, capture_output=True, text=True)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "pattern hits: 0" in res.stdout
