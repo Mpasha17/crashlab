@@ -264,9 +264,20 @@ def run_agent(
         tools = tools_spec(active)
         nudged = False
         for _ in range(max_turns):
-            resp = client.chat.completions.create(
-                model=model, messages=messages, tools=tools, temperature=0
-            )
+            try:
+                resp = client.chat.completions.create(
+                    model=model, messages=messages, tools=tools, temperature=0
+                )
+            except Exception as exc:  # noqa: BLE001 - recover from a known Groq gpt-oss quirk
+                # gpt-oss on Groq sometimes emits a tool call named
+                # "assistant<|channel|>commentary" with the real answer in arguments;
+                # treat it as an empty turn and nudge once for final_answer.
+                text = f"{type(exc).__name__}: {exc}"
+                if "tool_use_failed" in text and not nudged:
+                    nudged = True
+                    messages.append({"role": "user", "content": NUDGE})
+                    continue
+                raise
             msg = resp.choices[0].message
             out: dict[str, Any] = {"role": "assistant", "content": msg.content}
             if msg.tool_calls:

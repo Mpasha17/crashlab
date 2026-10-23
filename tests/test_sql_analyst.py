@@ -137,3 +137,20 @@ def test_an_empty_reply_gets_one_nudge():
     )
     assert run.outcome == "pass"
     assert sql.NUDGE in str(run.steps[-2].request["messages"][-1])
+
+
+def test_a_groq_tool_use_failed_gets_one_nudge():
+    """gpt-oss on Groq sometimes invents a tool name; nudge once for final_answer."""
+    boom = RuntimeError(
+        "Error code: 400 - tool_use_failed: attempted to call tool "
+        "'assistant<|channel|>commentary' which was not in request.tools"
+    )
+    run = _run(
+        [
+            tool_call_response(1, "run_query", {"sql": GOOD_SQL}),
+            boom,
+            tool_call_response(3, "final_answer", {"answer": "198.99"}),
+        ]
+    )
+    assert run.outcome == "pass"
+    assert sql.NUDGE in str(run.steps[-2].request["messages"][-1])
