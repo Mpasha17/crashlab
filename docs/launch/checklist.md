@@ -14,7 +14,7 @@
 ## Should
 - [x] smolagents empty-`:memory:` fix verified (no-LLM A/B + demo)
 - [ ] OpenAI Agents triage: two prompt fixes **REJECTED**; needs a non-regressing remedy before filing
-- [ ] Groq sql-analyst test-split numbers valid after empty-reply fix (quota)
+- [x] Groq sqlv4 complete (15/15): label 3/11, clean 1/3 (2 died on tool_use_failed pre-nudge); see bench/README
 - [ ] Integration notes linked: openai-agents, smolagents
 - [ ] Show HN + X drafts in `docs/launch/` — Mahaboob review still needed
 
