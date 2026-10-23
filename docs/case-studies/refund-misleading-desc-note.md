@@ -45,3 +45,7 @@ manual k=3+control+regression → patched **3/3**, control **0/3**, regression *
 ## Offline pin
 Failure cassette exported: `tests/crashlab/test_refund_bot_01m5kq4eee.py` (20b parent
 `01M5KQ4EEE…`). Replay asserts the under-refund oracle fail without keys.
+
+## gpt-oss-20b re-verify (~13:00 IST)
+Fresh parent `01M5KTNVV8XT2FE5N02GD2VNJE` fail ($44.10). Same fix-1.yaml:
+patched **3/3**, control **0/3** — **VERIFIED** again (stability check).
