@@ -7,6 +7,7 @@ First public-shaped cut. Not on PyPI yet.
 ### Record / replay
 - `crashlab.wrap` for OpenAI, Anthropic, LiteLLM (sync + async + streaming assembled)
 - OpenAI `chat.completions.with_raw_response.create` and `responses.with_raw_response.create` recorded (CrewAI path)
+- `crashlab.wrap` accepts responses-only OpenAI-compatible clients (no chat.completions)
 - Anthropic `messages.with_raw_response.create` recorded
 - `@crashlab.agent`, `@crashlab.tool`, `@crashlab.check`
 - Strict offline replay and fork-at-step with typed patches

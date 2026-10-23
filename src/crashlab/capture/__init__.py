@@ -44,7 +44,8 @@ def wrap(client: Any, *, provider: str | None = None) -> Any:
     raise TypeError(
         f"crashlab.wrap(): don't know how to wrap {type(client).__module__}."
         f"{type(client).__qualname__}. Supported: OpenAI-compatible clients "
-        "(chat.completions.create), Anthropic clients (messages.create), the litellm module."
+        "(chat.completions.create or responses.create), Anthropic clients "
+        "(messages.create), the litellm module."
     )
 
 

@@ -107,12 +107,14 @@ class WrappedOpenAI(WrappedClient):
 def looks_like_openai(client: Any) -> bool:
     chat = getattr(client, "chat", None)
     completions = getattr(chat, "completions", None)
-    return callable(getattr(completions, "create", None))
+    if callable(getattr(completions, "create", None)):
+        return True
+    return callable(getattr(getattr(client, "responses", None), "create", None))
 
 
 def wrap_openai(client: Any, *, provider: str = "openai") -> WrappedOpenAI:
-    if not looks_like_openai(client) and not callable(
-        getattr(getattr(client, "responses", None), "create", None)
-    ):
-        raise TypeError(f"{type(client).__name__} has no chat.completions.create method")
+    if not looks_like_openai(client):
+        raise TypeError(
+            f"{type(client).__name__} has neither chat.completions.create nor responses.create"
+        )
     return WrappedOpenAI(client, provider=provider)

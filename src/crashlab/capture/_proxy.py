@@ -53,7 +53,12 @@ def server_address(client: Any) -> str | None:
     base = getattr(client, "base_url", None)
     if base is None:
         return None
+    raw = str(base).strip()
+    if not raw:
+        return None
+    if "://" not in raw:
+        raw = "https://" + raw  # OpenAI-compatible clients sometimes omit the scheme
     try:
-        return urlparse(str(base)).hostname
+        return urlparse(raw).hostname
     except ValueError:
         return None
