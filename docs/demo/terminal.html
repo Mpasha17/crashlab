@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>crashlab demo — smolagents text_to_sql</title>
+<style>
+  body { margin:0; background:#0d1117; color:#c9d1d9; font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  header { padding:12px 16px; border-bottom:1px solid #30363d; color:#8b949e; }
+  header strong { color:#58a6ff; }
+  #term { padding:16px; white-space:pre-wrap; min-height:60vh; }
+  .cursor { display:inline-block; width:8px; height:1em; background:#58a6ff; vertical-align:text-bottom; animation:blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  .ok { color:#3fb950; } .err { color:#f85149; } .cmd { color:#79c0ff; }
+</style>
+</head>
+<body>
+<header><strong>crashlab</strong> · smolagents text_to_sql demo · no API key · play ▶</header>
+<pre id="term"><span class="cursor"></span></pre>
+<script>
+const raw = '# crashlab demo — smolagents text_to_sql (no API key)\n# recorded 2026-10-23T09:51:26+05:30 Asia/Calcutta\n\n$ crashlab check 01M5H3SCC8   # live failing run (recorded earlier)\n  fail  answer_is_correct  expected /Woodrow Wilson/, got empty-table excuse\n\n$ python repro.py              # no LLM; smolagents LocalPythonExecutor\nupstream   -&gt; ERROR Code execution failed at line &#x27;print(sql_engine(query=&quot;SELECT customer_name FROM receipts ORDER BY price DESC LIMIT 1&quot;))&#x27; due to: OperationalError: (sqlite3.Ope\n   same thread direct call: (4,)\nengine_fix -&gt; (&#x27;Woodrow Wilson&#x27;,)\n   same thread direct call: (4,)\n\n$ # fix: StaticPool + check_same_thread=False on the example&#x27;s engine\n$ # upstream → no such table: receipts\n$ # engine_fix → (&#x27;Woodrow Wilson&#x27;,)\n';
+const el = document.getElementById('term');
+let i = 0;
+function paint(s) {
+  return s.replace(/^(.*ERROR.*|.*no such table.*)$/gm, '<span class="err">$1</span>')
+          .replace(/^(.*Woodrow Wilson.*|.*engine_fix.*)$/gm, '<span class="ok">$1</span>')
+          .replace(/^(\$ .*)$/gm, '<span class="cmd">$1</span>');
+}
+function tick() {
+  if (i >= raw.length) return;
+  i = Math.min(raw.length, i + (raw[i] === '\n' ? 1 : 3));
+  el.innerHTML = paint(raw.slice(0, i)) + '<span class="cursor"></span>';
+  requestAnimationFrame(() => setTimeout(tick, raw[i-1] === '\n' ? 120 : 12));
+}
+tick();
+</script>
+</body>
+</html>

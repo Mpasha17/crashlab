@@ -1,0 +1,15 @@
+# crashlab demo — smolagents text_to_sql (no API key)
+# recorded 2026-10-23T09:51:26+05:30 Asia/Calcutta
+
+$ crashlab check 01M5H3SCC8   # live failing run (recorded earlier)
+  fail  answer_is_correct  expected /Woodrow Wilson/, got empty-table excuse
+
+$ python repro.py              # no LLM; smolagents LocalPythonExecutor
+upstream   -> ERROR Code execution failed at line 'print(sql_engine(query="SELECT customer_name FROM receipts ORDER BY price DESC LIMIT 1"))' due to: OperationalError: (sqlite3.Ope
+   same thread direct call: (4,)
+engine_fix -> ('Woodrow Wilson',)
+   same thread direct call: (4,)
+
+$ # fix: StaticPool + check_same_thread=False on the example's engine
+$ # upstream → no such table: receipts
+$ # engine_fix → ('Woodrow Wilson',)

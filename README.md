@@ -17,6 +17,29 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
 > forks, then **exports** a pytest regression test and a shareable HTML report (see
 > [ARCHITECTURE.md](ARCHITECTURE.md)). Not on PyPI yet.
 
+## Found a real bug (Day 11)
+
+We pointed crashlab at well-known open-source agent examples, with oracles from their
+documented behaviour — no injected faults.
+
+**Flagship finding: [huggingface/smolagents](https://github.com/huggingface/smolagents)
+`examples/text_to_sql.py`.** The example builds `sqlite:///:memory:`, then
+`CodeAgent` runs every tool call in a fresh `ThreadPoolExecutor`. SQLAlchemy's default
+pool for `:memory:` is per-thread, so the agent queries an **empty** database
+(`no such table: receipts`) and invents a failure. Direct calls on the main thread work,
+which hides the bug. A one-line engine change (`StaticPool` + `check_same_thread=False`)
+fixes it; a no-LLM A/B through smolagents' own `LocalPythonExecutor` confirms upstream →
+error, fixed → `('Woodrow Wilson',)`.
+
+Full write-up: [docs/case-studies/smolagents-text-to-sql.md](docs/case-studies/smolagents-text-to-sql.md).
+Terminal demo (no keys): [docs/demo/](docs/demo/README.md). Draft upstream issue text
+was prepared locally and has **not** been filed.
+
+Also tried: OpenAI Agents SDK `examples/customer_service` (Triage Agent answers
+follow-up FAQ questions itself on a smaller open model; a scoped prompt fix was proposed
+but free-tier quotas blocked a full `VERIFIED` verdict). Integration notes:
+[examples/integrations/](examples/integrations/).
+
 ## Benchmark headline (seed, small n)
 
 Seed fault-injection benchmark (`crashlab bench`). It injects 4 faults into 2 agents, runs
