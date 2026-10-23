@@ -35,6 +35,8 @@ are not counted as fails.
   3/3 live scenarios pass after the fix.
 - Groq sql-analyst clean smoke: 3/3 pass after recovering gpt-oss `failed_generation`
   answers (sqlv4 test-split still documented separately with CIs).
+- refund-bot demo (Groq): policy_drop restore-policy patch **VERIFIED** 3/3 vs
+  control 0/3; html_502 no-retry patch **LIKELY** 3/3 vs control 1/3 (CIs overlap).
 
 **Status.** Pre-alpha (0.0.1). Not on PyPI. Apache-2.0. Works on Python 3.10–3.13.
 
