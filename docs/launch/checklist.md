@@ -3,8 +3,8 @@
 ## Must
 - [ ] CI green on origin/main (3.10–3.13)
 - [ ] README quickstart works from a clean venv with no keys (offline path)
-- [ ] Flagship case study linked from README (`docs/case-studies/smolagents-text-to-sql.md`)
-- [ ] Demo opens: `docs/demo/terminal.html` and `demoscript.sh`
+- [x] Flagship case study linked from README (`docs/case-studies/smolagents-text-to-sql.md`)
+- [x] Demo opens: `docs/demo/terminal.html`, GIF, and `demoscript.sh`
 - [ ] Secret-scan clean on HEAD; no keys in history of launch commits
 - [ ] Decide: file smolagents DRAFT_ISSUE.md upstream or not (user decision)
 - [ ] Decide: file openai-agents triage follow-up issue or not (user decision)
@@ -12,10 +12,11 @@
 - [ ] Tag not required for soft launch; do **not** publish to PyPI yet
 
 ## Should
-- [ ] One VERIFIED fix on a real OSS agent (openai-agents fix-triage.yaml — blocked on quota earlier)
+- [x] smolagents empty-`:memory:` fix verified (no-LLM A/B + demo)
+- [ ] OpenAI Agents triage: two prompt fixes **REJECTED**; needs a non-regressing remedy before filing
 - [ ] Groq sql-analyst test-split numbers valid after empty-reply fix (quota)
 - [ ] Integration notes linked: openai-agents, smolagents
-- [ ] Show HN + X drafts reviewed by Mahaboob (`docs/launch/`)
+- [ ] Show HN + X drafts in `docs/launch/` — Mahaboob review still needed
 
 ## Nice
 - [ ] Short demo GIF/mp4 exported from terminal.html or asciinema
