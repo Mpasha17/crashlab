@@ -25,3 +25,11 @@ def test_case_studies_and_drafts_exist():
     assert (cs / "smolagents-DRAFT_ISSUE.md").is_file()
     assert "not filed" in (cs / "smolagents-DRAFT_ISSUE.md").read_text().lower()
     assert (cs / "openai-agents-customer-service.md").is_file()
+
+
+def test_package_ships_py_typed_and_version():
+    import crashlab
+    from crashlab._version import __version__
+
+    assert __version__ == "0.0.1"
+    assert (Path(crashlab.__file__).parent / "py.typed").is_file()

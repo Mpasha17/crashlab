@@ -21,6 +21,8 @@ First public-shaped cut. Not on PyPI yet.
 - Self-contained HTML report
 - Seed fault-injection bench (`crashlab bench`) with offline rescoring
 
+- `sql_analyst`: recover answer from Groq gpt-oss `tool_use_failed` / `failed_generation` (and empty-reply nudge)
+
 ### Evidence (Day 10–11)
 - Seed bench on held-out `sql-analyst` (Gemini flash-lite): LLM label ok 6/6 triggered
   (CI 61–100%), small n — see `bench/README.md`

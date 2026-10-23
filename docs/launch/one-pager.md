@@ -29,6 +29,7 @@ are not counted as fails.
   ok 6/6 triggered (CI 61–100%); heuristic 2/6. Small n — see bench/README.md.
 - Real bug in smolagents text-to-sql (empty `:memory:` DB across threads). Fix
   verified with a no-LLM A/B. Upstream issue not filed yet.
+- Groq sql-analyst clean smoke: 3/3 pass after recovering gpt-oss `failed_generation` answers.
 
 **Status.** Pre-alpha. Not on PyPI. Apache? check LICENSE. Works on Python 3.10–3.13.
 
