@@ -97,7 +97,7 @@ Groq gpt-oss-120b's test-split numbers are not valid because of an empty-reply a
   run linked by `forked_from`, `fork_step` and the patch.
 - **Typed patches** (pydantic, JSON/YAML-serializable, composable with `+`, each renders a
   human-readable diff): `SystemPromptPatch` (replace / append / prepend / insert, replace
-  or delete a line / substitute), `MessagePatch`, `InjectMessagePatch`, `ToolResultPatch`
+  or delete a line / substitute; optional `when` scopes to one agent's prompt), `MessagePatch`, `InjectMessagePatch`, `ToolResultPatch`
   (counterfactual tool result or error), `ToolDescriptionPatch`, `ToolSchemaPatch`,
   `ModelParamPatch` (model and params). Work for OpenAI chat / Responses, Anthropic and
   LiteLLM.
