@@ -68,3 +68,33 @@ def test_responses_only_client_records_with_raw_response(crashlab_dir):
     assert len(rec.steps) == 1
     assert rec.steps[0].attributes.get("server.address") == "api.example.test"
     assert rec.steps[0].attributes.get("crashlab.api") == "openai.responses"
+
+
+def test_wrap_responses_only_custom_provider_name(crashlab_dir):
+    import crashlab
+    from types import SimpleNamespace
+
+    class _Responses:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                output_text="ok",
+                model="m",
+                id="resp-x",
+                output=[],
+                usage=SimpleNamespace(input_tokens=1, output_tokens=1, total_tokens=2),
+            )
+
+    class _Client:
+        def __init__(self):
+            self.responses = _Responses()
+            self.base_url = "https://api.groq.com/openai/v1"
+
+    @crashlab.agent(name="prov")
+    def run() -> str:
+        c = crashlab.wrap(_Client(), provider="groq")
+        return c.responses.create(model="m", input="x").output_text
+
+    assert run() == "ok"
+    step = crashlab.load("last").steps[0]
+    assert step.attributes.get("gen_ai.provider.name") == "groq"
+    assert step.attributes.get("server.address") == "api.groq.com"
