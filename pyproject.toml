@@ -62,7 +62,19 @@ path = "src/crashlab/_version.py"
 packages = ["src/crashlab"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/crashlab", "tests", "examples", "README.md", "ARCHITECTURE.md", "LICENSE"]
+include = [
+  "src/crashlab",
+  "tests",
+  "examples",
+  "docs",
+  "scripts",
+  "README.md",
+  "ARCHITECTURE.md",
+  "CHANGELOG.md",
+  "SECURITY.md",
+  "CONTRIBUTING.md",
+  "LICENSE",
+]
 
 [tool.ruff]
 line-length = 100

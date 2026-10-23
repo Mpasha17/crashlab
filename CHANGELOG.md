@@ -21,10 +21,16 @@ First public-shaped cut. Not on PyPI yet.
 - `export-test` + pytest plugin (`--crashlab`)
 - Self-contained HTML report
 - Seed fault-injection bench (`crashlab bench`) with offline rescoring
+- Export scrub of cwd / install paths from cassette stack traces
 
+### Examples / packaging / hygiene
 - `sql_analyst`: recover answer from Groq gpt-oss `tool_use_failed` / `failed_generation` (and empty-reply nudge)
+- `scripts/check.sh` / `scripts/scan.sh` for local pre-push (key-shaped suffixes only)
+- SECURITY.md + CONTRIBUTING secret-scan notes
+- `py.typed` shipped; sdist includes docs/, CHANGELOG, scripts/
 
 ### Evidence (Day 10–11)
+- Post-sqlv4 Groq clean smoke: **3/3 pass** after failed_generation recovery
 - Seed bench on held-out `sql-analyst` (Gemini flash-lite): LLM label ok 6/6 triggered
   (CI 61–100%), small n — see `bench/README.md`
 - Groq sqlv4 (after agent nudges): LLM label ok 3/11; 1/3 clean pass; 0/3 fixes verified

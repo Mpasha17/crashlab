@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 11:25 Asia/Calcutta
+**Last updated:** 2026-10-23 11:36 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -12,8 +12,10 @@
 - Seed bench + sqlv4 Groq test-split documented with CIs and caveats
 - OpenAI Agents triage failure documented; both prompt fixes **REJECTED** (honest)
 - Launch drafts: announcement, Show HN, one-pager, checklist
-- CHANGELOG 0.0.1, CONTRIBUTING, CI green on recent main
-- Offline suite: 443 tests (as of c612162)
+- CHANGELOG 0.0.1, CONTRIBUTING, CI: last green `5e8943b`; HEAD `73f11cf` queued (superseded runs canceled to free runners)
+- Offline suite: 450 tests (see `pytest` locally; CI 3.10–3.13)
+
+Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
 
 ## Open before soft launch
 - [ ] Mahaboob review of `docs/launch/*` copy

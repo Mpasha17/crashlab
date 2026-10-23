@@ -44,3 +44,29 @@ def test_scripts_check_and_scan_exist_and_scan_is_quiet_on_docs():
     res = subprocess.run(["bash", str(scan)], cwd=ROOT, capture_output=True, text=True)
     assert res.returncode == 0, res.stdout + res.stderr
     assert "pattern hits: 0" in res.stdout
+
+
+def test_sdist_include_lists_docs_and_hygiene():
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "[tool.hatch.build.targets.sdist]" in text
+    for name in ("docs", "scripts", "CHANGELOG.md", "SECURITY.md", "CONTRIBUTING.md"):
+        assert name in text, f"sdist include missing {name}"
+
+
+def test_launch_docs_and_changelog_present():
+    for rel in (
+        "docs/launch/STATUS.md",
+        "docs/launch/checklist.md",
+        "docs/launch/DAY11_REPORT.md",
+        "SECURITY.md",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+    ):
+        assert (ROOT / rel).is_file(), rel
+    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## 0.0.1" in text
+    assert "with_raw_response" in text
+
+
+def test_crewai_case_study_exists():
+    assert (ROOT / "docs" / "case-studies" / "crewai-integration.md").is_file()
