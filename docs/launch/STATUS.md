@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 11:49 Asia/Calcutta
+**Last updated:** 2026-10-23 11:51 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -26,7 +26,7 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
 - [x] Groq clean smoke 2026-10-23 10:57 IST: **3/3 pass** after failed_generation recovery
   (`b31ca7e`). sqlv4 clean 1/3 was pre-fix; denominator can be treated as healthy.
 - [ ] Confirm CI green on the soft-launch HEAD (3.10–3.13)
-- [x] Worker C live 2026-10-23 ~11:41–11:48 IST Asia/Calcutta:
+- [x] Worker C live 2026-10-23 ~11:41–11:51 IST Asia/Calcutta:
   - Groq refund_bot clean A17: **pass** (4/4) `01M5KP4VCRTZ1D4DYRE7B6QQT7`
   - Groq sql_analyst clean: **3/3 pass** (gpt-oss-120b)
   - CrewAI demo (gpt-oss-20b): **3/3 pass**; steps recorded
@@ -35,7 +35,10 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
     `docs/case-studies/refund-policy-fork-note.md`.
   - Gemini `flash-lite-latest`: refund clean A17 **pass**; C03 full-policy refuse **pass**;
     sql_analyst clean **3/3** after one Q2 free-tier 429 retry (first pass 2/3).
-  - Quota after: Groq gpt-oss-120b **730/1000** req (reset 6h28m48s); Gemini free-tier had one 429 then recovered.
+  - Groq html_502 A17 loop: parent fail (step budget); fix-1 **LIKELY** patched 3/3 control 1/3
+    (+ 1 clean regression pass). See `docs/case-studies/refund-html502-verify-note.md`.
+  - Groq schema_drift A17: **pass** (refunded correct $49; oracle green).
+  - Quota after: Groq gpt-oss-120b **693/1000** req (reset 7h22m4.8s); Gemini free-tier had one 429 then recovered.
 - [ ] No PyPI; no force-push; secret-scan still required on every push
 
 ## Do not claim
