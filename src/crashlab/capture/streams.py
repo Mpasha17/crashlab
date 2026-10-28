@@ -185,23 +185,69 @@ class AnthropicAssembler(Assembler):
 
 
 class ResponsesAssembler(Assembler):
-    """OpenAI Responses API stream events -> the final Response dict."""
+    """OpenAI Responses API stream events -> the final Response dict.
+
+    A stream closed before ``response.completed`` still keeps what arrived: items that
+    were started (``output_item.added``) get the text / function-call argument deltas
+    seen so far, marked ``status="incomplete"``.
+    """
 
     def __init__(self) -> None:
         super().__init__()
         self.response: dict[str, Any] = {}
         self.items: dict[int, dict[str, Any]] = {}
+        self.partial: dict[int, dict[str, Any]] = {}  # output_index -> item in progress
+        self.texts: dict[tuple[int, int], str] = {}  # (output_index, content_index) -> text
+        self.args: dict[int, str] = {}  # output_index -> function call arguments so far
 
     def _add(self, data: dict[str, Any]) -> None:
+        kind = data.get("type")
         if isinstance(data.get("response"), dict):  # created / in_progress / completed / ...
             self.response = data["response"]
-        if data.get("type") == "response.output_item.done" and isinstance(data.get("item"), dict):
+        oi = data.get("output_index", 0)
+        if not isinstance(oi, int):
+            oi = 0
+        if kind == "response.output_item.done" and isinstance(data.get("item"), dict):
             self.items[data.get("output_index", len(self.items))] = data["item"]
+        elif kind == "response.output_item.added" and isinstance(data.get("item"), dict):
+            self.partial[oi] = data["item"]
+        elif kind == "response.output_text.delta" and isinstance(data.get("delta"), str):
+            ci = data.get("content_index", 0) if isinstance(data.get("content_index"), int) else 0
+            self.texts[(oi, ci)] = self.texts.get((oi, ci), "") + data["delta"]
+            if oi not in self.partial:
+                self.partial[oi] = {"type": "message", "id": data.get("item_id") or "",
+                                    "role": "assistant", "content": []}  # fmt: skip
+        elif kind == "response.function_call_arguments.delta" and isinstance(
+            data.get("delta"), str
+        ):
+            self.args[oi] = self.args.get(oi, "") + data["delta"]
+
+    def _partial_items(self) -> dict[int, dict[str, Any]]:
+        out: dict[int, dict[str, Any]] = {}
+        for oi, base in self.partial.items():
+            if oi in self.items:
+                continue
+            item = {**base, "status": "incomplete"}
+            if item.get("type") == "message":
+                parts = [dict(p) for p in item.get("content") or [] if isinstance(p, dict)]
+                for (o, ci), text in sorted(self.texts.items()):
+                    if o != oi:
+                        continue
+                    while len(parts) <= ci:
+                        parts.append({"type": "output_text", "text": "", "annotations": []})
+                    parts[ci] = {**parts[ci], "type": "output_text", "text": text}
+                item["content"] = parts
+            elif item.get("type") == "function_call" and oi in self.args:
+                item["arguments"] = self.args[oi]
+            out[oi] = item
+        return out
 
     def result(self) -> dict[str, Any]:
         out = dict(self.response)
-        if not out.get("output") and self.items:
-            out["output"] = [self.items[i] for i in sorted(self.items)]
+        if not out.get("output"):
+            items = {**self._partial_items(), **self.items}
+            if items:
+                out["output"] = [items[i] for i in sorted(items)]
         return out
 
 
