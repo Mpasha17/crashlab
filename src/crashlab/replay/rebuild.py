@@ -122,6 +122,20 @@ class ReplayObject:
         return f"ReplayObject({self._data!r})"
 
 
+def _stainless_model(cls: Any) -> bool:
+    """A model class of an SDK generated like openai's (its package has ``_models`` with a
+    ``BaseModel`` whose ``construct`` builds nested models from a response body)."""
+    import sys
+
+    parts = (getattr(cls, "__module__", "") or "").split(".")
+    for i in range(len(parts), 0, -1):
+        mod = sys.modules.get(".".join(parts[:i]) + "._models")
+        base = getattr(mod, "BaseModel", None)
+        if isinstance(base, type) and isinstance(cls, type):
+            return issubclass(cls, base) and hasattr(base, "construct")
+    return False
+
+
 def _validate(cls: Any, data: dict[str, Any]) -> Any:
     root = (getattr(cls, "__module__", "") or "").split(".")[0]
     attempts = []
@@ -131,11 +145,12 @@ def _validate(cls: Any, data: dict[str, Any]) -> Any:
         attempts.append(lambda: cls.model_validate(data))
     if root != "litellm":
         attempts.append(lambda: cls(**data))
-    if root in ("openai", "anthropic") and hasattr(cls, "construct"):
+    if (root in ("openai", "anthropic") or _stainless_model(cls)) and hasattr(cls, "construct"):
         # what the SDKs themselves do with a response body: build the (nested) models
         # without validation, so provider extensions such as Groq's
         # service_tier="on_demand" still give a real ChatCompletion (LangChain checks
-        # isinstance) instead of a ReplayObject
+        # isinstance) instead of a ReplayObject; the same for the other SDKs generated
+        # like them (groq, together, cerebras ...)
         attempts.append(lambda: cls.construct(**data))
     for attempt in attempts:
         try:
