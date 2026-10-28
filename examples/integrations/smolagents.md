@@ -29,3 +29,13 @@ Notes:
 - **gpt-oss on Groq does not suit `CodeAgent`.** The model emits native tool calls while
   `CodeAgent` sends `tool_choice: none`, and Groq answers 400 `tool_use_failed`. Use
   `ToolCallingAgent` or another model.
+
+- **Tool arguments are recorded by name** (after c03bde2). smolagents' `@tool` gives
+  `forward` a signature that starts with `self`; crashlab 0.0.1 recorded
+  `{"args": [], "kwargs": {...}}`, so a check on `step.args["quantity"]` saw nothing.
+- **`ToolCallingAgent` + gpt-oss on Groq:** smolagents sends `tool_choice: required`; when
+  the model answers in text Groq returns 400 "Tool choice is required". Gemini works.
+- **`stream_outputs=True`:** Gemini streams tool-call deltas without an `index` and
+  smolagents raises "Tool call index is not provided"; Groq returns "Parsing failed".
+  crashlab records the partial stream (a07f1e3) and replays it without an index
+  (1b1ccf0), so the failure reproduces offline.

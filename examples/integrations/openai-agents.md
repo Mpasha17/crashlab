@@ -46,10 +46,9 @@ Notes:
   Without `when`, an `append` lands in every agent's prompt, and a `substitute` fails on
   agents whose prompt lacks the text. `crashlab fix` (prompt `fix-v2`) proposes `when`
   itself.
-- **Tool calls and tool results are recorded** as the tool-call parts of the LLM requests
-  and responses. We did not test whether stacking `@crashlab.tool()` under the SDK's
-  `@function_tool` keeps the schema that the SDK derives from the signature, so separate
-  `execute_tool` steps are untested for this SDK.
+- **Tools:** stack `@crashlab.tool()` under `@function_tool`. The SDK's schema (types and
+  docstring descriptions) is kept and every call is an `execute_tool` step (tested with
+  0.24.0, `Runner.run` and `Runner.run_streamed`).
 - **Close the async client at the end of each `@crashlab.agent` call.**
   `crashlab verify` / `fork` call the entry function many times; each call uses
   `asyncio.run()`, which closes the loop. An `AsyncOpenAI` left open across calls

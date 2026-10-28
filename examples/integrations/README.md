@@ -15,6 +15,8 @@ that framework live on a free-tier OpenAI-compatible endpoint.
 | Google ADK | [google-adk.md](google-adk.md) | Works via `LiteLlm`; native Gemini (google-genai) not recorded yet |
 | LangChain AgentExecutor | [langchain.md](langchain.md) | Works; `ChatOpenAI(client=..., root_client=...)`, `langchain-classic` |
 | Agno | [agno.md](agno.md) | Works; public `client=` |
+| LangGraph | [langgraph.md](langgraph.md) | Works (sync); async streaming records and replays; `ChatOpenAI(client=..., root_client=...)` |
+| PydanticAI | [pydantic-ai.md](pydantic-ai.md) | Works; `OpenAIProvider(openai_client=wrapped)` |
+| LlamaIndex | [llamaindex.md](llamaindex.md) | Works; `OpenAILike(async_openai_client=wrapped)` |
 
-Deferred: LlamaIndex (openai 2.x pin conflict with openai-agents 3.x in a shared venv —
-use an isolated venv next time).
+LlamaIndex pins openai 2.x and the OpenAI Agents SDK needs 3.x: use separate venvs.

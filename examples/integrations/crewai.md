@@ -28,7 +28,10 @@ cassette while still returning the raw object CrewAI expects.
 
 - Build the LLM with ``model="openai/<name>"`` then assign ``llm.model`` to the full
   provider id when the API needs a slash (Groq gpt-oss).
-- CrewAI tools are not ``@crashlab.tool``; tool use still shows up as ``tool_calls`` on
-  the chat step. Oracles should look there (and at ``execute_tool`` if you also wrap the
-  tool function).
+- Stack ``@crashlab.tool()`` under CrewAI's ``@tool("name")``: the args schema is kept and
+  each call is an ``execute_tool`` step (tested with 1.15.32).
+- **Gemini via the OpenAI endpoint:** CrewAI drops Gemini's ``thought_signature`` when it
+  sends a tool call back → 400, and CrewAI retries the whole step, so a side-effect tool
+  ran 3 times in our test. crashlab's ``step_repetition`` finding flags it. Use another
+  model until CrewAI fixes it.
 - Prefer a **separate venv** from `openai-agents` (openai 3.x vs some stacks on 2.x).
