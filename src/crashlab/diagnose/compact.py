@@ -75,7 +75,7 @@ def compact(
     ]
     status = f"status={run.status} outcome={run.outcome}"
     if run.error is not None:
-        status += f" error={run.error.type}: {cut(run.error.message, 300, 'the error')}"
+        status += f" error={run.error.type}: {cut(run.error.detail, 300, 'the error')}"
     lines.append("RESULT: " + status)
     if run.output is not None:
         lines.append("FINAL OUTPUT: " + cut(as_text(run.output), max_field, "the output"))
@@ -151,5 +151,5 @@ def _step_lines(s: Step, first: bool, system: Any, has_tool_steps: bool, lim: in
             args = cut(as_text(c.get("arguments")), lim, "the arguments")
             out.append(f"    calls tool: {c.get('name')}({args})")
     if s.error is not None:
-        out.append(f"    error: {s.error.type}: " + cut(s.error.message, lim, "the error"))
+        out.append(f"    error: {s.error.type}: " + cut(s.error.detail, lim, "the error"))
     return out

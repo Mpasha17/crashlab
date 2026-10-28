@@ -120,3 +120,26 @@ def test_anthropic_sdk_create_stream_and_helper(crashlab_dir):
     assert src.output == ["Message", {"order_id": "A17"}, "message_start", "helper stream",
                           "helper stream", "end_turn"]  # fmt: skip
     assert rep.steps[2].response["messages"][0]["parts"][0]["content"] == "helper stream"
+
+
+def test_a_status_error_body_left_out_of_the_message_is_kept(crashlab_dir):
+    # live (Gemini's OpenAI endpoint, streamed LangGraph): the body is a JSON list, so the
+    # OpenAI SDK's message is only "Error code: 400"; show / diagnose had nothing to go on
+    import httpx
+    import openai
+
+    from crashlab.capture._steps import error_info
+    from crashlab.replay.rebuild import rebuild_exception
+
+    body = [{"error": {"code": 400, "message": "function_response.name: Name cannot be empty.",
+                       "status": "INVALID_ARGUMENT"}}]  # fmt: skip
+    req = httpx.Request("POST", "https://example.invalid/")
+    exc = openai.BadRequestError(
+        "Error code: 400", response=httpx.Response(400, request=req), body=body
+    )
+    info = error_info(exc)
+    assert info.message == "Error code: 400" and info.body == body
+    assert info.detail == "Error code: 400 - function_response.name: Name cannot be empty."
+    again = rebuild_exception(info)
+    assert str(again) == "Error code: 400" and again.body == body  # replay: as the agent saw it
+    assert again.response.json() == body

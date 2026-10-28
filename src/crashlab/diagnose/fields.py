@@ -78,7 +78,7 @@ def step_fields(step: Step) -> dict[str, str]:
         if step.response is not None and step.error is None:
             out["result"] = as_text(step.result)
     if step.error is not None:
-        out["error"] = f"{step.error.type}: {step.error.message}"
+        out["error"] = f"{step.error.type}: {step.error.detail}"
     return out
 
 
@@ -130,4 +130,4 @@ def quote_in_run_error(run: Any, quote: str) -> bool:
     if err is None:
         return False
     q = normalize(_ELLIPSIS.sub("", normalize(_LABEL.sub("", quote))).strip())
-    return len(q) >= 3 and q in normalize(f"{err.type}: {err.message}")
+    return len(q) >= 3 and q in normalize(f"{err.type}: {err.detail}")

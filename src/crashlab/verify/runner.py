@@ -172,7 +172,7 @@ def _trial(
     branch.tags.append(f"verify-{role}")
     Store(root).update_run(branch)
     failed = [c.name for c in branch.checks if c.status != "pass"]
-    err = f"{branch.error.type}: {branch.error.message[:200]}" if branch.error else None
+    err = f"{branch.error.type}: {branch.error.detail[:200]}" if branch.error else None
     if branch.status == "error" and is_infra_error(branch.error):
         status = "errored"
     elif blocked := _blocked_steps(branch):

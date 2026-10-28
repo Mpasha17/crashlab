@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import traceback
 from collections.abc import Iterator
@@ -12,7 +13,7 @@ from typing import Any
 from ..context import RunContext, active_span, current, current_span_id
 from ..models import ErrorInfo, Operation, Step, StepSource, utcnow
 from ..store.redact import get_redactor
-from .normalize import request_hash
+from .normalize import request_hash, to_jsonable
 
 
 def error_info(exc: BaseException, *, is_tool_error: bool = False) -> ErrorInfo:
@@ -20,7 +21,13 @@ def error_info(exc: BaseException, *, is_tool_error: bool = False) -> ErrorInfo:
     if status is None:
         status = getattr(getattr(exc, "response", None), "status_code", None)
     tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    body = getattr(exc, "body", None)
+    if body is not None:
+        body = to_jsonable(body)
+        if len(json.dumps(body, default=str)) > 4000:
+            body = json.dumps(body, default=str)[:4000]
     return ErrorInfo(
+        body=body,
         type=f"{type(exc).__module__}.{type(exc).__qualname__}".removeprefix("builtins."),
         message=str(exc)[:4000],
         is_tool_error=is_tool_error,

@@ -254,8 +254,14 @@ def _add_http_parts(exc: BaseException, info: ErrorInfo) -> None:
     except ImportError:  # pragma: no cover - the SDKs depend on httpx
         return
     request = httpx.Request("POST", "https://crashlab.replay.invalid/")
-    response = httpx.Response(info.status_code or 500, request=request, text=info.message)
-    parts = {"response": response, "request": request, "body": None, "request_id": None,
+    if info.body is not None:
+        import json
+
+        response = httpx.Response(info.status_code or 500, request=request,
+                                  text=json.dumps(info.body, default=str))  # fmt: skip
+    else:
+        response = httpx.Response(info.status_code or 500, request=request, text=info.message)
+    parts = {"response": response, "request": request, "body": info.body, "request_id": None,
              "code": None, "param": None, "type": None}  # fmt: skip
     for attr, value in parts.items():
         if attr in exc.__dict__ or isinstance(getattr(type(exc), attr, None), property):

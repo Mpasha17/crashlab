@@ -67,6 +67,39 @@ class ErrorInfo(_Model):
     is_tool_error: bool = False
     status_code: int | None = None
     traceback: str | None = None
+    # an SDK status error's parsed response body (``exc.body``), when the message leaves
+    # it out: Gemini's OpenAI endpoint returns a JSON list, so the OpenAI SDK's message is
+    # just "Error code: 400"
+    body: Any | None = None
+
+    @property
+    def detail(self) -> str:
+        """The message, plus the provider's error text from ``body`` when the message is
+        only a status line ("Error code: 400")."""
+        extra = _body_message(self.body)
+        if extra and extra not in self.message:
+            return f"{self.message} - {extra}"
+        return self.message
+
+
+def _body_message(body: Any) -> str:
+    """The human part of a provider error body (``{"error": {"message": ...}}``, a list
+    of those, or a plain string)."""
+    if body is None:
+        return ""
+    if isinstance(body, list) and body:
+        return _body_message(body[0])
+    if isinstance(body, dict):
+        inner = body.get("error", body)
+        if isinstance(inner, dict):
+            msg = inner.get("message") or inner.get("detail")
+            if msg:
+                return " ".join(str(msg).split())
+        elif isinstance(inner, str):
+            return " ".join(inner.split())
+    if isinstance(body, str):
+        return " ".join(body.split())[:500]
+    return ""
 
 
 Severity = Literal["info", "warn", "error", "critical"]

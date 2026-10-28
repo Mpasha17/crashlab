@@ -228,7 +228,7 @@ def render_html(run: Run, verifications: list[Any] | None = None) -> str:
                 _e(res)
                 if s.error is None
                 else f'<span class="fail">{_e(s.error.type)}: '
-                f"{_e(_short(s.error.message, 200))}</span>",
+                f"{_e(_short(s.error.detail, 200))}</span>",
             ]
         )
     p.append(_table(["#", "op", "name", "time", "source", "args", "result / error"], rows))

@@ -334,7 +334,7 @@ def show(
     meta.add_row("input", _short(run.input, 100))
     meta.add_row("output", _short(run.output, 100))
     if run.error:
-        meta.add_row("error", Text(f"{run.error.type}: {_short(run.error.message, 90)}", "red"))
+        meta.add_row("error", Text(f"{run.error.type}: {_short(run.error.detail, 90)}", "red"))
     meta.add_row("started", f"{_local_time(run.started_at)} (local)")
     from .pricing import run_cost, step_cost
 
@@ -371,7 +371,7 @@ def show(
     table.add_column("", no_wrap=True)
     for step in run.steps:
         inp, out = _step_io(step)
-        err = f"{step.error.type}: {_short(step.error.message, 50)}" if step.error else ""
+        err = f"{step.error.type}: {_short(step.error.detail, 50)}" if step.error else ""
         op = step.operation + _SOURCE_MARK.get(step.source, "")
         c = step.attributes.get("crashlab.usage.cost_usd") if step.operation == "chat" else None
         c = step_cost(step) if c is None and step.operation == "chat" else c
@@ -1605,7 +1605,7 @@ def fork_cmd(
     if branch.error:
         console.print(
             f"[red]the fork raised[/] {_e(branch.error.type)}: "
-            f"{_e(_short(branch.error.message, 160))}"
+            f"{_e(_short(branch.error.detail, 160))}"
         )
     notes = [f for f in branch.findings if f.kind == "fork"]
     for note in notes:
