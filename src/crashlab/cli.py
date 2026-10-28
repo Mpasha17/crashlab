@@ -1276,7 +1276,8 @@ def check_cmd(
             else:
                 console.print("runtime checks: no findings")
     if as_json:
-        typer.echo(json.dumps(report if many else report[0], indent=2, default=str))
+        # --all (or several refs) is always a list, even when the store holds one run
+        typer.echo(json.dumps(report if many or all_runs else report[0], indent=2, default=str))
     elif summary is not None:
         console.print(summary)
     if failed:

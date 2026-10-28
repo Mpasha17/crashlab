@@ -49,3 +49,19 @@ def test_check_all_on_empty_store():
     result = runner.invoke(app, ["check", "--all", "--json"], env=ENV)
     assert result.exit_code == 0
     assert json.loads(result.output) == []
+
+
+def test_check_all_json_is_a_list_even_with_one_run(crashlab_dir):
+    import crashlab
+
+    @crashlab.agent(name="solo")
+    def solo() -> str:
+        return "ok"
+
+    solo()
+    result = runner.invoke(app, ["check", "--all", "--json"], env=ENV)
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert isinstance(data, list) and len(data) == 1 and data[0]["name"] == "solo"
+    one = json.loads(runner.invoke(app, ["check", "last", "--json"], env=ENV).output)
+    assert isinstance(one, dict)  # a single explicit ref stays an object
