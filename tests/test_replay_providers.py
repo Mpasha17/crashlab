@@ -309,3 +309,22 @@ def test_rebuilt_sdk_status_error_can_be_rewrapped_like_langchain_does():
     assert exc.response.status_code == 400 and exc.body is None
     again = openai.BadRequestError(message=exc.message, response=exc.response, body=exc.body)
     assert again.status_code == 400
+
+
+@pytest.mark.parametrize("sdk", ["openai", "anthropic"])
+def test_replayed_http_parts_use_the_sdks_http_library(sdk):
+    # openai>=3 / anthropic>=1 are on httpx2: the replayed error's response (and a raw
+    # response's http_response) must come from it, also when httpx is not installed
+    mod = pytest.importorskip(sdk)
+    import sys
+
+    from crashlab.models import ErrorInfo
+
+    lib = getattr(sys.modules[f"{sdk}._exceptions"], "httpx2", None) or sys.modules["httpx"]
+    exc = R.rebuild_exception(
+        ErrorInfo(type=f"{sdk}.BadRequestError", message="Error code: 400", status_code=400)
+    )
+    assert isinstance(exc, mod.BadRequestError)
+    assert isinstance(exc.response, lib.Response) and exc.response.status_code == 400
+    raw = R.ReplayRawResponse(exc, {"ok": True})
+    assert isinstance(raw.http_response, lib.Response)

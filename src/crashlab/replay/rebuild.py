@@ -246,13 +246,32 @@ def rebuild_exception(info: ErrorInfo) -> BaseException:
     return exc
 
 
+def _http_lib(owner: type) -> Any:
+    """The HTTP library the SDK that defines ``owner`` uses: ``httpx2`` (openai>=3,
+    anthropic>=1) or ``httpx``; either installed one when that is unknown."""
+    import sys
+
+    top = (getattr(owner, "__module__", "") or "").split(".")[0]
+    for name in (f"{top}._exceptions", f"{top}._base_client", top):
+        mod = sys.modules.get(name) if top else None
+        for lib_name in ("httpx2", "httpx"):
+            lib = getattr(mod, lib_name, None)
+            if lib is not None and hasattr(lib, "Response"):
+                return lib
+    for lib_name in ("httpx", "httpx2"):
+        try:
+            return importlib.import_module(lib_name)
+        except ImportError:
+            continue
+    return None
+
+
 def _add_http_parts(exc: BaseException, info: ErrorInfo) -> None:
     """SDK status errors carry ``response`` / ``request`` / ``body`` (``request_id``,
     ``code`` ...); callers such as LangChain re-raise them as their own error types from
     those. Give the replayed error a minimal HTTP response with the recorded status."""
-    try:
-        import httpx
-    except ImportError:  # pragma: no cover - the SDKs depend on httpx
+    httpx = _http_lib(type(exc))
+    if httpx is None:  # pragma: no cover - the SDKs depend on httpx / httpx2
         return
     request = httpx.Request("POST", "https://crashlab.replay.invalid/")
     if info.body is not None:
@@ -310,9 +329,8 @@ class ReplayRawResponse:
 
     @property
     def http_response(self) -> Any:
-        try:
-            import httpx
-        except ImportError:  # pragma: no cover - every supported SDK depends on httpx
+        httpx = _http_lib(type(self._parsed))
+        if httpx is None:  # pragma: no cover - every supported SDK depends on httpx(2)
             return None
         return httpx.Response(
             200,
