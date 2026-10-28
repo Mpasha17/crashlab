@@ -42,6 +42,40 @@ RESPONSES = ChatAdapter(
 )
 
 
+def _retrieve_request(kwargs: dict[str, Any]) -> dict[str, Any]:
+    params = N.normalize_params(N.to_jsonable(kwargs) or {})
+    return {"system": None, "messages": [], "tools": [], "params": params}
+
+
+# polling a background response (``responses.create(background=True)`` then
+# ``responses.retrieve(id)``): recorded so replay stays offline; operation "custom" keeps
+# the polls out of LLM-call counts and repetition checks
+RESPONSES_RETRIEVE = ChatAdapter(
+    provider="openai",
+    api="openai.responses.retrieve",
+    normalize_request=_retrieve_request,
+    normalize_response=N.normalize_openai_responses_response,
+    new_assembler=ResponsesAssembler,
+    operation="custom",
+)
+
+
+def _retrieve(inner: Any, server: str | None, adapter: ChatAdapter = RESPONSES_RETRIEVE):
+    is_async = _is_async(inner)
+
+    def retrieve(*args: Any, **kwargs: Any) -> Any:
+        if args:  # retrieve("resp_...") -> keyword, so the id is part of the request
+            kwargs = {"response_id": args[0], **kwargs}
+            args = args[1:]
+        if kwargs.get("stream") is True:  # resuming a stream: not recorded
+            return inner.retrieve(*args, **kwargs)
+        return invoke(adapter, inner.retrieve, args, kwargs, server=server,
+                      is_async=is_async)  # fmt: skip
+
+    retrieve.__doc__ = getattr(inner.retrieve, "__doc__", None)
+    return retrieve
+
+
 def _adapter(base: ChatAdapter, provider: str) -> ChatAdapter:
     if provider == base.provider:
         return base
@@ -189,10 +223,10 @@ def _raw_create(inner_completions: Any, adapter: ChatAdapter, server: str | None
     return create
 
 
-def _wrap_resource(inner: Any, adapter: ChatAdapter, server: str | None) -> Proxy:
+def _wrap_resource(inner: Any, adapter: ChatAdapter, server: str | None, **extra: Any) -> Proxy:
     """``chat.completions`` / ``responses`` (or ``beta.chat.completions``) with every
     recordable entry point bound: create, parse, stream(), with_raw_response.create."""
-    kw: dict[str, Any] = {}
+    kw: dict[str, Any] = dict(extra)
     if callable(getattr(inner, "create", None)):
         kw["create"] = _create(inner, adapter, server)
     if callable(getattr(inner, "parse", None)):
@@ -230,7 +264,12 @@ class WrappedOpenAI(WrappedClient):
         responses = getattr(client, "responses", None)
         if responses is not None and callable(getattr(responses, "create", None)):
             resp_adapter = _adapter(RESPONSES, provider)
-            overrides["responses"] = _wrap_resource(responses, resp_adapter, server)
+            extra = {}
+            if callable(getattr(responses, "retrieve", None)):
+                extra["retrieve"] = _retrieve(
+                    responses, server, _adapter(RESPONSES_RETRIEVE, provider)
+                )
+            overrides["responses"] = _wrap_resource(responses, resp_adapter, server, **extra)
         embeddings = getattr(client, "embeddings", None)
         if embeddings is not None and callable(getattr(embeddings, "create", None)):
             emb_kw: dict[str, Any] = {

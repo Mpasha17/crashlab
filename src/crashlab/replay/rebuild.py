@@ -21,6 +21,7 @@ from ..models import ErrorInfo
 DEFAULT_RESPONSE_TYPES = {
     "openai.chat.completions": "openai.types.chat.ChatCompletion",
     "openai.responses": "openai.types.responses.Response",
+    "openai.responses.retrieve": "openai.types.responses.Response",
     "openai.embeddings": "openai.types.CreateEmbeddingResponse",
     "anthropic.messages": "anthropic.types.Message",
     "anthropic.messages.count_tokens": "anthropic.types.MessageTokensCount",
