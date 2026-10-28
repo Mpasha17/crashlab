@@ -275,3 +275,23 @@ def test_fix_prompt_treats_passing_checks_as_requirements():
     system = F.fix_messages(run, d)[0]["content"]
     assert "Every check marked PASS" in system and "keep it passing" in system
     assert F.FIX_PROMPT_VERSION == "fix-v3"
+
+
+def test_cli_fix_no_cache_asks_the_fix_model_again_but_keeps_the_diagnosis(
+    fake_fix_model, monkeypatch
+):
+    import sys
+
+    run = _policy_run()
+    crashlab.diagnose(run, heuristic=True)
+    before = crashlab.load(run.run_id).diagnosis
+    rediagnosed: list[str] = []
+    monkeypatch.setattr(
+        sys.modules["crashlab.diagnose"], "diagnose", lambda *a, **k: rediagnosed.append("x")
+    )
+    for _ in range(2):
+        res = runner.invoke(app, ["fix", run.run_id, "-m", "fake", "--no-cache", "--json"])
+        assert res.exit_code == 0, res.output
+    assert fake_fix_model == ["fix-v3", "fix-v3"] and rediagnosed == []
+    after = crashlab.load(run.run_id).diagnosis
+    assert (after.label, after.method) == (before.label, before.method)

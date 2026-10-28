@@ -1008,7 +1008,11 @@ def fix_cmd(
         False, "--try", help="Fork once with the top fix (live, the agent's own client)."
     ),
     max_fixes: int = typer.Option(3, "--max", help="Keep at most N fixes (1-3)."),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Ask again even if cached."),
+    no_cache: bool = typer.Option(
+        False,
+        "--no-cache",
+        help="Ask the fix model again (keeps a failure diagnosis; see diagnose --no-cache).",
+    ),
     hide_input: list[str] = typer.Option(  # noqa: B008
         [], "--hide-input", help="Run input key to hide from the models (repeatable)."
     ),
@@ -1034,7 +1038,9 @@ def fix_cmd(
     store = Store()
     api_key = _key_from(console, api_key_env)
     run = _resolve(store, run_ref)
-    if run.diagnosis is None or no_cache:
+    # --no-cache asks the fix model again; it keeps a usable diagnosis (re-diagnose with
+    # `crashlab diagnose --no-cache`), so a flaky second diagnosis cannot wipe a good one
+    if run.diagnosis is None or (no_cache and not run.diagnosis.is_failure):
         try:
             diagnose(
                 run,
