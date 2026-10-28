@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import re
 from typing import Any, Literal
 
 DivergenceKind = Literal[
@@ -127,6 +128,31 @@ def diff_values(
     return paths, "\n".join(chunks)
 
 
+_VOLATILE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"  # uuid
+    r"|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?"  # iso
+    r"|\b1[6-9]\d{8}(?:\.\d+|\d{3})?\b"  # unix seconds / millis (2020s)
+)
+NONDETERMINISM_HINT = (
+    "hint: the only differences look like UUIDs / timestamps made while the agent runs. "
+    "Strict replay needs the same requests: create them in a @crashlab.tool (its result "
+    "is served from the cassette on replay) or pass them in as agent input."
+)
+
+
+def nondeterminism_hint(diff: str) -> str | None:
+    """The hint above when every changed diff line differs only by uuid/time values."""
+    lines = diff.split("\n")
+    removed = [x[1:] for x in lines if x.startswith("-") and not x.startswith("---")]
+    added = [x[1:] for x in lines if x.startswith("+") and not x.startswith("+++")]
+    if not removed or len(removed) != len(added):
+        return None
+    if not any(_VOLATILE.search(x) for x in removed):
+        return None
+    norm = [_VOLATILE.sub("<v>", x) for x in removed]
+    return NONDETERMINISM_HINT if norm == [_VOLATILE.sub("<v>", x) for x in added] else None
+
+
 class DivergenceError(Exception):
     """A strict replay did not match its recording.
 
@@ -165,6 +191,9 @@ class DivergenceError(Exception):
             lines.append("differing fields: " + ", ".join(self.fields))
         if self.diff:
             lines.append(self.diff)
+            hint = nondeterminism_hint(self.diff) if self.kind == "request" else None
+            if hint:
+                lines.append(hint)
         return "\n".join(lines)
 
     def __str__(self) -> str:
