@@ -1,9 +1,10 @@
 """Recording proxy for OpenAI (and OpenAI-compatible) clients.
 
-Intercepts ``client.chat.completions.create`` and ``client.responses.create`` on sync and
-async clients, including ``stream=True`` (chunks pass through unchanged; the assembled
-response is recorded when the stream ends). Everything else is delegated untouched. The
-``openai`` package is never imported here, so any object with the same shape works.
+Intercepts ``client.chat.completions.create`` / ``.parse`` and ``client.responses.create`` /
+``.parse`` on sync and async clients, including ``stream=True`` (chunks pass through
+unchanged; the assembled response is recorded when the stream ends). Everything else is
+delegated untouched. ``openai`` is imported only lazily to re-run the SDK's parser over a
+replayed ``parse()`` result, so any object with the same shape works.
 """
 
 from __future__ import annotations
@@ -56,6 +57,53 @@ def _create(inner: Any, adapter: ChatAdapter, server: str | None):
     return create
 
 
+def _reparse(obj: Any, kwargs: dict[str, Any], api: str) -> Any:
+    """A replayed ``parse()`` result is rebuilt as a plain completion / response: run the
+    SDK's own parser over it so ``.parsed`` / ``.output_parsed`` work as when recorded."""
+    if obj is None or type(obj).__name__.startswith("Parsed"):
+        return obj
+    try:
+        from openai import omit
+    except ImportError:  # pragma: no cover - older SDKs
+        from openai import NOT_GIVEN as omit  # type: ignore[attr-defined,no-redef]
+    try:
+        if api == "openai.responses":
+            from openai.lib._parsing._responses import parse_response
+
+            return parse_response(
+                text_format=kwargs.get("text_format", omit),
+                input_tools=kwargs.get("tools", omit),
+                response=obj,
+            )
+        from openai.lib._parsing._completions import parse_chat_completion
+
+        return parse_chat_completion(
+            response_format=kwargs.get("response_format", omit),
+            input_tools=kwargs.get("tools", omit),
+            chat_completion=obj,
+        )
+    except Exception:  # pragma: no cover - SDK internals moved: serve what we rebuilt
+        return obj
+
+
+def _parse(inner: Any, adapter: ChatAdapter, server: str | None):
+    """Record ``chat.completions.parse`` / ``responses.parse`` (structured outputs)."""
+    is_async = _is_async(inner)
+
+    def parse(*args: Any, **kwargs: Any) -> Any:
+        out = invoke(adapter, inner.parse, args, kwargs, server=server, is_async=is_async)
+        if is_async:
+
+            async def finish() -> Any:
+                return _reparse(await out, kwargs, adapter.api)
+
+            return finish()
+        return _reparse(out, kwargs, adapter.api)
+
+    parse.__doc__ = getattr(inner.parse, "__doc__", None)
+    return parse
+
+
 def _raw_create(inner_completions: Any, adapter: ChatAdapter, server: str | None) -> Any:
     """Record ``with_raw_response.create`` (CrewAI) without losing the raw return value."""
     raw_resource = inner_completions.with_raw_response
@@ -82,6 +130,8 @@ class WrappedOpenAI(WrappedClient):
             adapter = _adapter(CHAT, provider)
             create = _create(chat.completions, adapter, server)
             completions_kw: dict[str, Any] = {"create": create}
+            if callable(getattr(chat.completions, "parse", None)):
+                completions_kw["parse"] = _parse(chat.completions, adapter, server)
             # CrewAI calls with_raw_response.create; bind recording onto that path too
             if getattr(chat.completions, "with_raw_response", None) is not None:
                 completions_kw["with_raw_response"] = Proxy(
@@ -94,6 +144,8 @@ class WrappedOpenAI(WrappedClient):
         if responses is not None and callable(getattr(responses, "create", None)):
             resp_adapter = _adapter(RESPONSES, provider)
             resp_kw: dict[str, Any] = {"create": _create(responses, resp_adapter, server)}
+            if callable(getattr(responses, "parse", None)):
+                resp_kw["parse"] = _parse(responses, resp_adapter, server)
             if getattr(responses, "with_raw_response", None) is not None:
                 resp_kw["with_raw_response"] = Proxy(
                     responses.with_raw_response,

@@ -98,10 +98,21 @@ def to_jsonable(obj: Any, _depth: int = 0) -> Any:
         return [to_jsonable(v, _depth + 1) for v in obj]
     if is_not_given(obj):
         return None
+    if isinstance(obj, type):
+        # a class passed as a value (``response_format=MyModel``): its schema, not an instance
+        name = f"{obj.__module__}.{obj.__qualname__}"
+        schema = getattr(obj, "model_json_schema", None)
+        if callable(schema):
+            try:
+                return {"class": obj.__qualname__, "schema": to_jsonable(schema(), _depth + 1)}
+            except Exception:
+                pass
+        return {"class": name}
     dump = getattr(obj, "model_dump", None)
     if callable(dump):
         try:
-            return to_jsonable(dump(mode="json"), _depth + 1)
+            # warnings=False: ParsedChatCompletion's generic ``parsed`` field warns on dump
+            return to_jsonable(dump(mode="json", warnings=False), _depth + 1)
         except TypeError:
             return to_jsonable(dump(), _depth + 1)
         except Exception:
