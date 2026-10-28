@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
+import time
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -86,6 +89,54 @@ def _flag_row(f: dict[str, Any]) -> tuple[Any, ...]:
             f.get("message", ""))  # fmt: skip
 
 
+# Serialises schema setup across SQLiteIndex instances in this process; other processes
+# are covered by _retry_locked and the idempotent migrations in _init_schema.
+_INIT_LOCK = threading.Lock()
+
+
+def _retry_locked(fn: Callable[[], None], timeout: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout
+    delay = 0.01
+    while True:
+        try:
+            fn()
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc) or time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.25)
+
+
+def _add_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    except sqlite3.OperationalError as exc:  # another process migrated first
+        if "duplicate column" not in str(exc):
+            raise
+
+
+def _init_schema(conn: sqlite3.Connection) -> None:
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.executescript(_SCHEMA)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(runs)")}
+    if "replay_of" not in cols:  # schema v1 -> v2
+        _add_column(conn, "runs", "replay_of", "TEXT")
+    if "cost_usd" not in cols:  # v2 -> v3: cost and findings severity for `ls`
+        _add_column(conn, "runs", "cost_usd", "REAL")
+        _add_column(conn, "runs", "max_severity", "TEXT")
+    dcols = {r["name"] for r in conn.execute("PRAGMA table_info(diagnoses)")}
+    if "cache_key" not in dcols:  # v3 -> v4: `crashlab diagnose` cache
+        _add_column(conn, "diagnoses", "cache_key", "TEXT")
+        _add_column(conn, "diagnoses", "model", "TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS diagnoses_key ON diagnoses(run_id, cache_key)")
+    conn.execute(
+        "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)",
+        (str(SCHEMA_VERSION),),
+    )
+    conn.commit()
+
+
 class SQLiteIndex:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
@@ -96,25 +147,17 @@ class SQLiteIndex:
         conn = sqlite3.connect(self.path, timeout=30)
         conn.row_factory = sqlite3.Row
         if not self._initialized:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.executescript(_SCHEMA)
-            cols = {r["name"] for r in conn.execute("PRAGMA table_info(runs)")}
-            if "replay_of" not in cols:  # schema v1 -> v2
-                conn.execute("ALTER TABLE runs ADD COLUMN replay_of TEXT")
-            if "cost_usd" not in cols:  # v2 -> v3: cost and findings severity for `ls`
-                conn.execute("ALTER TABLE runs ADD COLUMN cost_usd REAL")
-                conn.execute("ALTER TABLE runs ADD COLUMN max_severity TEXT")
-            dcols = {r["name"] for r in conn.execute("PRAGMA table_info(diagnoses)")}
-            if "cache_key" not in dcols:  # v3 -> v4: `crashlab diagnose` cache
-                conn.execute("ALTER TABLE diagnoses ADD COLUMN cache_key TEXT")
-                conn.execute("ALTER TABLE diagnoses ADD COLUMN model TEXT")
-            conn.execute("CREATE INDEX IF NOT EXISTS diagnoses_key ON diagnoses(run_id, cache_key)")
-            conn.execute(
-                "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)",
-                (str(SCHEMA_VERSION),),
-            )
-            conn.commit()
-            self._initialized = True
+            try:
+                # Two runs starting at once on a fresh store (agents in threads) used to
+                # race here: `PRAGMA journal_mode=WAL` does not honour the busy timeout,
+                # so one of them failed with "database is locked" before recording.
+                with _INIT_LOCK:
+                    if not self._initialized:
+                        _retry_locked(lambda: _init_schema(conn))
+                        self._initialized = True
+            except BaseException:
+                conn.close()
+                raise
         return conn
 
     def exists(self) -> bool:

@@ -29,7 +29,8 @@ def test_a_tool_in_a_plain_worker_thread_is_recorded(crashlab_dir):
 
 def test_no_fallback_with_two_live_runs_or_when_disabled(crashlab_dir, monkeypatch):
     seen: list = []
-    gate, done = threading.Barrier(3), threading.Event()
+    # timeouts so a run that fails to start breaks the barrier instead of hanging CI
+    gate, done = threading.Barrier(3, timeout=10), threading.Event()
 
     @crashlab.agent(name="busy")
     def busy() -> None:
@@ -54,3 +55,31 @@ def test_no_fallback_with_two_live_runs_or_when_disabled(crashlab_dir, monkeypat
             return ex.submit(context.current).result()
 
     assert off() is None
+
+
+def test_concurrent_runs_on_a_fresh_store_both_record(crashlab_dir):
+    """Two runs starting at once must not race the index schema setup
+    ("database is locked" from PRAGMA journal_mode=WAL)."""
+    errors: list[BaseException] = []
+    start = threading.Barrier(4, timeout=10)
+
+    @crashlab.agent(name="fresh")
+    def fresh(x: int) -> int:
+        return add_one(x)
+
+    def go(x: int) -> None:
+        try:
+            start.wait()
+            fresh(x)
+        except BaseException as exc:  # pragma: no cover - only on regression
+            errors.append(exc)
+
+    threads = [threading.Thread(target=go, args=(i,)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert errors == []
+    from crashlab.store import Store
+
+    assert sorted(r["name"] for r in Store().index.list_runs()) == ["fresh"] * 4
