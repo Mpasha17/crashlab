@@ -40,6 +40,9 @@ def _confidence(value: Any) -> float:
     return min(max(c, 0.0), 1.0)
 
 
+_NOT_QUOTE = ("step", "step_idx", "field", "why", "reason", "explanation", "note")
+
+
 def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
     """Build the :class:`Diagnosis` for ``run`` from the diagnoser's JSON object ``raw``."""
     notes: list[str] = []
@@ -73,6 +76,15 @@ def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
         total += 1
         idx = _int(item.get("step", item.get("step_idx")))
         quote = item.get("quote")
+        if not isinstance(quote, str) or not quote.strip():
+            # {"step": 3, "result": "<quote>"}: the field name used as the key (Gemini
+            # flash-lite). The quote is still checked verbatim against the step below.
+            others = [
+                v
+                for k, v in item.items()
+                if k not in _NOT_QUOTE and isinstance(v, str) and v.strip()
+            ]
+            quote = others[0] if len(others) == 1 else None
         if not isinstance(quote, str) or not quote.strip():
             notes.append("dropped an evidence item without a quote")
             continue

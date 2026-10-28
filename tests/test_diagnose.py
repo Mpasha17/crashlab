@@ -116,6 +116,21 @@ def test_one_good_quote_is_enough_and_bad_ones_are_noted():
     assert d.notes == ["dropped quote 'made up': not found verbatim in step 3"]
 
 
+def test_field_name_as_evidence_key_is_read_as_the_quote():
+    # Gemini flash-lite (live, Haystack/AG2 runs): {"step": 1, "result": "<quote>"}
+    raw = _with(evidence=[{"step": 1, "result": "Running shoes"}, {"step": 3, "args": "invented"}])
+    d = validate(raw, _policy_run())
+    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION
+    assert [(e.step_idx, e.quote) for e in d.evidence] == [(1, "Running shoes")]
+    assert d.notes == ["dropped quote 'invented': not found verbatim in step 3"]
+
+
+def test_evidence_item_with_two_candidate_quotes_is_still_dropped():
+    raw = _with(evidence=[{"step": 1, "result": "Running shoes", "args": "C03"}])
+    d = validate(raw, _policy_run())
+    assert d.label is UNKNOWN and "dropped an evidence item without a quote" in d.notes
+
+
 def test_no_failure_on_a_failed_run_becomes_unknown():
     run = _policy_run()
     assert run.outcome == "fail"
@@ -373,3 +388,18 @@ def test_cli_without_model_explains(monkeypatch):
     monkeypatch.delenv("CRASHLAB_DIAGNOSER_MODEL", raising=False)
     res = runner.invoke(app, ["diagnose"])
     assert res.exit_code == 1 and "no diagnoser model" in res.output
+
+
+def test_parse_json_accepts_single_quoted_values():
+    # Gemini flash-lite (live, DSPy run): a value holding JSON was quoted with '...'
+    text = (
+        '{"label": "TASK_SPEC_VIOLATION", "failing_step": 3, "evidence": [{"step": 3, '
+        '"result": \'{"order_id": "O-460", "quantity": 10}\'}], "confidence": 1.0}'
+    )
+    got = parse_json(text)
+    assert got["evidence"][0]["result"] == '{"order_id": "O-460", "quantity": 10}'
+    assert parse_json('{"a": \'don\'t stop\', "b": "it\'s"}') == {
+        "a": "don't stop",
+        "b": "it's",
+    }
+    assert parse_json("{'unterminated: 1") is None

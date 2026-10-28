@@ -76,7 +76,7 @@ def parse_json(text: Any) -> dict[str, Any] | None:
     tries = [text, *_FENCE.findall(text)]
     if "{" in text and "}" in text:
         tries.append(text[text.index("{") : text.rindex("}") + 1])
-    for t in tries:
+    for t in [*tries, *(_requote(t) for t in tries if "'" in t)]:
         try:
             value = json.loads(t.strip())
         except (ValueError, TypeError):
@@ -84,6 +84,41 @@ def parse_json(text: Any) -> dict[str, Any] | None:
         if isinstance(value, dict):
             return value
     return None
+
+
+_CLOSE_SINGLE = re.compile(r"'\s*[,}\]:]")
+
+
+def _requote(text: str) -> str:
+    """Turn Python-style ``'single-quoted'`` string values into JSON strings.
+
+    Gemini flash-lite sometimes quotes a value that itself holds JSON with single quotes
+    (``"result": '{"order_id": ...}'``), which ``json.loads`` rejects. A single-quoted
+    string ends at a ``'`` followed by ``, } ] :`` so apostrophes inside it survive."""
+    out: list[str] = []
+    i, n, in_double = 0, len(text), False
+    while i < n:
+        c = text[i]
+        if in_double:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 1
+            elif c == '"':
+                in_double = False
+        elif c == '"':
+            in_double = True
+            out.append(c)
+        elif c == "'":
+            m = _CLOSE_SINGLE.search(text, i + 1)
+            if m is None:
+                return text
+            out.append(json.dumps(text[i + 1 : m.start()].replace("\\'", "'")))
+            i = m.start()
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _api_of(model: str, base_url: str | None) -> str:
