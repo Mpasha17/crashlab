@@ -27,7 +27,7 @@ from .compact import compact
 from .diagnoser import DiagnoseError, Messages, _ask, cache_key, parse_json
 from .heuristics import candidates
 
-FIX_PROMPT_VERSION = "fix-v3"
+FIX_PROMPT_VERSION = "fix-v4"
 MAX_FIXES = 3
 MAX_PATCH_CHARS = 700  # the patch's own text (prompt lines, descriptions ...)
 MAX_PROMPT_LINES = 4
@@ -72,7 +72,12 @@ it in "literal_justification".
 passing. Do not make the agent refuse or skip a step a passing check expects (e.g. \
 "do not place the order" when a check requires an order); prefer a rule that does \
 the task within the limit.
-5. expected_effect: what the agent will do differently, in one sentence.
+5. The agent runs unattended: a rule that makes it ask the user to confirm, or only \
+"inform" the user, ends the run without the action. Say what the agent must DO \
+(e.g. "order the maximum allowed and tell the customer the limit").
+6. Put a new rule next to the related lines of the prompt ("op": "insert_line" with \
+"after") rather than appending it after unrelated style rules.
+7. expected_effect: what the agent will do differently, in one sentence.
 
 Reply with only this JSON object:
 {"fixes": [{"patch": {...}, "rationale": "<why this fixes the cause>", \
