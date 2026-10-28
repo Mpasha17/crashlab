@@ -188,6 +188,10 @@ pip install "crashlab[openai]"
 # or crashlab[anthropic], crashlab[litellm]
 ```
 
+Using a framework? Wrap the client it uses; per-framework notes (AutoGen, AG2, Haystack,
+DSPy, Google ADK, LangChain, Agno, CrewAI, OpenAI Agents SDK, smolagents) are in
+[examples/integrations/](https://github.com/Mpasha17/crashlab/tree/main/examples/integrations).
+
 ```python
 import crashlab
 from openai import OpenAI
@@ -335,7 +339,7 @@ pass (VERIFIED, $0.002).
 
 ```bash
 crashlab export-test 01M5GTK1FR --fix auto -o tests/crashlab   # test + cassettes
-pytest --crashlab            # runs only exported tests: offline, no keys, no network
+pytest --crashlab            # (pip install pytest) exported tests only: offline, no keys, no network
 crashlab report 01M5GTK1FR --html report.html   # one self-contained file to share
 ```
 
