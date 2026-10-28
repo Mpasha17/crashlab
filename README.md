@@ -1,8 +1,8 @@
 # crashlab
 
 [![CI](https://github.com/Mpasha17/crashlab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Mpasha17/crashlab/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/Mpasha17/crashlab/blob/main/LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/Mpasha17/crashlab/blob/main/pyproject.toml)
 
 **Crash-test your AI agents.** Your agent failed in production. crashlab replays the exact
 run offline, tells you which step broke and why, and checks whether a fix works before you
@@ -16,7 +16,7 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
 - **Verify** a proposed fix by rerunning the failure and your past good runs.
 - **Export** the failure as a pytest regression test.
 
-![crashlab catching the smolagents empty-:memory: bug (terminal demo, no keys)](docs/demo/smolagents-text-to-sql.gif)
+![crashlab catching the smolagents empty-:memory: bug (terminal demo, no keys)](https://raw.githubusercontent.com/Mpasha17/crashlab/main/docs/demo/smolagents-text-to-sql.gif)
 
 ```bash
 pip install "crashlab[openai] @ git+https://github.com/Mpasha17/crashlab"   # not on PyPI yet
@@ -30,7 +30,7 @@ Then try it [offline with no API key](#try-it-with-no-api-key-and-no-model) or s
 > **forks** them at any step with typed **patches** and **diffs** two runs. It also
 > **diagnoses** failed runs, **proposes fixes** and **verifies** them with repeated live
 > forks, then **exports** a pytest regression test and a shareable HTML report (see
-> [ARCHITECTURE.md](ARCHITECTURE.md)). Not on PyPI yet.
+> [ARCHITECTURE.md](https://github.com/Mpasha17/crashlab/blob/main/ARCHITECTURE.md)). Not on PyPI yet.
 
 ## Reproduced a real upstream bug
 
@@ -48,15 +48,15 @@ failure. Direct calls on the main thread work, which hides the bug. crashlab add
 no-LLM repro through smolagents' own `LocalPythonExecutor`: upstream → error,
 `StaticPool` + `check_same_thread=False` → `('Woodrow Wilson',)`.
 
-Case studies: [docs/case-studies/](docs/case-studies/README.md). Flagship write-up: [smolagents text_to_sql](docs/case-studies/smolagents-text-to-sql.md).
-Terminal demo (no keys): [docs/demo/](docs/demo/README.md) (GIF above). We did **not** file an
+Case studies: [docs/case-studies/](https://github.com/Mpasha17/crashlab/blob/main/docs/case-studies/README.md). Flagship write-up: [smolagents text_to_sql](https://github.com/Mpasha17/crashlab/blob/main/docs/case-studies/smolagents-text-to-sql.md).
+Terminal demo (no keys): [docs/demo/](https://github.com/Mpasha17/crashlab/blob/main/docs/demo/README.md) (GIF above). We did **not** file an
 upstream issue: it would duplicate PR #2475.
 
 Also tried: OpenAI Agents SDK `examples/customer_service` (Triage Agent answers
 follow-up FAQ questions itself on a smaller open model; two scoped prompt patches were
 correctly **REJECTED** by `crashlab verify` for regressing past FAQ runs — the rejection
 is the point). CrewAI: recording gap on `with_raw_response.create` fixed; 3/3 live
-scenarios pass. Integration notes: [examples/integrations/](examples/integrations/).
+scenarios pass. Integration notes: [examples/integrations/](https://github.com/Mpasha17/crashlab/tree/main/examples/integrations).
 
 ## Results so far
 
@@ -75,8 +75,8 @@ On a real, unmodified example (OpenAI Agents SDK `customer_service`), both promp
 patches for a genuine triage failure were **REJECTED** because they broke past good FAQ
 runs. That is the verifier doing its job.
 
-Evidence: [live scoreboard](docs/case-studies/worker-c-live-scoreboard.md),
-[case studies](docs/case-studies/README.md), [Verify a fix](#verify-a-fix).
+Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/case-studies/worker-c-live-scoreboard.md),
+[case studies](https://github.com/Mpasha17/crashlab/blob/main/docs/case-studies/README.md), [Verify a fix](#verify-a-fix).
 
 ## What works today
 
@@ -291,7 +291,7 @@ Or set `CRASHLAB_DIAGNOSER_MODEL` / `CRASHLAB_DIAGNOSER_BASE_URL` /
 `.crashlab/diagnoser/`, apart from your runs.
 
 On 31 hand-labelled live runs of the demo agent (`bench/diagnose_eval.py`, details in
-[bench/README.md](bench/README.md)), with prompt v3 Groq `openai/gpt-oss-120b` gets the label
+[bench/README.md](https://github.com/Mpasha17/crashlab/blob/main/bench/README.md)), with prompt v3 Groq `openai/gpt-oss-120b` gets the label
 right on 90% and Gemini `gemini-flash-lite-latest` on 87% (heuristic baseline: 81%, tuned on
 the same set); exact culprit step on 71% / 76% of the failing runs, with no false alarms
 on clean runs.
@@ -340,7 +340,7 @@ The exported test replays the failing run and asserts its `@check` results, and 
 asserting it still passes. The pytest plugin (auto-loaded) adds `--crashlab`, the
 `@pytest.mark.crashlab` marker and the `crashlab_replay(path)` / `crashlab_store`
 fixtures. Store and home paths are replaced in exported cassettes. See
-[examples/refund_bot/tests](examples/refund_bot/tests), which CI runs.
+[examples/refund_bot/tests](https://github.com/Mpasha17/crashlab/tree/main/examples/refund_bot/tests), which CI runs.
 The HTML report has the outcome, checks, findings, diagnosis with quotes, fixes with
 diffs, verification stats and the step timeline; inline CSS, no scripts, no external
 assets.
@@ -366,9 +366,9 @@ PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... MODEL=claude-haiku-4-5 \
   python -m examples.refund_bot "Refund my order A17, it arrived broken"
 ```
 
-See [examples/refund_bot](examples/refund_bot/README.md) for details.
+See [examples/refund_bot](https://github.com/Mpasha17/crashlab/blob/main/examples/refund_bot/README.md) for details.
 
-See [CHANGELOG.md](CHANGELOG.md) for what landed in 0.0.1.
+See [CHANGELOG.md](https://github.com/Mpasha17/crashlab/blob/main/CHANGELOG.md) for what landed in 0.0.1.
 
 ## Benchmark (seed, small n)
 
@@ -380,7 +380,7 @@ VERIFIED on the held-out agent (0/3, 1/3 LIKELY): its faults were in the tool an
 database, which a prompt patch can't repair, so the rejections are correct. On Groq
 gpt-oss-120b the LLM diagnoser labelled only **3/11 (10–57%)** on the held-out agent.
 Samples are small and the intervals are wide; details, all CIs and caveats in
-[bench/README.md](bench/README.md#seed-results).
+[bench/README.md](https://github.com/Mpasha17/crashlab/blob/main/bench/README.md#seed-results).
 
 ## Development
 
@@ -394,7 +394,7 @@ The tests use fake clients and the real SDKs over mocked HTTP transports (LiteLL
 `mock_response`), so they need no network access and no API key. Tests for SDKs that are
 not installed are skipped.
 
-Security notes: [SECURITY.md](SECURITY.md).
+Security notes: [SECURITY.md](https://github.com/Mpasha17/crashlab/blob/main/SECURITY.md).
 
 ## License
 

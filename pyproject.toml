@@ -1,19 +1,23 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "crashlab"
 dynamic = ["version"]
 description = "Crash-test your AI agents: record, replay, diagnose and verify agent failures."
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "Mahaboob Pasha" }]
-keywords = ["ai", "agents", "llm", "debugging", "testing", "replay", "observability"]
+keywords = [
+    "ai", "agents", "ai-agents", "llm", "debugging", "testing", "pytest", "replay",
+    "observability", "agent-evaluation", "openai", "anthropic", "litellm",
+]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
+    "Framework :: Pytest",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
@@ -22,6 +26,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Debuggers",
     "Topic :: Software Development :: Testing",
     "Typing :: Typed",
@@ -55,6 +60,7 @@ crashlab = "crashlab.pytest_plugin"
 Homepage = "https://github.com/Mpasha17/crashlab"
 Repository = "https://github.com/Mpasha17/crashlab"
 Issues = "https://github.com/Mpasha17/crashlab/issues"
+Changelog = "https://github.com/Mpasha17/crashlab/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "src/crashlab/_version.py"
@@ -75,6 +81,17 @@ include = [
   "SECURITY.md",
   "CONTRIBUTING.md",
   "LICENSE",
+]
+# internal launch drafts, live stores and anything key-shaped never ship
+exclude = [
+  "docs/launch",
+  "**/.crashlab",
+  "**/crashlab-live",
+  "**/real-agents",
+  "**/.env",
+  "**/*.env",
+  "**/.secrets",
+  "**/__pycache__",
 ]
 
 [tool.ruff]
