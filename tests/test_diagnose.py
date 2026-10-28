@@ -469,3 +469,19 @@ def test_a_short_rate_limit_is_waited_out_once(monkeypatch):
     fake = FakeOpenAI([FakeAPIError(msg, 429), FakeAPIError(msg, 429)])
     with pytest.raises(DiagnoseError, match="try again in 7.09s"):
         crashlab.diagnose(_policy_run(), "m", client=fake, cache=False)
+
+
+def test_heuristic_names_a_rejected_llm_call():
+    # live (smolagents ToolCallingAgent on Groq): after place_order the model replied in text,
+    # Groq answered 400 "Tool choice is required, but model did not call a tool" and the run
+    # crashed; the heuristic diagnosis said only "No rule matched the run's signals."
+    run = _policy_run()
+    last = run.steps[-1]
+    last.error = crashlab.models.ErrorInfo(
+        type="openai.BadRequestError",
+        message="Error code: 400 - Tool choice is required, but model did not call a tool",
+    )
+    run.status, run.outcome, run.findings, run.checks = "error", "fail", [], []
+    d = crashlab.diagnose(run, heuristic=True)
+    assert d.method["raw_failing_step"] == last.idx
+    assert "tool_choice='required'" in d.root_cause and "rejected LLM call" in d.root_cause

@@ -86,6 +86,18 @@ def candidates(run: Run) -> list[Candidate]:
             out.append(Candidate(s.idx, reason, TaxonomyLabel.EXTERNAL_FAILURE, [_quote(s)], 0))
             break
 
+    for s in run.steps:  # the provider rejected the request (400): a config / model mismatch
+        if s.error is None or s.operation != "chat" or "BadRequest" not in s.error.type:
+            continue
+        detail = s.error.detail
+        reason = f"the provider rejected LLM call {s.idx}: {detail[:160]}"
+        if "tool choice is required" in detail.lower():
+            reason += (" (the request forces a tool call, tool_choice='required', and the model "
+                       "answered in text: a model that follows tool calling, or a framework "
+                       "setting that lets it reply / call its final-answer tool)")  # fmt: skip
+        out.append(Candidate(s.idx, reason, None, [_quote(s)], 2))
+        break
+
     for f in run.findings:
         if f.kind == "fork":
             continue
@@ -172,6 +184,9 @@ def heuristic_raw(run: Run, cands: list[Candidate] | None = None) -> dict[str, A
         "label": "UNKNOWN",
         "failing_step": cands[0].step if cands else None,
         "confidence": 0.0,
-        "root_cause": "No rule matched the run's signals.",
-        "evidence": [],
+        "root_cause": "No rule gives a label"
+        + (f"; strongest signal: {cands[0].reason}" if cands else " (no signal in the run)."),
+        "evidence": [{"step": cands[0].step, "quote": q} for q in cands[0].quotes if q]
+        if cands
+        else [],
     }
