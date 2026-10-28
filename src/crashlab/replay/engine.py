@@ -141,6 +141,18 @@ class Replayer:
             raise self.divergence
         src = self.steps.get(idx)
         here = f"step {idx} ({operation} {name!r})"
+        if (
+            src is None
+            or src.idx in self.consumed
+            or ((src.operation, src.name, src.request_hash) != (operation, name, request_hash))
+        ):
+            # calls made concurrently (threads, asyncio.gather) can start in a different
+            # order than when recorded: an identical, still unused recorded call is the
+            # same call. Anything else is still a divergence (and a recorded call that is
+            # never made shows up as a missing step at the end).
+            twin = self._unused_twin(operation, name, request_hash)
+            if twin is not None:
+                return twin
         if src is None:
             raise self._diverge(
                 "extra_step",
@@ -175,6 +187,17 @@ class Replayer:
         with self._lock:
             self.consumed.add(idx)
         return src
+
+    def _unused_twin(self, operation: str, name: str, request_hash: str) -> Step | None:
+        with self._lock:
+            for i in sorted(self.steps):
+                s = self.steps[i]
+                if i not in self.consumed and (s.operation, s.name, s.request_hash) == (
+                    operation, name, request_hash,
+                ):  # fmt: skip
+                    self.consumed.add(i)
+                    return s
+        return None
 
     def network_attempt(self, address: Any) -> ReplayNetworkError:
         self._diverge(
