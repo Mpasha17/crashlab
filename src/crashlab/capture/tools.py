@@ -168,10 +168,87 @@ def _is_typed_scalar(obj: Any) -> bool:
 
 
 def _result_type(result: Any) -> dict[str, Any] | None:
-    if not (_is_rich(result) or _is_typed_scalar(result)):
-        return None
-    cls = type(result)
-    return {RESULT_TYPE: f"{cls.__module__}:{cls.__qualname__}"}
+    attrs: dict[str, Any] = {}
+    special = _special_numbers(result)
+    if special:
+        attrs[RESULT_NUMBERS] = special
+    if _is_rich(result) or _is_typed_scalar(result):
+        cls = type(result)
+        attrs[RESULT_TYPE] = f"{cls.__module__}:{cls.__qualname__}"
+    return attrs or None
+
+
+# Numbers strict JSON cannot hold: NaN / inf are stored as "nan" / "inf" strings and
+# ints too long for str() as hex. Their places in the result are kept, so replay gives
+# the numbers back (``mean([])`` -> nan, then ``math.isnan(x)`` still works).
+RESULT_NUMBERS = "crashlab.result.numbers"
+_MAX_SPECIAL = 1000
+
+
+def _special_numbers(obj: Any) -> list[list[Any]]:
+    import math
+
+    from .normalize import huge_int
+
+    out: list[list[Any]] = []
+    path: list[Any] = []  # shared; copied only for a hit
+    isfinite = math.isfinite
+
+    def walk(o: Any) -> None:
+        if len(out) >= _MAX_SPECIAL or len(path) > 50:  # to_jsonable stops at depth 50 too
+            return
+        cls = type(o)
+        if cls is float or (cls is not bool and isinstance(o, float)):
+            if not isfinite(o):
+                out.append([list(path), "float"])
+        elif cls is str or cls is bool or o is None:
+            return
+        elif isinstance(o, int):
+            if not isinstance(o, bool) and huge_int(o):
+                out.append([list(path), "int"])
+        elif isinstance(o, dict):
+            for k, v in o.items():
+                path.append(str(k))
+                walk(v)
+                path.pop()
+        elif isinstance(o, (list, tuple)):
+            for i, v in enumerate(o):
+                path.append(i)
+                walk(v)
+                path.pop()
+
+    walk(obj)
+    return out
+
+
+def _restore_numbers(value: Any, special: Any) -> Any:
+    if not isinstance(special, list) or not special:
+        return value
+    import copy
+
+    value = copy.deepcopy(value)  # never change the source run's recorded step
+
+    def convert(s: Any, kind: Any) -> Any:
+        if not isinstance(s, str):
+            return s
+        try:
+            return float(s) if kind == "float" else int(s, 16)
+        except ValueError:
+            return s
+
+    for entry in special:
+        try:
+            path, kind = entry
+            if not path:
+                value = convert(value, kind)
+                continue
+            parent = value
+            for key in path[:-1]:
+                parent = parent[key]
+            parent[path[-1]] = convert(parent[path[-1]], kind)
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue  # a result shape this does not match: leave it as recorded
+    return value
 
 
 def _import_type(ref: str) -> Any:
@@ -223,6 +300,7 @@ def _revive(value: Any, src: Any, fn: Callable[..., Any]) -> Any:
     """The recorded JSON result as the type the tool returned, when that is knowable."""
     if value is None:
         return value
+    value = _restore_numbers(value, src.attributes.get(RESULT_NUMBERS))
     target: Any = None
     ref = src.attributes.get(RESULT_TYPE)
     if isinstance(ref, str) and ":" in ref and "<locals>" not in ref:

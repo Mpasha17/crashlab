@@ -43,6 +43,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import uuid
 from pathlib import PurePath
 from typing import Any
@@ -82,10 +83,22 @@ def is_not_given(obj: Any) -> bool:
     return type(obj).__name__ in _SENTINEL_TYPES
 
 
+def huge_int(n: int) -> bool:
+    """An int too long for ``str()`` / ``json.dumps`` (``sys.set_int_max_str_digits``,
+    4300 digits by default): stored as its hex string, which has no such limit."""
+    bits = n.bit_length()
+    if bits < 2000:  # ~600 digits: under the smallest limit Python allows (640)
+        return False
+    limit = getattr(sys, "get_int_max_str_digits", lambda: 0)()
+    return bool(limit) and bits * 0.30103 >= limit - 2
+
+
 def to_jsonable(obj: Any, _depth: int = 0) -> Any:
     """Best-effort conversion of SDK objects / arbitrary values into JSON-able data."""
-    if obj is None or isinstance(obj, (bool, int, str)):
+    if obj is None or isinstance(obj, (bool, str)):
         return obj
+    if isinstance(obj, int):
+        return obj if not huge_int(obj) else hex(obj)
     if isinstance(obj, float):
         return obj if obj == obj and obj not in (float("inf"), float("-inf")) else str(obj)
     if _depth > 50:

@@ -78,13 +78,17 @@ class RunContext:
             return
         try:
             fn(*args)
-        except (OSError, sqlite3.Error) as err:
+        except (OSError, sqlite3.Error, ValueError, TypeError, RecursionError) as err:
+            # ValueError / TypeError / RecursionError: a recorded value that does not
+            # serialize; stop like a full disk rather than crash the agent
             self.store_failed = True
             import warnings
 
+            io = isinstance(err, (OSError, sqlite3.Error))
+            what = f"cannot write to {self.store.root}" if io else "cannot store a value"
             warnings.warn(
                 f"crashlab: stopped recording run {self.run.run_id} ({self.run.name!r}): "
-                f"cannot write to {self.store.root}: {type(err).__name__}: {err}; "
+                f"{what}: {type(err).__name__}: {err}; "
                 "the agent keeps running",
                 RuntimeWarning,
                 stacklevel=3,
