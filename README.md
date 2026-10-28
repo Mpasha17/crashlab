@@ -270,6 +270,7 @@ crashlab show last     # checks, findings + step table: idx, op, name, args / re
 crashlab replay last   # offline re-run from the cassette; exit 1 + diff on divergence
 crashlab check last    # re-run the oracles and the runtime checks (--save to store them)
 crashlab check --all --findings-only --max-cost 0.05 --fail-on error   # e.g. in CI
+crashlab check --all --save   # after upgrading crashlab: apply new runtime checks to stored runs
 crashlab fork last --at 0 --system-append "Never refund more than the order total."
 crashlab fork last --at 2 --patch fix.yaml --dry-run   # show the patch diff, run nothing
 crashlab fork last --at 0 --patch fix-1   # a fix proposed by `crashlab fix` (by id)
