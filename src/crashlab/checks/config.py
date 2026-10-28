@@ -101,6 +101,11 @@ class FailedSideEffectClaimConfig(_Cfg):
     ("your order is placed", "I could only get 2"). Heuristic (English success words)."""
 
 
+class ToolResultInstructionsConfig(_Cfg):
+    """A tool result talks to the model ("ignore previous instructions", "note to the
+    assistant", "do not tell the user"): possible prompt injection. Heuristic (English)."""
+
+
 class ChecksConfig(BaseModel):
     """Which built-in runtime checks run, with what thresholds."""
 
@@ -119,6 +124,9 @@ class ChecksConfig(BaseModel):
     no_llm_calls: NoLlmCallsConfig = Field(default_factory=NoLlmCallsConfig)
     failed_side_effect_claim: FailedSideEffectClaimConfig = Field(
         default_factory=FailedSideEffectClaimConfig
+    )
+    tool_result_instructions: ToolResultInstructionsConfig = Field(
+        default_factory=ToolResultInstructionsConfig
     )
 
     @model_validator(mode="before")
@@ -144,6 +152,7 @@ _SECTIONS = (
     "length_cutoff",
     "no_llm_calls",
     "failed_side_effect_claim",
+    "tool_result_instructions",
 )
 
 

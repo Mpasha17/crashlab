@@ -33,6 +33,8 @@ _FINDING_RULES: dict[str, tuple[TaxonomyLabel | None, int]] = {
     "budget": (None, 7),
     "no_llm_calls": (None, 8),
     "failed_side_effect_claim": (TaxonomyLabel.TOOL_ERROR_MISHANDLED, 4),
+    # the agent followed instructions found in data instead of the user's / system prompt
+    "tool_result_instructions": (TaxonomyLabel.TASK_SPEC_VIOLATION, 2),
 }
 
 

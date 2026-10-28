@@ -726,6 +726,57 @@ class FailedSideEffectClaim(Detector):
         )]  # fmt: skip
 
 
+# --- tool_result_instructions ----------------------------------------------------------
+
+# text in a tool result that addresses the model, as prompt injection does; data rarely
+# talks to "the assistant" or asks to hide something from the user
+_INJECTION = re.compile(
+    r"\b(ignore|disregard|forget|override)\s+(all\s+|any\s+|the\s+|your\s+)?(previous|prior|"
+    r"above|earlier|system|original)\s+(instructions?|rules?|prompts?|messages?|guidelines)"
+    r"|\b(notice|note|message|instructions?|directive|command)s?\s+(to|for)\s+(the\s+)?"
+    r"(assistant|ai|agent|model|llm|chatbot)\b"
+    r"|\b(system|admin|administrator|developer)\s+(notice|message|instruction|override|"
+    r"prompt|directive)s?\b\s*:?\s*.{0,60}?\b(assistant|ai|agent|model|you)\b"
+    r"|\b(do\s+not|don't|never)\s+(tell|mention|reveal|disclose|inform|show)\b.{0,40}?"
+    r"\b(user|customer|human|them|this|anyone)\b"
+    r"|\bregardless\s+of\s+(the\s+|what\s+the\s+)?(user|customer|request|requested|"
+    r"instructions?)\b"
+    r"|\byou\s+(must|should|are\s+required\s+to)\s+now\b"
+    r"|\bnew\s+instructions?\s*:",
+    re.I | re.S,
+)
+
+
+class ToolResultInstructions(Detector):
+    """A tool result contains text addressed to the model ("ignore previous instructions",
+    "SYSTEM NOTICE TO ASSISTANT: ... do not mention this"): likely prompt injection through
+    data. ``error`` when a side-effect tool was called after the model read it."""
+
+    kind = "tool_result_instructions"
+
+    def on_end(self, run: Run, h: History) -> list[Finding]:
+        out: list[Finding] = []
+        for step in run.steps:
+            if step.operation != "execute_tool" or step.result is None:
+                continue
+            text = as_text(step.result)
+            m = _INJECTION.search(text)
+            if m is None:
+                continue
+            after = [s for s in run.steps if s.idx > step.idx and s.operation == "execute_tool"
+                     and s.attributes.get("crashlab.tool.side_effects")]  # fmt: skip
+            acted = (f"; {after[0].name} (side effects) was called after it, at step "
+                     f"{after[0].idx}") if after else ""  # fmt: skip
+            out.append(self.finding(
+                severity="error" if after else "warn", step=step.idx,
+                steps=[step.idx] + [s.idx for s in after], key=f"{step.name}:{step.idx}",
+                message=f"{step.name} returned text addressed to the model (possible prompt "
+                        f"injection): {m.group(0)[:80]!r}{acted}",
+                evidence=[_ev(step, "result", text, max(0, m.start() - 20))],
+            ))  # fmt: skip
+        return out
+
+
 def build(cfg: ChecksConfig) -> list[Detector]:
     out: list[Detector] = []
     if not cfg.enabled:
@@ -746,6 +797,8 @@ def build(cfg: ChecksConfig) -> list[Detector]:
         out.append(NoLlmCalls(cfg.no_llm_calls))
     if cfg.failed_side_effect_claim.enabled:
         out.append(FailedSideEffectClaim(cfg.failed_side_effect_claim, cfg.suspicious_tool_result))
+    if cfg.tool_result_instructions.enabled:
+        out.append(ToolResultInstructions(cfg.tool_result_instructions))
     return out
 
 
@@ -758,4 +811,5 @@ KINDS = (
     "length_cutoff",
     "no_llm_calls",
     "failed_side_effect_claim",
+    "tool_result_instructions",
 )

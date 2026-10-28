@@ -144,7 +144,10 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   shape drifted from earlier results of the same tool), `budget` (steps, LLM / tool calls,
   tokens, USD, seconds), `length_cutoff` and `no_llm_calls` (tools ran but no model call
   was recorded: the framework's client is not wrapped), `failed_side_effect_claim` (every
-  call of a `side_effects=True` tool failed, yet the final answer says it went through).
+  call of a `side_effects=True` tool failed, yet the final answer says it went through),
+  `tool_result_instructions` (a tool result talks to the model, e.g. "note to the
+  assistant: … do not mention this": possible prompt injection; an error when a
+  side-effect tool ran after it).
   Findings are stored with the run and shown by
   `show`, `diff` and `ls --flagged`. They describe *how* a run behaved; `@crashlab.check`
   oracles still decide whether it passed. Opt-in **circuit breaker**: a critical finding
