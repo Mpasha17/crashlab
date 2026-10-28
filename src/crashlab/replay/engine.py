@@ -25,7 +25,6 @@ import contextlib
 import importlib
 import importlib.util
 import inspect
-import itertools
 import os
 import socket
 import sys
@@ -36,7 +35,7 @@ from typing import Any, Literal
 
 from ..capture._util import REPLAY_MODULE_PREFIX
 from ..context import pending_replay, run_in_thread
-from ..models import Finding, Run, Step
+from ..models import ErrorInfo, Finding, Run, Step
 from ..patch import PatchError, PatchSet, as_patchset, preview_patches
 from ..store import Store
 from ..store.redact import get_redactor
@@ -616,21 +615,68 @@ def _consumed_items(source: Run) -> int | None:
     return None
 
 
-def _drain(out: Any, limit: int | None) -> Any:
+def _consumer_actions(source: Run) -> dict[int, tuple[str, Any]]:
+    """``send`` / ``throw`` calls the recording's consumer made, by items taken before."""
+    gen = (source.env or {}).get("generator")
+    out: dict[int, tuple[str, Any]] = {}
+    for entry in (gen.get("actions") if isinstance(gen, dict) else None) or []:
+        try:
+            at, kind, value = entry
+        except (TypeError, ValueError):
+            continue
+        if isinstance(at, int) and kind in ("send", "throw"):
+            out[at] = (kind, value)
+    return out
+
+
+def _thrown(value: Any) -> BaseException:
+    from .rebuild import rebuild_exception
+
+    try:
+        return rebuild_exception(ErrorInfo.model_validate(value))
+    except Exception:
+        return Exception(str(value))
+
+
+def _drain(out: Any, limit: int | None, actions: dict[int, tuple[str, Any]] | None = None) -> Any:
     """A generator entry point: iterate it like the recording's consumer did (all items,
-    or only ``limit`` when that consumer stopped early)."""
+    or only ``limit`` when that consumer stopped early; values it sent and exceptions it
+    threw in at the same items)."""
+    actions = actions or {}
     if inspect.isgenerator(out):
-        items = list(out) if limit is None else list(itertools.islice(out, limit))
+        items: list[Any] = []
+        try:
+            item = next(out)
+            while True:
+                items.append(item)
+                if limit is not None and len(items) >= limit:
+                    break
+                kind, value = actions.get(len(items), ("next", None))
+                if kind == "throw":
+                    item = out.throw(_thrown(value))
+                else:
+                    item = out.send(value if kind == "send" else None)
+        except StopIteration:
+            pass
         out.close()
         return items
     if inspect.isasyncgen(out):
 
         async def collect() -> list[Any]:
             items: list[Any] = []
-            async for item in out:
-                items.append(item)
-                if limit is not None and len(items) >= limit:
-                    break
+            try:
+                item = await out.__anext__()
+                while True:
+                    items.append(item)
+                    if limit is not None and len(items) >= limit:
+                        break
+                    kind, value = actions.get(len(items), ("next", None))
+                    if kind == "throw":
+                        item = await out.athrow(_thrown(value))
+                    else:
+                        item = await out.asend(value if kind == "send" else None)
+            except StopAsyncIteration:
+                pass
             await out.aclose()
             return items
 
@@ -639,9 +685,13 @@ def _drain(out: Any, limit: int | None) -> Any:
 
 
 def _run_callable(
-    fn: Callable[..., Any], args: list[Any], kwargs: dict[str, Any], limit: int | None = None
+    fn: Callable[..., Any],
+    args: list[Any],
+    kwargs: dict[str, Any],
+    limit: int | None = None,
+    actions: dict[int, tuple[str, Any]] | None = None,
 ) -> Any:
-    out = _drain(fn(*args, **kwargs), limit)
+    out = _drain(fn(*args, **kwargs), limit, actions)
     if not inspect.isawaitable(out):
         return out
     try:
@@ -826,7 +876,8 @@ def _execute(
     error: BaseException | None = None
     with guards, pending_replay(replayer):
         try:
-            _run_callable(target, args, kwargs, _consumed_items(replayer.source))
+            _run_callable(target, args, kwargs, _consumed_items(replayer.source),
+                          _consumer_actions(replayer.source))  # fmt: skip
         except BaseException as exc:  # compared with the recording by the caller
             error = exc
     if replayer.replay_run_id is None:

@@ -317,7 +317,9 @@ def _generator_agent(
     The run is bound only while the generator body executes (each step runs in a private
     copy of the caller's context), so code the consumer runs between items is not
     attributed to it. A consumer that stops early closes the run as ``ok`` with the items
-    it took and the tag ``generator-closed``; replay then takes the same number.
+    it took and the tag ``generator-closed``; replay then takes the same number. Values
+    the consumer sends and exceptions it throws in are recorded (``env["generator"]``) and
+    replayed at the same item.
     """
     is_async = inspect.isasyncgenfunction(f)
 
@@ -330,10 +332,14 @@ def _generator_agent(
         cv.run(rec.__enter__)
         return rec, cv.run(f, *args, **kwargs), cv
 
-    def finish(rec: Any, cv: Any, items: list, exc: BaseException | None) -> None:
+    def finish(
+        rec: Any, cv: Any, items: list, exc: BaseException | None, actions: list | None = None
+    ) -> None:
         run = rec.ctx.run if rec.ctx is not None else None
         if run is not None:
             run.output = to_jsonable(items)
+            if actions:
+                run.env["generator"] = {"actions": actions}
         if isinstance(exc, GeneratorExit):
             if run is not None:
                 run.tags.append(GENERATOR_CLOSED_TAG)
@@ -348,6 +354,7 @@ def _generator_agent(
             if rec is None:
                 return (yield from gen)
             items: list[Any] = []
+            actions: list[list[Any]] = []
             try:
                 item = cv.run(next, gen)
                 while True:
@@ -358,14 +365,17 @@ def _generator_agent(
                         cv.run(gen.close)
                         raise
                     except BaseException as exc:  # thrown in by the consumer
+                        actions.append(_consumer_action(len(items), "throw", exc))
                         item = cv.run(gen.throw, exc)
                     else:
+                        if sent is not None:
+                            actions.append(_consumer_action(len(items), "send", sent))
                         item = cv.run(gen.send, sent)
             except StopIteration as stop:
-                finish(rec, cv, items, None)
+                finish(rec, cv, items, None, actions)
                 return stop.value
             except BaseException as exc:
-                finish(rec, cv, items, exc)
+                finish(rec, cv, items, exc, actions)
                 raise
 
         return gen_wrapper
@@ -378,6 +388,7 @@ def _generator_agent(
                 yield item
             return
         items: list[Any] = []
+        actions: list[list[Any]] = []
         try:
             item = await _in_context(cv, gen.__anext__())
             while True:
@@ -388,16 +399,29 @@ def _generator_agent(
                     await _in_context(cv, gen.aclose())
                     raise
                 except BaseException as exc:  # thrown in by the consumer
+                    actions.append(_consumer_action(len(items), "throw", exc))
                     item = await _in_context(cv, gen.athrow(exc))
                 else:
+                    if sent is not None:
+                        actions.append(_consumer_action(len(items), "send", sent))
                     item = await _in_context(cv, gen.asend(sent))
         except StopAsyncIteration:
-            finish(rec, cv, items, None)
+            finish(rec, cv, items, None, actions)
         except BaseException as exc:
-            finish(rec, cv, items, exc)
+            finish(rec, cv, items, exc, actions)
             raise
 
     return agen_wrapper
+
+
+def _consumer_action(at: int, kind: str, value: Any) -> list[Any]:
+    """What the consumer did after taking ``at`` items, other than plain ``next()``:
+    ``send(value)`` or ``throw(exc)``; replay drives the generator the same way."""
+    if kind == "throw":
+        from ._steps import error_info
+
+        return [at, kind, error_info(value).model_dump(mode="json", exclude={"traceback"})]
+    return [at, kind, to_jsonable(value)]
 
 
 async def _in_context(cv: contextvars.Context, aw: Any) -> Any:
