@@ -106,6 +106,7 @@ def chat_agent(q: str) -> dict:
     )
     parsed = out.choices[0].message.parsed
     assert isinstance(parsed, Weather)
+    assert isinstance(out, openai.types.chat.ParsedChatCompletion)  # also on replay
     return parsed.model_dump()
 
 

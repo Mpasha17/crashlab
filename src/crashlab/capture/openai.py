@@ -59,10 +59,12 @@ def _create(inner: Any, adapter: ChatAdapter, server: str | None):
 
 
 def _reparse(obj: Any, kwargs: dict[str, Any], api: str) -> Any:
-    """A replayed ``parse()`` result is rebuilt as a plain completion / response: run the
+    """A replayed ``parse()`` result is rebuilt from JSON (``.parsed`` lost): run the
     SDK's own parser over it so ``.parsed`` / ``.output_parsed`` work as when recorded."""
-    if obj is None or type(obj).__name__.startswith("Parsed"):
-        return obj
+    from ..context import is_replaying
+
+    if obj is None or not is_replaying():
+        return obj  # recorded live: the SDK already parsed it
     try:
         from openai import omit
     except ImportError:  # pragma: no cover - older SDKs

@@ -44,7 +44,12 @@ def type_path(obj: Any) -> str:
 
 @functools.lru_cache(maxsize=256)
 def import_path(path: str) -> Any:
-    """Import ``pkg.mod.Attr`` (the longest importable module prefix, then attributes)."""
+    """Import ``pkg.mod.Attr`` (the longest importable module prefix, then attributes).
+
+    A generic model's recorded name (``ParsedChatCompletion[TypeVar]``) imports the
+    unparametrized class."""
+    if path.endswith("]") and "[" in path:
+        path = path[: path.index("[")]
     parts = path.split(".")
     for i in range(len(parts) - 1, 0, -1):
         try:
