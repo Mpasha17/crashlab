@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -179,13 +180,29 @@ def _toml_load(path: Path) -> dict[str, Any]:
         return {}
 
 
+_FIND_TTL_S = 2.0
+_find_cache: dict[str, tuple[float, Path | None]] = {}
+
+
 def find_pyproject(start: str | os.PathLike[str] | None = None) -> Path | None:
-    here = Path(start or os.getcwd()).resolve()
+    """The nearest pyproject.toml at or above ``start`` (cwd). The directory walk is
+    cached for a couple of seconds: prices and checks look it up on every step."""
+    key = os.fspath(start) if start is not None else os.getcwd()
+    now = time.monotonic()
+    hit = _find_cache.get(key)
+    if hit is not None and now - hit[0] < _FIND_TTL_S:
+        return hit[1]
+    found: Path | None = None
+    here = Path(key).resolve()
     for d in (here, *here.parents):
         candidate = d / "pyproject.toml"
         if candidate.is_file():
-            return candidate
-    return None
+            found = candidate
+            break
+    if len(_find_cache) > 256:
+        _find_cache.clear()
+    _find_cache[key] = (now, found)
+    return found
 
 
 def pyproject_section(name: str, start: str | os.PathLike[str] | None = None) -> dict[str, Any]:
