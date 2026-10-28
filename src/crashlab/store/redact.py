@@ -114,8 +114,52 @@ class Redactor:
                 and obj[1]
             ):
                 return [obj[0], REDACTED]
-            return [self.redact(v) for v in obj]
+            return self._across_items(obj, [self.redact(v) for v in obj])
         return obj
+
+    def _across_items(self, orig: Any, items: list[Any]) -> list[Any]:
+        """A secret split over consecutive strings of a list (a generator agent's
+        streamed pieces: ``["sk-proj-Ab3", "dE6gH9..."]``) is redacted in every piece it
+        spans; per-string patterns see only fragments."""
+        start = 0
+        while start < len(orig):
+            if not isinstance(orig[start], str):
+                start += 1
+                continue
+            end = start
+            while end < len(orig) and isinstance(orig[end], str):
+                end += 1
+            if end - start > 1:
+                self._redact_run(orig, items, start, end)
+            start = end
+        return items
+
+    def _redact_run(self, orig: Any, items: list[Any], start: int, end: int) -> None:
+        bounds, at = [], 0
+        for i in range(start, end):
+            bounds.append((at, at + len(orig[i])))
+            at += len(orig[i])
+        joined = "".join(orig[start:end])
+        cuts: dict[int, list[tuple[int, int]]] = {}
+        for pat in self.value_patterns:
+            for m in pat.finditer(joined):
+                hit = [k for k, (a, b) in enumerate(bounds) if a < m.end() and m.start() < b]
+                if len(hit) < 2:
+                    continue  # inside one piece: already redacted there
+                for k in hit:
+                    a, b = bounds[k]
+                    cuts.setdefault(k, []).append((max(m.start(), a) - a, min(m.end(), b) - a))
+        for k, spans in cuts.items():
+            merged: list[list[int]] = []
+            for a, b in sorted(spans):
+                if merged and a <= merged[-1][1]:
+                    merged[-1][1] = max(merged[-1][1], b)
+                else:
+                    merged.append([a, b])
+            text = orig[start + k]
+            for a, b in reversed(merged):
+                text = text[:a] + REDACTED + text[b:]
+            items[start + k] = self.redact_str(text)
 
 
 def _storable(value: str) -> str:
