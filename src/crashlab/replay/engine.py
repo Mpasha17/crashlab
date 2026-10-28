@@ -492,6 +492,31 @@ def placeholder_credentials(names: tuple[str, ...] = PLACEHOLDER_ENV) -> Iterato
 # --- entry points --------------------------------------------------------------------
 
 
+_SKIP_DIRS = {"node_modules", "site-packages", "__pycache__", "build", "dist"}
+
+
+def _find_script(stem: str, root: str | None = None, max_depth: int = 4) -> str:
+    """The one ``<stem>.py`` under ``root`` (cwd), skipping venvs and hidden directories."""
+    base = Path(root or os.getcwd())
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(base):
+        depth = len(Path(dirpath).relative_to(base).parts)
+        dirnames[:] = [] if depth >= max_depth else [
+            d for d in dirnames
+            if not d.startswith(".") and d not in _SKIP_DIRS and "venv" not in d
+        ]  # fmt: skip
+        if f"{stem}.py" in filenames:
+            found.append(Path(dirpath) / f"{stem}.py")
+    if len(found) == 1:
+        return os.path.relpath(found[0])
+    where = ", ".join(os.path.relpath(f) for f in found[:5])
+    raise ReplayError(
+        f"entry point script {stem}.py (recorded inside an earlier replay) "
+        + (f"is ambiguous here: {where}" if found else f"not found under {base}")
+        + "; run from the directory you recorded in, or pass fn="
+    )
+
+
 def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
     """``module:qualname`` or ``path/to/file.py:qualname`` -> the callable."""
     if not entrypoint or ":" not in entrypoint:
@@ -516,6 +541,10 @@ def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
+    elif target.startswith(REPLAY_MODULE_PREFIX) and target not in sys.modules:
+        # recorded by crashlab<=0.0.1 inside a replay of a script: the module only existed
+        # in that process. Find the script by its file name instead.
+        return resolve_entrypoint(f"{_find_script(target[len(REPLAY_MODULE_PREFIX) :])}:{qualname}")
     else:
         try:
             module = importlib.import_module(target)
@@ -603,7 +632,7 @@ def replay(
     """
     store = Store(store_dir)
     source = _load_source(store, run)
-    target, args, kwargs = _target(source, fn, overrides)
+    target, args, kwargs = _target(source, fn, overrides, store)
     patched = source.forked_from is not None and source.patch is not None
     replayer = (PatchedReplayer if patched and source.patch.edits_requests else Replayer)(
         source, store_dir=store.root
@@ -628,10 +657,40 @@ def _load_source(store: Store, run: Run | str) -> Run:
     return source
 
 
+def _ancestor_entrypoint(store: Store | None, source: Run) -> str | None:
+    """For a legacy ``crashlab_replay_<stem>:fn`` entry point: the script path recorded on
+    the run this one was forked from / replayed from (same file, recorded by path)."""
+    entry = source.entrypoint or ""
+    if store is None or not entry.startswith(REPLAY_MODULE_PREFIX):
+        return None
+    module, qualname = entry.rsplit(":", 1)
+    if module in sys.modules:
+        return None
+    stem = module[len(REPLAY_MODULE_PREFIX) :]
+    seen: set[str] = set()
+    parent = source.forked_from or source.replay_of
+    while parent and parent not in seen and len(seen) < 20:
+        seen.add(parent)
+        try:
+            run = store.load_run(parent)
+        except Exception:
+            return None
+        target = (run.entrypoint or "").rsplit(":", 1)[0]
+        if target.endswith(".py") and Path(target).stem == stem:
+            return f"{target}:{qualname}"
+        parent = run.forked_from or run.replay_of
+    return None
+
+
 def _target(
-    source: Run, fn: Callable[..., Any] | None, overrides: dict[str, Any] | None
+    source: Run,
+    fn: Callable[..., Any] | None,
+    overrides: dict[str, Any] | None,
+    store: Store | None = None,
 ) -> tuple[Callable[..., Any], list[Any], dict[str, Any]]:
-    target = fn if fn is not None else resolve_entrypoint(source.entrypoint)
+    if fn is None:
+        entry = _ancestor_entrypoint(store, source) or source.entrypoint
+    target = fn if fn is not None else resolve_entrypoint(entry)
     is_agent = getattr(target, "__crashlab_agent__", None) is not None
     data = dict(source.input) if (is_agent or fn is None) else {}
     data.update(overrides or {})
@@ -717,7 +776,7 @@ def fork(
     data = dict(overrides or {})
     if client is not None:
         data["client"] = client
-    target, args, kwargs = _target(source, fn, data)
+    target, args, kwargs = _target(source, fn, data, store)
     forker = Forker(
         source,
         at_step=at_step,

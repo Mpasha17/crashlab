@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,30 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     items[:] = keep
 
 
+def _import_ancestors(store: Any, path: Path, run: Any) -> None:
+    """Also import sibling cassettes this run was forked / replayed from: a fix cassette
+    recorded by crashlab<=0.0.1 names its script only via its parent run."""
+    from crashlab.capture._util import REPLAY_MODULE_PREFIX
+    from crashlab.store import import_run
+
+    if not (run.entrypoint or "").startswith(REPLAY_MODULE_PREFIX):
+        return
+    wanted = {run.forked_from, run.replay_of} - {None}
+    for sibling in sorted(path.parent.glob("*.jsonl")):
+        if sibling == path or not wanted:
+            continue
+        try:
+            with sibling.open(encoding="utf-8") as f:
+                head = json.loads(f.readline() or "{}")
+        except (OSError, ValueError):
+            continue
+        sib = (head.get("run") or {}) if isinstance(head, dict) else {}
+        if sib.get("run_id") in wanted:
+            wanted.discard(sib["run_id"])
+            import_run(store, sibling)
+            wanted |= {sib.get("forked_from"), sib.get("replay_of")} - {None}
+
+
 @pytest.fixture
 def crashlab_store(tmp_path: Path, monkeypatch: Any) -> Path:
     store = tmp_path / "crashlab-store"
@@ -57,6 +82,7 @@ def crashlab_replay(crashlab_store: Path) -> Any:
     def _replay(path: str | Path, **kw: Any) -> Any:
         store = Store(crashlab_store)
         run_id, _ = import_run(store, path, replace=True)
+        _import_ancestors(store, Path(path), store.load_run(run_id))
         try:
             return replay(run_id, store_dir=crashlab_store, **kw)
         except ModuleNotFoundError as e:  # pragma: no cover - depends on installed extras
