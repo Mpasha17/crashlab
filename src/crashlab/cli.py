@@ -1915,7 +1915,7 @@ def import_cmd(
     paths: list[Path] = typer.Argument(..., help="Exported .jsonl files."),  # noqa: B008
     replace: bool = typer.Option(False, "--replace", help="Overwrite runs that already exist."),
 ) -> None:
-    """Add exported runs to the store (``$CRASHLAB_DIR`` or ./.crashlab)."""
+    """Add exported runs to the store ($CRASHLAB_DIR or ./.crashlab)."""
     from .store import import_run
 
     console = _console()
