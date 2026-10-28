@@ -147,3 +147,10 @@ def test_run_cost_recorded_and_unknown_spreads():
     pricing.clear_prices()
     assert pricing.run_cost(old) is None  # one unknown call makes the run total unknown
     assert run_id
+
+
+def test_litellm_openai_route_to_groq_is_priced_by_host():
+    # live (DSPy, Google ADK via LiteLLM): model "openai/openai/gpt-oss-20b" with
+    # api_base=https://api.groq.com/openai/v1 showed no cost
+    step = _chat("openai/openai/gpt-oss-20b", host="api.groq.com", **_usage(1000, 0))
+    assert pricing.step_cost(step) == pytest.approx(1000 * 0.075 / 1e6)

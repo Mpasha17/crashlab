@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import functools
 import threading
+from types import SimpleNamespace
 from typing import Any
 
 from . import normalize as N
 from ._chat import ChatAdapter, invoke
+from ._proxy import server_address
 from .streams import OpenAIChatAssembler
 
 _lock = threading.Lock()
@@ -42,6 +44,13 @@ def _adapter_for(kwargs: dict[str, Any]) -> ChatAdapter:
     )
 
 
+def _server(kwargs: dict[str, Any]) -> str | None:
+    """Host of an explicit ``api_base`` / ``base_url`` (OpenAI-compatible routes such as
+    ``openai/<model>`` pointed at Groq or Gemini), so the call is priced by who served it."""
+    base = kwargs.get("api_base") or kwargs.get("base_url")
+    return server_address(SimpleNamespace(base_url=base)) if base else None
+
+
 def _make(orig: Any, is_async: bool) -> Any:
     if is_async:
 
@@ -49,7 +58,9 @@ def _make(orig: Any, is_async: bool) -> Any:
         async def acompletion(*args: Any, **kwargs: Any) -> Any:
             model = kwargs.get("model", args[0] if args else None)
             adapter = _adapter_for({**kwargs, "model": model})
-            return await invoke(adapter, orig, args, kwargs, bind_to=orig, is_async=True)
+            return await invoke(
+                adapter, orig, args, kwargs, server=_server(kwargs), bind_to=orig, is_async=True
+            )
 
         acompletion.__crashlab_patched__ = True  # type: ignore[attr-defined]
         return acompletion
@@ -58,7 +69,9 @@ def _make(orig: Any, is_async: bool) -> Any:
     def completion(*args: Any, **kwargs: Any) -> Any:
         model = kwargs.get("model", args[0] if args else None)
         adapter = _adapter_for({**kwargs, "model": model})
-        return invoke(adapter, orig, args, kwargs, bind_to=orig, is_async=False)
+        return invoke(
+            adapter, orig, args, kwargs, server=_server(kwargs), bind_to=orig, is_async=False
+        )
 
     completion.__crashlab_patched__ = True  # type: ignore[attr-defined]
     return completion

@@ -68,6 +68,22 @@ def test_patch_unpatch_fake_module():
     assert (mod.completion, mod.acompletion) == orig and not cl_litellm.is_patched()
 
 
+def test_api_base_host_is_recorded_and_prices_the_call():
+    # live (DSPy, Google ADK): openai/<model> routed to Groq via api_base had no cost
+    mod = _fake_litellm()
+    cl_litellm.patch(mod)
+    try:
+        with crashlab.record("lite-host"):
+            mod.completion(model="openai/openai/gpt-oss-20b", messages=[],
+                           api_base="https://api.groq.com/openai/v1")  # fmt: skip
+            mod.completion(model="gpt-4o-mini", messages=[])
+    finally:
+        cl_litellm.unpatch()
+    s1, s2 = crashlab.load("last").steps
+    assert s1.attributes["server.address"] == "api.groq.com"
+    assert "server.address" not in s2.attributes
+
+
 async def test_fake_module_async():
     mod = _fake_litellm()
     crashlab.wrap(mod)  # wrap(litellm) == patch(litellm)

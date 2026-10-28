@@ -149,6 +149,8 @@ def _pick(prices: list[Price], when: date | None) -> Price:
 def _builtin(provider: str | None, model: str, when: date | None) -> Price | None:
     table = BUILTIN.get(provider or "", {})
     names = [model, _strip_prefix(model, provider)]
+    if "/" in model:  # a LiteLLM route prefix: openai/openai/gpt-oss-20b served by Groq
+        names.append(model.split("/", 1)[1])
     for name in names:
         if name in table:
             return _pick(table[name], when)
