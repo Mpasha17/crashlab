@@ -8,7 +8,7 @@ crashlab: record → offline replay → diagnose → verify a typed patch.
 
 Reproduced + diagnosed a known smolagents text-to-sql bug (empty :memory: SQLite across threads; open fix PR #2475).
 
-github.com/Mpasha17/crashlab (pre-alpha, not on PyPI)
+github.com/Mpasha17/crashlab (pre-alpha · pip install crashlab)
 
 ## X alt (≤280, mentions REJECTED)
 
@@ -18,7 +18,7 @@ Record LLM+tool calls, replay failures offline, diagnose with evidence, verify p
 
 Reproduced a known smolagents bug (empty :memory: SQLite across threads, PR #2475).
 
-github.com/Mpasha17/crashlab · pre-alpha, not on PyPI
+github.com/Mpasha17/crashlab · pip install crashlab
 
 ## X / Twitter (longer / thread starter)
 
@@ -33,7 +33,7 @@ an empty in-memory SQLite because `:memory:` is per-thread and the executor runs
 fresh thread. Known bug with an open fix PR (https://github.com/huggingface/smolagents/pull/2475); crashlab reproduced and
 diagnosed it independently and adds a no-LLM repro.
 
-github.com/Mpasha17/crashlab (pre-alpha, not on PyPI)
+github.com/Mpasha17/crashlab (pre-alpha · pip install crashlab)
 
 ## LinkedIn (slightly longer)
 
@@ -56,4 +56,4 @@ Evidence (honest labels):
   **VERIFIED** (20b + Gemini); html_502 **LIKELY** only. Small n.
 - CrewAI: crashlab recording gap (`with_raw_response`) found and fixed; 3/3 pass.
 
-Pre-alpha. Not on PyPI. Feedback welcome. github.com/Mpasha17/crashlab
+Pre-alpha. `pip install crashlab`. Feedback welcome. github.com/Mpasha17/crashlab

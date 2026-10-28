@@ -28,7 +28,7 @@ follow-ups itself on a smaller open model). Two prompt patches were correctly
 REJECTED by crashlab verify for regressing past good FAQ runs — the interesting
 outcome is the rejection, not a fake green check.
 
-Pre-alpha (0.0.1), not on PyPI yet. Looking for people building agents who will
+Pre-alpha (0.0.1): `pip install crashlab`. Looking for people building agents who will
 break it.
 
 https://github.com/Mpasha17/crashlab

@@ -19,7 +19,7 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
 ![crashlab catching the smolagents empty-:memory: bug (terminal demo, no keys)](https://raw.githubusercontent.com/Mpasha17/crashlab/main/docs/demo/smolagents-text-to-sql.gif)
 
 ```bash
-pip install "crashlab[openai] @ git+https://github.com/Mpasha17/crashlab"   # not on PyPI yet
+pip install "crashlab[openai]"
 ```
 
 Then try it [offline with no API key](#try-it-with-no-api-key-and-no-model) or see the
@@ -30,7 +30,7 @@ Then try it [offline with no API key](#try-it-with-no-api-key-and-no-model) or s
 > **forks** them at any step with typed **patches** and **diffs** two runs. It also
 > **diagnoses** failed runs, **proposes fixes** and **verifies** them with repeated live
 > forks, then **exports** a pytest regression test and a shareable HTML report (see
-> [ARCHITECTURE.md](https://github.com/Mpasha17/crashlab/blob/main/ARCHITECTURE.md)). Not on PyPI yet.
+> [ARCHITECTURE.md](https://github.com/Mpasha17/crashlab/blob/main/ARCHITECTURE.md)). On PyPI: `pip install crashlab`.
 
 ## Reproduced a real upstream bug
 
@@ -183,7 +183,7 @@ OpenAI streams only report token usage if you pass `stream_options={"include_usa
 ## Quickstart
 
 ```bash
-pip install "crashlab[openai] @ git+https://github.com/Mpasha17/crashlab"
+pip install "crashlab[openai]"
 # or crashlab[anthropic], crashlab[litellm]
 ```
 

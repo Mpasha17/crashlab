@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.0.1 (pre-alpha, unreleased on PyPI)
+## 0.0.1 (pre-alpha)
 
-First public-shaped cut. Not on PyPI yet.
+First public-shaped cut. Published to PyPI: `pip install crashlab`.
 
 ### Record / replay
 - `crashlab.wrap` for OpenAI, Anthropic, LiteLLM (sync + async + streaming assembled)

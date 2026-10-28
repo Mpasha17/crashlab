@@ -41,6 +41,6 @@ are not counted as fails.
 - Groq sql-analyst clean smoke: 3/3 after `failed_generation` / `output_parse_failed` recovery
   (sqlv4 test-split still documented separately with CIs).
 
-**Status.** Pre-alpha (0.0.1). Not on PyPI. Apache-2.0. Works on Python 3.10–3.13.
+**Status.** Pre-alpha (0.0.1). On PyPI: `pip install crashlab`. Apache-2.0. Works on Python 3.10–3.13.
 
 **Links.** github.com/Mpasha17/crashlab · docs/demo/ · docs/case-studies/ · docs/launch/REVIEW.md
