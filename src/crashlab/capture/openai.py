@@ -256,4 +256,25 @@ def wrap_openai(client: Any, *, provider: str = "openai") -> WrappedOpenAI:
         raise TypeError(
             f"{type(client).__name__} has neither chat.completions.create nor responses.create"
         )
+    _warn_unrecorded_chat(client)
     return WrappedOpenAI(client, provider=provider)
+
+
+def _warn_unrecorded_chat(client: Any) -> None:
+    """A client with a ``chat`` resource but no ``chat.completions.create`` (Mistral's
+    ``chat.complete`` / ``chat.stream``) passes as OpenAI-compatible through its
+    ``responses.create``; its chat calls would silently go unrecorded."""
+    chat = getattr(client, "chat", None)
+    if chat is None or callable(getattr(getattr(chat, "completions", None), "create", None)):
+        return
+    methods = [m for m in ("complete", "stream", "parse") if callable(getattr(chat, m, None))]
+    if not methods:
+        return
+    names = ", ".join(f"chat.{m}()" for m in methods)
+    warnings.warn(
+        f"crashlab.wrap({type(client).__name__}): only responses.create is recorded; "
+        f"{names} are not (no chat.completions.create), so runs that use them have gaps "
+        "and replay goes to the network. Use the provider's OpenAI-compatible endpoint with "
+        "openai.OpenAI(base_url=...) or litellm to record chat calls.",
+        stacklevel=4,
+    )
