@@ -38,8 +38,9 @@ Operation = Literal["chat", "execute_tool", "invoke_agent", "custom"]
 RunStatus = Literal["running", "ok", "error"]
 Outcome = Literal["pass", "fail", "unknown"]
 # live: really executed; cassette: served from a recording; patched: changed by a fork
-# patch; blocked: a side-effect tool a replay / fork refused to run
-StepSource = Literal["live", "cassette", "patched", "blocked"]
+# patch; blocked: a side-effect tool a replay / fork refused to run; fake: a side-effect
+# tool a fork served from its registered fake (crashlab.fake_tool)
+StepSource = Literal["live", "cassette", "patched", "blocked", "fake"]
 
 
 class _Model(BaseModel):

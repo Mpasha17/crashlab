@@ -327,8 +327,9 @@ def verify(
     if blocked:
         reasons.append(
             f"{len(blocked)} trial(s) stopped at a side_effects=True tool call the recording "
-            "never made (crashlab never runs those live in a fork), not counted; rerun with "
-            "--allow-live-side-effects against a sandbox to count them"
+            "never made (crashlab never runs those live in a fork), not counted; register a "
+            "fake (crashlab.fake_tool) or rerun with --allow-live-side-effects against a "
+            "sandbox to count them"
         )
     v.reasons = reasons + v.reasons
     if save:

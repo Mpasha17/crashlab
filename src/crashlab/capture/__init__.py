@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .agent import agent, record
-from .tools import tool
+from .tools import clear_fakes, fake_tool, tool
 
 
 def _module_root(obj: Any) -> str:
@@ -49,4 +49,4 @@ def wrap(client: Any, *, provider: str | None = None) -> Any:
     )
 
 
-__all__ = ["agent", "record", "tool", "wrap"]
+__all__ = ["agent", "clear_fakes", "fake_tool", "record", "tool", "wrap"]

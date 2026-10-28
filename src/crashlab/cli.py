@@ -232,7 +232,7 @@ def _relation_suffix(row: dict[str, Any]) -> str:
     return ""
 
 
-_SOURCE_MARK = {"cassette": " ↺", "patched": " ✎", "blocked": " ⊘"}
+_SOURCE_MARK = {"cassette": " ↺", "patched": " ✎", "blocked": " ⊘", "fake": " ◇"}
 
 
 def _part_text(part: dict[str, Any], width: int) -> str:
@@ -384,7 +384,9 @@ def show(
     else:
         console.print("[dim]No steps recorded.[/]")
     if any(s.source != "live" for s in run.steps):
-        console.print("[dim]↺ served from the cassette  ✎ patched by the fork  ⊘ blocked[/]")
+        console.print(
+            "[dim]↺ served from the cassette  ✎ patched by the fork  ⊘ blocked  ◇ fake tool[/]"
+        )
 
 
 def _checks_table(results: list[CheckResult]) -> Table:
@@ -612,6 +614,24 @@ def _arm_text(name: str, a: Any) -> str:
     return out
 
 
+def _side_effect_hint(v: Any) -> str | None:
+    """One line naming the way out when side-effect blocks made the verdict uninformative."""
+    from .verify.runner import BLOCKED
+
+    blocked = [t for t in v.trials if t.status == "errored" and BLOCKED in (t.error or "")]
+    if not blocked or v.verdict in ("VERIFIED", "REJECTED"):
+        return None
+    tools = sorted(
+        {m.group(1) for t in blocked for m in re.finditer(r"(\w+) \(step", t.error or "")}
+    )
+    name = tools[0] if tools else "<tool>"
+    return (
+        f"hint: {len(blocked)} trial(s) blocked at side-effect tool {', '.join(tools) or name}: "
+        f'add crashlab.fake_tool("{name}", fake_fn) to grade them safely, or rerun with '
+        "--allow-live-side-effects against a sandbox"
+    )
+
+
 def _verification_panel(v: Any) -> Panel:
     from rich.console import Group
 
@@ -638,6 +658,8 @@ def _verification_panel(v: Any) -> Panel:
         parts.append(Text("regression: no past good runs checked", style="dim"))
     for why in v.reasons:
         parts.append(Text("  " + why, style="dim"))
+    if hint := _side_effect_hint(v):
+        parts.append(Text(hint, style="bold yellow"))
     spend = f"cost {_cost_text(v.cost_usd)} · {v.tokens} tokens"
     if v.max_cost_usd is not None:
         spend += f" · cap {_cost_text(v.max_cost_usd)}"

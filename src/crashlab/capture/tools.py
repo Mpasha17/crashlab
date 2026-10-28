@@ -23,6 +23,39 @@ class ToolSpec:
     name: str
     side_effects: bool
     description: str | None
+    fake: Callable[..., Any] | None = None
+
+
+# tool name -> fake implementation, see :func:`fake_tool`
+_FAKES: dict[str, Callable[..., Any]] = {}
+
+
+def fake_tool(name: str, fn: Callable[..., Any] | None = None) -> Any:
+    """Register a fake for the ``side_effects=True`` tool ``name``: forks (``fork``,
+    ``verify``, ``fix --verify``) call it instead of blocking when the agent makes a
+    side-effect call the recording never made, so those trials are graded without touching
+    the real world. Same signature as the tool; record mode always runs the real tool.
+
+    ``crashlab.fake_tool("place_order", fake_order)`` or as a decorator
+    ``@crashlab.fake_tool("place_order")``. :func:`clear_fakes` removes them."""
+    if fn is not None:
+        _FAKES[name] = fn
+        return fn
+
+    def register(f: Callable[..., Any]) -> Callable[..., Any]:
+        _FAKES[name] = f
+        return f
+
+    return register
+
+
+def clear_fakes() -> None:
+    """Remove every fake registered with :func:`fake_tool`."""
+    _FAKES.clear()
+
+
+def _fake_for(spec: ToolSpec) -> Callable[..., Any] | None:
+    return spec.fake or _FAKES.get(spec.name)
 
 
 def _begin(spec: ToolSpec, fn: Callable[..., Any], args: tuple, kwargs: dict):
@@ -48,21 +81,28 @@ def _begin(spec: ToolSpec, fn: Callable[..., Any], args: tuple, kwargs: dict):
     return pending
 
 
-def _serve_replay(pending: Any, spec: ToolSpec, fn: Callable[..., Any]) -> tuple[bool, Any]:
-    """Outside record mode: ``(True, value)`` when the call is served without running the
-    tool, ``(False, None)`` when it should run live; raises the served exception.
+def _serve_replay(
+    pending: Any, spec: ToolSpec, fn: Callable[..., Any]
+) -> tuple[bool, Any, Callable[..., Any] | None]:
+    """Outside record mode: ``(True, value, None)`` when the call is served without running
+    the tool, ``(False, None, impl)`` when ``impl`` should run: the tool itself, or its
+    fake (:func:`fake_tool`) for a side-effect call that would otherwise be blocked; raises
+    the served exception.
 
     Strict replay serves every call from the cassette. A fork past its fork step serves a
     ``ToolResultPatch``, an identical recorded call, or runs the tool live; tools with
     ``side_effects=True`` are never run live there (``SideEffectBlockedError``) unless
-    the fork allows it.
+    the fork allows it, or run their registered fake.
     """
     rp = pending.ctx.replayer
     if rp is None:
         if spec.side_effects and pending.ctx.mode != "record":
+            fake = _fake_for(spec)
+            if fake is not None:
+                return False, None, fake
             _block(pending, f"tool {spec.name!r} has side effects and is never run live "
                             f"during {pending.ctx.mode}")  # fmt: skip
-        return False, None
+        return False, None, fn
     kind, payload = rp.tool_decision(pending, spec.side_effects)
     if kind == "cassette":
         src = payload
@@ -75,7 +115,7 @@ def _serve_replay(pending: Any, spec: ToolSpec, fn: Callable[..., Any]) -> tuple
             pending.ctx.skip_idx(src.idx, skipped)
         if src.error is not None:
             raise rebuild_exception(src.error)
-        return True, _revive((src.response or {}).get("result"), src, fn)
+        return True, _revive((src.response or {}).get("result"), src, fn), None
     if kind == "patched":
         attrs = {"crashlab.fork.patches": [payload.describe()]}
         if payload.error is not None:
@@ -84,10 +124,13 @@ def _serve_replay(pending: Any, spec: ToolSpec, fn: Callable[..., Any]) -> tuple
             raise err
         pending.finish({"result": to_jsonable(payload.result)}, attributes=attrs,
                        source="patched")  # fmt: skip
-        return True, payload.result
+        return True, payload.result, None
     if kind == "blocked":
+        fake = _fake_for(spec)
+        if fake is not None:
+            return False, None, fake
         _block(pending, payload)
-    return False, None
+    return False, None, fn
 
 
 # --- typed results ------------------------------------------------------------------
@@ -174,6 +217,18 @@ def _block(pending: Any, message: str) -> None:
     raise err
 
 
+FAKE_ATTR = {"crashlab.tool.fake": True}
+
+
+def _done(pending: Any, result: Any, faked: bool) -> None:
+    attrs = _result_type(result)
+    if faked:
+        attrs = {**(attrs or {}), **FAKE_ATTR}
+    pending.finish(
+        {"result": to_jsonable(result)}, attributes=attrs, source="fake" if faked else None
+    )
+
+
 def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
     if inspect.iscoroutinefunction(fn):
 
@@ -182,16 +237,20 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             pending = _begin(spec, fn, args, kwargs)
             if pending is None:
                 return await fn(*args, **kwargs)
-            served, value = _serve_replay(pending, spec, fn)
+            served, value, impl = _serve_replay(pending, spec, fn)
             if served:
                 return value
+            faked = impl is not fn
             try:
                 with pending.activate():
-                    result = await fn(*args, **kwargs)
+                    result = impl(*args, **kwargs)  # type: ignore[misc]
+                    if inspect.isawaitable(result):
+                        result = await result
             except BaseException as exc:
-                pending.fail(exc, is_tool_error=True)
+                pending.fail(exc, is_tool_error=True, attributes=FAKE_ATTR if faked else None,
+                             source="fake" if faked else None)  # fmt: skip
                 raise
-            pending.finish({"result": to_jsonable(result)}, attributes=_result_type(result))
+            _done(pending, result, faked)
             return result
 
         wrapper: Callable[..., Any] = async_wrapper
@@ -202,16 +261,18 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             pending = _begin(spec, fn, args, kwargs)
             if pending is None:
                 return fn(*args, **kwargs)
-            served, value = _serve_replay(pending, spec, fn)
+            served, value, impl = _serve_replay(pending, spec, fn)
             if served:
                 return value
+            faked = impl is not fn
             try:
                 with pending.activate():
-                    result = fn(*args, **kwargs)
+                    result = impl(*args, **kwargs)  # type: ignore[misc]
             except BaseException as exc:
-                pending.fail(exc, is_tool_error=True)
+                pending.fail(exc, is_tool_error=True, attributes=FAKE_ATTR if faked else None,
+                             source="fake" if faked else None)  # fmt: skip
                 raise
-            pending.finish({"result": to_jsonable(result)}, attributes=_result_type(result))
+            _done(pending, result, faked)
             return result
 
         wrapper = sync_wrapper
@@ -228,6 +289,7 @@ def tool(
     side_effects: bool = False,
     side_effect: bool | None = None,
     description: str | None = None,
+    fake: Callable[..., Any] | None = None,
 ) -> Callable[[F], F]: ...
 
 
@@ -239,6 +301,7 @@ def tool(
     side_effects: bool = False,
     side_effect: bool | None = None,
     description: str | None = None,
+    fake: Callable[..., Any] | None = None,
 ) -> Any:
     """Record a tool function's arguments, result and exceptions.
 
@@ -246,7 +309,9 @@ def tool(
     (payments, emails, writes). Such tools never run live outside record mode. In a strict
     replay *no* tool runs: every result (or exception) is served from the cassette. In a
     fork, a side-effect tool gets the result of an identical recorded call or raises
-    ``SideEffectBlockedError`` (unless the fork passes ``allow_live_side_effects=True``).
+    ``SideEffectBlockedError`` (unless the fork passes ``allow_live_side_effects=True``),
+    or calls ``fake`` (same signature, e.g. returns a fake order id) when one is given here
+    or registered with :func:`fake_tool`, so ``verify`` can grade those trials safely.
 
     Works as ``@crashlab.tool`` or ``@crashlab.tool(...)`` on sync and async functions.
     """
@@ -256,6 +321,7 @@ def tool(
             name=name or f.__name__,
             side_effects=bool(side_effects or side_effect),
             description=description or first_doc_line(f),
+            fake=fake,
         )
         return _wrap(f, spec)
 

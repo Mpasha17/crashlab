@@ -604,3 +604,49 @@ def test_cli_message_inject_and_tool_description_flags():
         app, ["fork", src.run_id, "--at", "0", "--tool-description", "lookup", "x", "--dry-run"]
     )
     assert res.exit_code == 2 and "not in the request" in res.plain  # mini sends no tools
+
+
+def test_a_registered_fake_serves_a_new_side_effect_call():
+    # verify on real agents: a fix that changes a side-effect argument ("widgets" for
+    # "widget") was blocked in every trial; a fake lets the fork grade it, no real call
+    src = _record()  # no charge in the parent
+    seen = []
+    crashlab.fake_tool("charge", lambda amount: seen.append(amount) or {"charged": 0, "fake": 1})
+    try:
+        _live(tool_call_response(1, "lookup", {"key": "abc"}), text_response(2, "ok"), charge=True)
+        br = crashlab.fork(src, at_step=0)
+    finally:
+        crashlab.clear_fakes()
+    assert br.status == "ok" and ag.CALLS["charge"] == 0 and seen == [5.0]
+    step = br.steps[2]
+    assert step.source == "fake" and step.result == {"charged": 0, "fake": 1}
+    assert step.attributes["crashlab.tool.fake"] is True
+    # record mode always runs the real tool, fakes or not
+    crashlab.fake_tool("charge", lambda amount: {"fake": 1})
+    try:
+        _pay(1)
+    finally:
+        crashlab.clear_fakes()
+    assert ag.CALLS["charge"] == 1 and crashlab.load("last").steps[0].source == "live"
+
+
+def test_fake_argument_on_the_tool_and_async_fakes():
+    async def fake_send(to: str) -> str:
+        return f"fake:{to}"
+
+    sent = []
+
+    @crashlab.tool(side_effects=True, fake=fake_send)
+    async def send(to: str) -> str:
+        sent.append(to)
+        return f"sent:{to}"
+
+    async def main(n: int) -> list[str]:
+        with crashlab.record("send"):
+            return [await send(f"u{i}") for i in range(n)]
+
+    asyncio.run(main(1))
+    src = crashlab.load("last")
+    br = crashlab.fork(src, at_step=0, fn=lambda: asyncio.run(main(2)))
+    assert [s.source for s in br.steps] == ["cassette", "fake"]
+    assert br.steps[1].result == "fake:u1" and sent == ["u0"]

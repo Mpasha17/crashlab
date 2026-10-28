@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from . import checks, patch, pricing
 from ._version import __version__
-from .capture import agent, record, tool, wrap
+from .capture import agent, clear_fakes, fake_tool, record, tool, wrap
 from .checks import ChecksConfig, CircuitBreakerError
 from .compare import RunDiff, diff
 from .context import (
@@ -127,8 +127,10 @@ __all__ = [
     "bind_context",
     "check",
     "checks",
+    "clear_fakes",
     "copy_context_to_thread",
     "diff",
+    "fake_tool",
     "fork",
     "is_replaying",
     "load",

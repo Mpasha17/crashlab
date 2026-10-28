@@ -386,3 +386,33 @@ def test_verification_panel_keeps_a_multiline_regression_error_on_one_line():
     out = con.export_text()
     assert "01M61MJJ90 errored: langchain_openai.OpenAIRateLimitError: Error code: 429" in out
     assert "x" * 200 not in out
+
+
+def test_a_fake_side_effect_tool_lets_verify_grade_the_trials():
+    cap = {**APPEND, "text": "4. CAP refunds outside the window at 10.00."}
+    run, _ = _setup(cap)
+    crashlab.fake_tool("issue_refund", lambda order_id, amount: {"refund_id": "FAKE",
+                                                                 "amount": amount})  # fmt: skip
+    try:
+        v = crashlab.verify(run, 1, k=2, regress="none", client=crashlab.wrap(_CapsAtTen()))
+    finally:
+        crashlab.clear_fakes()
+    assert all(t.status in ("pass", "fail") for t in v.trials if t.role == "patched")
+    assert not any("blocked" in r for r in v.reasons)
+
+
+def test_verification_panel_hints_at_fakes_and_live_side_effects():
+    from rich.console import Console
+
+    from crashlab.cli import _verification_panel
+
+    cap = {**APPEND, "text": "4. CAP refunds outside the window at 10.00."}
+    run, _ = _setup(cap)
+    v = crashlab.verify(run, 1, k=1, regress="none", client=crashlab.wrap(_CapsAtTen()))
+    assert v.verdict == "INCONCLUSIVE"
+    con = Console(width=200, record=True)
+    con.print(_verification_panel(v))
+    out = con.export_text()
+    assert "hint: 1 trial(s) blocked at side-effect tool issue_refund" in out
+    assert 'crashlab.fake_tool("issue_refund", fake_fn)' in out
+    assert "--allow-live-side-effects" in out
