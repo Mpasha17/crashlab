@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -348,3 +349,19 @@ def test_cli_verify_accepts_allow_live_side_effects(policy_client):
         app, ["verify", run.run_id, "-k", "1", "--regress", "none", "--allow-live-side-effects"]
     )
     assert res.exit_code == 0, res.output
+
+
+def test_new_proposals_do_not_reuse_a_verified_fix_id():
+    # re-proposing after a verify must not give the new patch the old one's id: the old
+    # verdict would read as the new patch's, and the old (verified) patch file would vanish
+    bad = {**APPEND, "text": "4. Only refund within 30 days of delivery. BREAK"}
+    run, _ = _setup(bad)
+    v1 = crashlab.verify(run, 1, k=1, regress="none", client=crashlab.wrap(PolicyModel()))
+    run = crashlab.load(run.run_id)
+    old_file = run.diagnosis.fixes[0].file
+    [new] = crashlab.propose_fixes(run, fn=_reply(APPEND), cache=False)
+    assert new.fix_id == "fix-2" and new.rank == 1
+    assert old_file and Path(old_file).is_file()
+    v2 = crashlab.verify(run, "fix-2", k=1, regress="none", client=crashlab.wrap(PolicyModel()))
+    ids = [a["fix_id"] for a in crashlab.load(run.run_id).fix_attempts]
+    assert ids == ["fix-1", "fix-2"] and v1.verification_id != v2.verification_id

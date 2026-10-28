@@ -256,11 +256,28 @@ def fix_messages(run: Run, d: Diagnosis, *, max_field: int = 600, hide_input=())
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
 
 
+def _attempted_fix_ids(run: Run) -> set[str]:
+    return {str(a.get("fix_id")) for a in run.fix_attempts if a.get("fix_id")}
+
+
+def _number_after_attempts(run: Run, fixes: list[Fix]) -> None:
+    """New proposals never reuse the id of a fix that was already verified: its verdict
+    (in ``fix_attempts``) and its file stay attached to that patch, not to a new one."""
+    nums = [
+        int(m.group(1)) for i in _attempted_fix_ids(run) if (m := re.fullmatch(r"fix-(\d+)", i))
+    ]
+    off = max(nums, default=0)
+    for f in fixes:
+        f.fix_id = f"fix-{f.rank + off}"
+
+
 def save_fix_files(store: Any, run: Run, fixes: list[Fix]) -> None:
     folder = Path(store.run_dir(run.run_id)) / "fixes"
     folder.mkdir(parents=True, exist_ok=True)
+    keep = _attempted_fix_ids(run)
     for old in folder.glob("fix-*.*"):
-        old.unlink()
+        if old.stem not in keep:
+            old.unlink()
     try:
         import yaml
     except ImportError:  # pragma: no cover - depends on the environment
@@ -362,6 +379,7 @@ def propose_fixes(
             notes.append(f"rejected: duplicate of an earlier proposal ({fix.after})")
         else:
             fixes.append(fix)
+    _number_after_attempts(run, fixes)
     d.fixes, d.fix_notes = fixes, notes
     d.fix_method = {
         **info,
