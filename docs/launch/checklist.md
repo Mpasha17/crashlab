@@ -13,7 +13,7 @@ _Last checked: 2026-10-28 20:05 Asia/Calcutta_
 - [x] Demo opens: `docs/demo/terminal.html`, GIF, and `demoscript.sh`
 - [x] Secret-scan green on this push (`./scripts/scan.sh`); re-run before every push
 - [x] smolagents issue: **not filed** (duplicate of open PR #2475)
-- [ ] Decide: post the PR #2475 comment draft or not — see [REVIEW.md](REVIEW.md)
+- [x] PR #2475: commented with repro: https://github.com/huggingface/smolagents/pull/2475#issuecomment-6472807342
 - [ ] Decide: file openai-agents triage follow-up — default **no** until non-regressing fix
 - [x] LICENSE (Apache-2.0) + CONTRIBUTING + SECURITY.md present
 - [ ] Tag not required for soft launch; do **not** publish to PyPI yet

@@ -1,6 +1,6 @@
-# DRAFT comment for huggingface/smolagents#2475 — not posted
+# Comment for huggingface/smolagents#2475 — posted
 
-Post only if Mahaboob decides to: https://github.com/huggingface/smolagents/pull/2475
+**Posted 2026-10-28 ~20:45 IST as Mpasha17:** https://github.com/huggingface/smolagents/pull/2475#issuecomment-6472807342
 
 ---
 

@@ -7,8 +7,8 @@
 [huggingface/smolagents#2475](https://github.com/huggingface/smolagents/pull/2475) (opened 8 Jul 2026 by xiangyuhao723).
 crashlab reproduced and diagnosed it independently; what it adds is a no-LLM repro and
 the root cause below, and the fix is verified with a no-LLM A/B. No upstream issue was
-filed (it would duplicate the PR); a comment draft for the PR is in
-[smolagents-PR2475-comment-DRAFT.md](smolagents-PR2475-comment-DRAFT.md) (not posted).
+filed (it would duplicate the PR); we commented on the PR with the repro: https://github.com/huggingface/smolagents/pull/2475#issuecomment-6472807342
+([text](smolagents-PR2475-comment-DRAFT.md)).
 
 ## Task
 The example's question: *"Can you give me the name of the client who got the most
