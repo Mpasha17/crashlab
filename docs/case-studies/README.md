@@ -20,3 +20,4 @@ Demo for the flagship smolagents reproduction: [../demo/](../demo/).
 
 Tried and deferred: LlamaIndex (openai 2.x vs openai-agents 3.x pin conflict in the
 shared Day-11 venv). Prefer a separate venv next time.
+- [Live framework tests, part 1](framework-tests-part1.md): LangGraph, PydanticAI, LlamaIndex, smolagents, OpenAI Agents SDK, CrewAI, raw LiteLLM — every stage on 0.0.1 vs main.
