@@ -347,3 +347,27 @@ def test_call_outside_run_warns_and_passes_through(crashlab_dir):
         resp = client.chat.completions.create(model="m", messages=[])
     assert resp.choices[0].message.content == "hi"
     assert Store().list_runs() == []
+
+
+def test_tool_args_bind_when_signature_lists_self_on_a_staticmethod():
+    # smolagents' @tool sets SimpleTool.forward = staticmethod(fn) with a __signature__
+    # that starts with `self`; the args must still be recorded by name, or a check like
+    # run.tool_calls("place_order")[0].args["quantity"] silently sees nothing
+    import inspect
+
+    def forward(item: str, quantity: int) -> str:
+        return f"{quantity} x {item}"
+
+    forward.__signature__ = inspect.Signature(
+        [inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD)]
+        + list(inspect.signature(forward).parameters.values())
+    )
+    wrapped = crashlab.tool(name="place_order")(forward)
+
+    @crashlab.agent(name="smol-like")
+    def run_it() -> str:
+        return wrapped(item="widget", quantity=10)
+
+    assert run_it() == "10 x widget"
+    [step] = crashlab.load("last").tool_calls("place_order")
+    assert step.args == {"item": "widget", "quantity": 10}

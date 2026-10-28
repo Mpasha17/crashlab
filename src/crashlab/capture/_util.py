@@ -15,7 +15,16 @@ def bind_arguments(
     """Map a call's positional/keyword args to parameter names (JSON-able)."""
     try:
         sig = inspect.signature(fn)
-        bound = sig.bind(*args, **kwargs)
+        try:
+            bound = sig.bind(*args, **kwargs)
+        except TypeError:
+            # a staticmethod whose __signature__ still lists `self` (smolagents' @tool
+            # sets one on SimpleTool.forward): bind without it
+            params = list(sig.parameters.values())
+            if not params or params[0].name not in ("self", "cls"):
+                raise
+            sig = sig.replace(parameters=params[1:])
+            bound = sig.bind(*args, **kwargs)
         bound.apply_defaults()
     except (TypeError, ValueError):
         return {"args": to_jsonable(list(args)), "kwargs": to_jsonable(kwargs)}
