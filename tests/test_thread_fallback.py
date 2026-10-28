@@ -3,11 +3,14 @@ runs each code block in a fresh ThreadPoolExecutor) still land in the only live 
 
 from __future__ import annotations
 
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import crashlab
 from crashlab import context
+
+INHERITS_CONTEXT = bool(getattr(sys.flags, "thread_inherit_context", False))
 
 
 @crashlab.tool()
@@ -50,11 +53,13 @@ def test_no_fallback_with_two_live_runs_or_when_disabled(crashlab_dir, monkeypat
     monkeypatch.setenv("CRASHLAB_THREAD_FALLBACK", "0")
 
     @crashlab.agent(name="off")
-    def off() -> object:
+    def off() -> bool:
         with ThreadPoolExecutor(1) as ex:
-            return ex.submit(context.current).result()
+            return ex.submit(context.current).result() is not None
 
-    assert off() is None
+    # free-threaded builds (sys.flags.thread_inherit_context) give threads the caller's
+    # context, so the run is there without any fallback
+    assert off() is INHERITS_CONTEXT
 
 
 def test_concurrent_runs_on_a_fresh_store_both_record(crashlab_dir):

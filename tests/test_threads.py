@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -23,7 +24,9 @@ def test_plain_thread_falls_back_to_the_only_live_run(monkeypatch):
         t = threading.Thread(target=square, args=(3,))
         t.start()
         t.join()
-    assert crashlab.load("last").steps == []
+    # free-threaded builds (sys.flags.thread_inherit_context): the thread has the run
+    inherits = bool(getattr(sys.flags, "thread_inherit_context", False))
+    assert len(crashlab.load("last").steps) == (1 if inherits else 0)
 
 
 def test_bind_context_thread():
