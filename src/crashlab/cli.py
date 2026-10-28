@@ -631,7 +631,9 @@ def _verification_panel(v: Any) -> Panel:
         for r in v.regression:
             if r.status != "pass":
                 st = "red" if r.status == "fail" else "yellow"
-                parts.append(Text(f"  {r.run_id[:10]} {r.status}: {r.note or ''}", style=st))
+                note = " ".join((r.note or "").split())  # provider errors are multi-line
+                note = note if len(note) <= 160 else note[:157] + "..."
+                parts.append(Text(f"  {r.run_id[:10]} {r.status}: {note}", style=st))
     else:
         parts.append(Text("regression: no past good runs checked", style="dim"))
     for why in v.reasons:

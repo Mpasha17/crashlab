@@ -365,3 +365,24 @@ def test_new_proposals_do_not_reuse_a_verified_fix_id():
     v2 = crashlab.verify(run, "fix-2", k=1, regress="none", client=crashlab.wrap(PolicyModel()))
     ids = [a["fix_id"] for a in crashlab.load(run.run_id).fix_attempts]
     assert ids == ["fix-1", "fix-2"] and v1.verification_id != v2.verification_id
+
+
+def test_verification_panel_keeps_a_multiline_regression_error_on_one_line():
+    # live (LangChain on Groq): a 429 error starts with the exception class on its own
+    # line, so the panel showed only "01M61MJJ90 errored:" with the reason lost
+    from rich.console import Console
+
+    from crashlab.cli import _verification_panel
+    from crashlab.models import Verification
+
+    note = (
+        "langchain_openai.OpenAIRateLimitError:\n  Error code: 429 - Rate limit reached "
+        + "x" * 300
+    )
+    v = Verification(run_id="r", fix_id="fix-1", k=3, regression=[
+        RegressionResult(run_id="01M61MJJ90ABC", status="errored", note=note)])  # fmt: skip
+    con = Console(width=200, record=True)
+    con.print(_verification_panel(v))
+    out = con.export_text()
+    assert "01M61MJJ90 errored: langchain_openai.OpenAIRateLimitError: Error code: 429" in out
+    assert "x" * 200 not in out
