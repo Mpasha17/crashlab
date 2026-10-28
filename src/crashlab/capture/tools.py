@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import inspect
 from collections.abc import Callable
@@ -47,7 +48,7 @@ def _begin(spec: ToolSpec, fn: Callable[..., Any], args: tuple, kwargs: dict):
     return pending
 
 
-def _serve_replay(pending: Any, spec: ToolSpec) -> tuple[bool, Any]:
+def _serve_replay(pending: Any, spec: ToolSpec, fn: Callable[..., Any]) -> tuple[bool, Any]:
     """Outside record mode: ``(True, value)`` when the call is served without running the
     tool, ``(False, None)`` when it should run live; raises the served exception.
 
@@ -74,7 +75,7 @@ def _serve_replay(pending: Any, spec: ToolSpec) -> tuple[bool, Any]:
             pending.ctx.skip_idx(src.idx, skipped)
         if src.error is not None:
             raise rebuild_exception(src.error)
-        return True, (src.response or {}).get("result")
+        return True, _revive((src.response or {}).get("result"), src, fn)
     if kind == "patched":
         attrs = {"crashlab.fork.patches": [payload.describe()]}
         if payload.error is not None:
@@ -87,6 +88,82 @@ def _serve_replay(pending: Any, spec: ToolSpec) -> tuple[bool, Any]:
     if kind == "blocked":
         _block(pending, payload)
     return False, None
+
+
+# --- typed results ------------------------------------------------------------------
+# Results are stored as JSON. A tool that returns a pydantic model or a dataclass (or a
+# list of them) gets the same type back on replay, so ``order.total`` still works.
+
+RESULT_TYPE = "crashlab.result.type"
+
+
+def _is_rich(obj: Any) -> bool:
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return True
+    try:
+        from pydantic import BaseModel
+    except ImportError:  # pragma: no cover - pydantic is a dependency
+        return False
+    return isinstance(obj, BaseModel)
+
+
+def _result_type(result: Any) -> dict[str, Any] | None:
+    if not _is_rich(result):
+        return None
+    cls = type(result)
+    return {RESULT_TYPE: f"{cls.__module__}:{cls.__qualname__}"}
+
+
+def _import_type(ref: str) -> Any:
+    import importlib
+
+    module, _, qualname = ref.partition(":")
+    obj: Any = importlib.import_module(module)
+    for part in qualname.split("."):
+        obj = getattr(obj, part)
+    return obj
+
+
+def _mentions_rich_type(ann: Any) -> bool:
+    import typing
+
+    if isinstance(ann, type):
+        try:
+            from pydantic import BaseModel
+        except ImportError:  # pragma: no cover
+            return False
+        return dataclasses.is_dataclass(ann) or issubclass(ann, BaseModel)
+    return any(_mentions_rich_type(a) for a in typing.get_args(ann))
+
+
+def _revive(value: Any, src: Any, fn: Callable[..., Any]) -> Any:
+    """The recorded JSON result as the type the tool returned, when that is knowable."""
+    if value is None:
+        return value
+    target: Any = None
+    ref = src.attributes.get(RESULT_TYPE)
+    if isinstance(ref, str) and ":" in ref and "<locals>" not in ref:
+        try:
+            target = _import_type(ref)
+        except Exception:
+            target = None
+    if target is None:
+        try:
+            import typing
+
+            ann = typing.get_type_hints(fn).get("return")
+        except Exception:
+            ann = None
+        if ann is not None and _mentions_rich_type(ann):
+            target = ann
+    if target is None:
+        return value
+    try:
+        from pydantic import TypeAdapter
+
+        return TypeAdapter(target).validate_python(value)
+    except Exception:  # not rebuildable: serve the recorded JSON as before
+        return value
 
 
 def _block(pending: Any, message: str) -> None:
@@ -103,7 +180,7 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             pending = _begin(spec, fn, args, kwargs)
             if pending is None:
                 return await fn(*args, **kwargs)
-            served, value = _serve_replay(pending, spec)
+            served, value = _serve_replay(pending, spec, fn)
             if served:
                 return value
             try:
@@ -112,7 +189,7 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             except BaseException as exc:
                 pending.fail(exc, is_tool_error=True)
                 raise
-            pending.finish({"result": to_jsonable(result)})
+            pending.finish({"result": to_jsonable(result)}, attributes=_result_type(result))
             return result
 
         wrapper: Callable[..., Any] = async_wrapper
@@ -123,7 +200,7 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             pending = _begin(spec, fn, args, kwargs)
             if pending is None:
                 return fn(*args, **kwargs)
-            served, value = _serve_replay(pending, spec)
+            served, value = _serve_replay(pending, spec, fn)
             if served:
                 return value
             try:
@@ -132,7 +209,7 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             except BaseException as exc:
                 pending.fail(exc, is_tool_error=True)
                 raise
-            pending.finish({"result": to_jsonable(result)})
+            pending.finish({"result": to_jsonable(result)}, attributes=_result_type(result))
             return result
 
         wrapper = sync_wrapper
