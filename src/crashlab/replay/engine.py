@@ -24,6 +24,7 @@ import contextlib
 import importlib
 import importlib.util
 import inspect
+import itertools
 import os
 import socket
 import sys
@@ -606,8 +607,40 @@ def _call_kwargs(fn: Callable[..., Any], data: dict[str, Any]) -> tuple[list[Any
     return args, kwargs
 
 
-def _run_callable(fn: Callable[..., Any], args: list[Any], kwargs: dict[str, Any]) -> Any:
-    out = fn(*args, **kwargs)
+def _consumed_items(source: Run) -> int | None:
+    from ..capture.agent import GENERATOR_CLOSED_TAG
+
+    if GENERATOR_CLOSED_TAG in (source.tags or []) and isinstance(source.output, list):
+        return len(source.output)
+    return None
+
+
+def _drain(out: Any, limit: int | None) -> Any:
+    """A generator entry point: iterate it like the recording's consumer did (all items,
+    or only ``limit`` when that consumer stopped early)."""
+    if inspect.isgenerator(out):
+        items = list(out) if limit is None else list(itertools.islice(out, limit))
+        out.close()
+        return items
+    if inspect.isasyncgen(out):
+
+        async def collect() -> list[Any]:
+            items: list[Any] = []
+            async for item in out:
+                items.append(item)
+                if limit is not None and len(items) >= limit:
+                    break
+            await out.aclose()
+            return items
+
+        return collect()
+    return out
+
+
+def _run_callable(
+    fn: Callable[..., Any], args: list[Any], kwargs: dict[str, Any], limit: int | None = None
+) -> Any:
+    out = _drain(fn(*args, **kwargs), limit)
     if not inspect.isawaitable(out):
         return out
     try:
@@ -756,7 +789,7 @@ def _execute(
     error: BaseException | None = None
     with guards, pending_replay(replayer):
         try:
-            _run_callable(target, args, kwargs)
+            _run_callable(target, args, kwargs, _consumed_items(replayer.source))
         except BaseException as exc:  # compared with the recording by the caller
             error = exc
     if replayer.replay_run_id is None:

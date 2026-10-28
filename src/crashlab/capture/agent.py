@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import functools
 import inspect
 import os
@@ -300,6 +301,121 @@ class record:
         return self.__exit__(exc_type, exc, tb)
 
 
+GENERATOR_CLOSED_TAG = "generator-closed"
+
+
+def _generator_agent(
+    f: Callable[..., Any],
+    agent_name: str,
+    ep: str,
+    ignore_args: tuple[str, ...],
+    record_kw: dict[str, Any],
+) -> Callable[..., Any]:
+    """A generator / async generator entry function (streaming UIs: FastAPI, Gradio ...):
+    the run spans the whole iteration and records the yielded items as ``output``.
+
+    The run is bound only while the generator body executes (each step runs in a private
+    copy of the caller's context), so code the consumer runs between items is not
+    attributed to it. A consumer that stops early closes the run as ``ok`` with the items
+    it took and the tag ``generator-closed``; replay then takes the same number.
+    """
+    is_async = inspect.isasyncgenfunction(f)
+
+    def start(args: tuple, kwargs: dict) -> tuple[Any, Any, contextvars.Context | None]:
+        if bound_current() is not None:  # nested: steps go to the outer run directly
+            return None, f(*args, **kwargs), None
+        cv = contextvars.copy_context()
+        inp = bind_arguments(f, args, kwargs, ignore_args)
+        rec = record(agent_name, input=inp, entrypoint=ep, **record_kw)
+        cv.run(rec.__enter__)
+        return rec, cv.run(f, *args, **kwargs), cv
+
+    def finish(rec: Any, cv: Any, items: list, exc: BaseException | None) -> None:
+        run = rec.ctx.run if rec.ctx is not None else None
+        if run is not None:
+            run.output = to_jsonable(items)
+        if isinstance(exc, GeneratorExit):
+            if run is not None:
+                run.tags.append(GENERATOR_CLOSED_TAG)
+            exc = None
+        cv.run(rec.__exit__, type(exc) if exc else None, exc, exc.__traceback__ if exc else None)
+
+    if not is_async:
+
+        @functools.wraps(f)
+        def gen_wrapper(*args: Any, **kwargs: Any) -> Any:
+            rec, gen, cv = start(args, kwargs)
+            if rec is None:
+                return (yield from gen)
+            items: list[Any] = []
+            try:
+                item = cv.run(next, gen)
+                while True:
+                    items.append(item)
+                    try:
+                        sent = yield item
+                    except GeneratorExit:
+                        cv.run(gen.close)
+                        raise
+                    except BaseException as exc:  # thrown in by the consumer
+                        item = cv.run(gen.throw, exc)
+                    else:
+                        item = cv.run(gen.send, sent)
+            except StopIteration as stop:
+                finish(rec, cv, items, None)
+                return stop.value
+            except BaseException as exc:
+                finish(rec, cv, items, exc)
+                raise
+
+        return gen_wrapper
+
+    @functools.wraps(f)
+    async def agen_wrapper(*args: Any, **kwargs: Any) -> Any:
+        rec, gen, cv = start(args, kwargs)
+        if rec is None:
+            async for item in gen:
+                yield item
+            return
+        items: list[Any] = []
+        try:
+            item = await _in_context(cv, gen.__anext__())
+            while True:
+                items.append(item)
+                try:
+                    sent = yield item
+                except GeneratorExit:
+                    await _in_context(cv, gen.aclose())
+                    raise
+                except BaseException as exc:  # thrown in by the consumer
+                    item = await _in_context(cv, gen.athrow(exc))
+                else:
+                    item = await _in_context(cv, gen.asend(sent))
+        except StopAsyncIteration:
+            finish(rec, cv, items, None)
+        except BaseException as exc:
+            finish(rec, cv, items, exc)
+            raise
+
+    return agen_wrapper
+
+
+async def _in_context(cv: contextvars.Context, aw: Any) -> Any:
+    """Await ``aw`` (one async generator step) with ``cv`` as its context (on 3.10 a task
+    gets a copy of it, which still carries the run)."""
+    import asyncio
+
+    if sys.version_info >= (3, 11):
+        task = asyncio.get_running_loop().create_task(_await(aw), context=cv)
+    else:  # pragma: no cover - 3.10
+        task = cv.run(asyncio.ensure_future, _await(aw))
+    return await task
+
+
+async def _await(aw: Any) -> Any:
+    return await aw
+
+
 @overload
 def agent(fn: F, /) -> F: ...
 @overload
@@ -350,7 +466,11 @@ def agent(
                 pending.replay_source()  # replay: must match the recording; body re-runs
             return pending
 
-        if inspect.iscoroutinefunction(f):
+        if inspect.isgeneratorfunction(f) or inspect.isasyncgenfunction(f):
+            wrapper: Callable[..., Any] = _generator_agent(
+                f, agent_name, ep, ignore_args, dict(tags=tags, checks=checks, env=env)
+            )
+        elif inspect.iscoroutinefunction(f):
 
             @functools.wraps(f)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -371,7 +491,7 @@ def agent(
                     run.output = to_jsonable(out)
                     return out
 
-            wrapper: Callable[..., Any] = async_wrapper
+            wrapper = async_wrapper
         else:
 
             @functools.wraps(f)

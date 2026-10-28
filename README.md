@@ -95,7 +95,9 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   normalizes to the same messages, and each request gets a stable sha256 `request_hash`.
 - **`@crashlab.tool(side_effects=...)`** records tool arguments, results and exceptions;
   **`@crashlab.agent(name=...)`** / **`with crashlab.record(name, input=...)`** mark runs
-  (input, output, status, usage totals, entry point, git sha).
+  (input, output, status, usage totals, entry point, git sha). A generator / async
+  generator agent (streaming UIs) is one run over the whole iteration; its yielded items
+  are the output, and replay re-chunks recorded streams as they arrived.
 - **Threads:** `crashlab.bind_context(fn)`, `crashlab.ContextThreadPoolExecutor` and
   `crashlab.run_in_thread(fn, ...)` keep recording tool/LLM calls made in worker threads
   (asyncio tasks and `asyncio.to_thread` work out of the box).
@@ -180,7 +182,8 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   `crashlab.load("last")`.
 
 Not yet: a live HTML viewer server. Streamed calls replay as a synthetic stream rebuilt from the recorded
-final response (same content, different chunk boundaries).
+final response; OpenAI-style chat streams keep their recorded chunk boundaries (Anthropic and
+Responses streams: same content, different chunk boundaries).
 Also not intercepted yet: OpenAI `with_streaming_response.create` (raw HTTP body; crashlab
 warns once when it is used in a run), Anthropic `messages.batches` / beta `tool_runner`.
 Structured outputs — Anthropic `messages.parse()` (also `client.beta.messages`), OpenAI
