@@ -127,6 +127,8 @@ def _import_type(ref: str) -> Any:
 def _mentions_rich_type(ann: Any) -> bool:
     import typing
 
+    if typing.get_origin(ann) is not None:  # list[Model], Model | None ...
+        return any(_mentions_rich_type(a) for a in typing.get_args(ann))
     if isinstance(ann, type):
         try:
             from pydantic import BaseModel
