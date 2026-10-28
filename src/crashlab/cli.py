@@ -805,7 +805,7 @@ def bench_cmd(
 def verify_cmd(
     run_ref: str = typer.Argument("last", help="The failing run: id, prefix or 'last'."),
     fix: str = typer.Option(
-        "1", "--fix", "-f", help="fix-N / N on the diagnosis, or a patch file."
+        "1", "--fix", "-f", "--patch", help="fix-N / N on the diagnosis, or a patch file."
     ),
     k: int = typer.Option(5, "-k", help="Patched forks (and as many unpatched controls)."),
     no_control: bool = typer.Option(False, "--no-control", help="Skip the unpatched controls."),

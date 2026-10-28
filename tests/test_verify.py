@@ -490,3 +490,13 @@ def test_fix_number_means_the_fix_id_before_the_rank():
     assert resolve_fix(run, "1").fix_id == "fix-1"
     with pytest.raises(VerifyError):
         resolve_fix(run, "7")
+
+
+def test_cli_verify_takes_patch_like_fork(policy_client):
+    """`fix` prints `crashlab fork RUN --patch FILE`; verify accepts the same flag."""
+    run, _ = _setup()
+    res = runner.invoke(
+        app, ["verify", run.run_id, "--patch", "fix-1", "-k", "1", "--no-control", "--json"]
+    )
+    assert res.exit_code == 0, res.output
+    assert json.loads(res.stdout)["patched"]["passes"] == 1
