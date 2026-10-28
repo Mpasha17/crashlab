@@ -707,13 +707,36 @@ def _run_callable(
     out = _drain(fn(*args, **kwargs), limit, actions)
     if not inspect.isawaitable(out):
         return out
+    if not _in_async_code():
+        return _run_on_loop(_await(out))
+    # called from async code (Jupyter, async tests, a trio / curio program): use a private
+    # loop in a worker thread that carries this context (the pending replay)
+    return run_in_thread(_asyncio_run, _await(out))
+
+
+def _in_async_code() -> bool:
     try:
         asyncio.get_running_loop()
+        return True
     except RuntimeError:
-        return _run_on_loop(_await(out))
-    # called from async code (Jupyter, async tests): use a private loop in a worker thread
-    # that carries this context (the pending replay)
-    return run_in_thread(asyncio.run, _await(out))
+        pass
+    # trio has no asyncio loop: an asyncio loop started in its thread breaks trio, and
+    # anyio / httpx (via sniffio) would see trio inside it
+    sniffio = sys.modules.get("sniffio")
+    if sniffio is None:
+        return False
+    try:
+        return sniffio.current_async_library() != "asyncio"
+    except Exception:
+        return False
+
+
+def _asyncio_run(coro: Any) -> Any:
+    sniffio = sys.modules.get("sniffio")
+    cvar = getattr(sniffio, "current_async_library_cvar", None)
+    if cvar is not None:  # the copied context may say "trio"
+        cvar.set(None)
+    return asyncio.run(coro)
 
 
 async def _await(aw: Any) -> Any:

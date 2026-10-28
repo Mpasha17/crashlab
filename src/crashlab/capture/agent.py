@@ -12,6 +12,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import types
 import warnings
 from collections.abc import Callable
 from typing import Any, TypeVar, overload
@@ -430,11 +431,32 @@ async def _in_context(cv: contextvars.Context, aw: Any) -> Any:
     gets a copy of it, which still carries the run)."""
     import asyncio
 
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:  # trio / curio: no asyncio loop, step the awaitable in cv
+        return await _stepped_in(cv, aw.__await__())
     if sys.version_info >= (3, 11):
-        task = asyncio.get_running_loop().create_task(_await(aw), context=cv)
+        task = loop.create_task(_await(aw), context=cv)
     else:  # pragma: no cover - 3.10
         task = cv.run(asyncio.ensure_future, _await(aw))
     return await task
+
+
+@types.coroutine
+def _stepped_in(cv: contextvars.Context, it: Any) -> Any:
+    """Drive the awaitable iterator ``it`` with every step run in ``cv`` (what an asyncio
+    task with ``context=cv`` does), for event loops other than asyncio."""
+    value: Any = None
+    exc: BaseException | None = None
+    while True:
+        try:
+            yielded = cv.run(it.throw, exc) if exc is not None else cv.run(it.send, value)
+        except StopIteration as stop:
+            return stop.value
+        try:
+            value, exc = (yield yielded), None
+        except BaseException as err:  # cancellation etc.: hand it to the awaitable
+            value, exc = None, err
 
 
 async def _await(aw: Any) -> Any:
