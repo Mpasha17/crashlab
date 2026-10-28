@@ -1,8 +1,14 @@
 # crashlab
 
-**Crash-test your AI agents.**
+[![CI](https://github.com/Mpasha17/crashlab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Mpasha17/crashlab/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-crashlab is an open-source, framework-agnostic Python library that turns agent failures into fixes you can trust. The goal for v0.1:
+**Crash-test your AI agents.** Your agent failed in production. crashlab replays the exact
+run offline, tells you which step broke and why, and checks whether a fix works before you
+ship it.
+
+crashlab is an open-source, framework-agnostic Python library that turns agent failures into fixes you can trust. It works today:
 
 - **Record** every LLM and tool call from your existing agent loop (OpenAI, Anthropic, LiteLLM), with no rewrite.
 - **Replay** any failed run exactly, offline, and fork it at any step.
@@ -26,7 +32,7 @@ Then try it [offline with no API key](#try-it-with-no-api-key-and-no-model) or s
 > forks, then **exports** a pytest regression test and a shareable HTML report (see
 > [ARCHITECTURE.md](ARCHITECTURE.md)). Not on PyPI yet.
 
-## Reproduced a real upstream bug (Day 11)
+## Reproduced a real upstream bug
 
 We pointed crashlab at well-known open-source agent examples, with oracles from their
 documented behaviour — no injected faults.
@@ -52,15 +58,25 @@ correctly **REJECTED** by `crashlab verify` for regressing past FAQ runs — the
 is the point). CrewAI: recording gap on `with_raw_response.create` fixed; 3/3 live
 scenarios pass. Integration notes: [examples/integrations/](examples/integrations/).
 
-## Benchmark headline (seed, small n)
+## Results so far
 
-Seed fault-injection benchmark (`crashlab bench`). It injects 4 faults into 2 agents, runs
-3 episodes per cell, and verifies with k=3. The test split is the held-out `sql-analyst`
-agent. On Gemini flash-lite, the LLM diagnoser labelled **6/6 triggered faults correctly
-(Wilson 95% CI 61–100%)**. The tuned heuristic baseline labelled 2/6 (10–70%). No fix verified
-on the test agent: 0/3 VERIFIED and 1/3 LIKELY. The tool/DB fixes were correctly rejected.
-Groq gpt-oss-120b sqlv4 (after empty-reply + tool_use_failed nudges): LLM label ok **3/11 (10–57%)** on the test agent; 1/3 clean pass; 0/3 fixes verified. Earlier Groq test-split rows were invalid (empty-reply) or empty (quota). Details, all CIs and caveats:
-[bench/README.md](bench/README.md#seed-results).
+Live runs of the bundled demo refund agent with injected faults, on free tiers. Each
+fix was checked by `crashlab verify`: patched forks vs unpatched controls, plus past good
+runs as a regression check. Small n; the labels are deliberately conservative.
+
+| fault in the demo agent | model | verdict |
+|---|---|---|
+| `policy_drop`: the 30-day refund-window rule is missing from the system prompt | Groq gpt-oss-120b | **VERIFIED**: patched 5/5 vs control 0/5, 2/2 past good runs still pass, $0.002 |
+| `policy_drop` (same restore-policy patch) | Groq gpt-oss-20b, Gemini flash-lite | **VERIFIED**: 3/3 vs control 0/3 on each |
+| `misleading_desc`: the tool description says to refund `total * 0.9` | Groq gpt-oss-20b, Gemini flash-lite | **VERIFIED**: 3/3 vs control 0/3, regression run passes (gpt-oss-120b: INCONCLUSIVE, rate-limited) |
+| `html_502`: `get_order` returns an HTML 502 page and the agent retries in a loop | Groq gpt-oss-120b | **LIKELY** only: 3/3 vs control 1/3 (intervals overlap) |
+
+On a real, unmodified example (OpenAI Agents SDK `customer_service`), both prompt
+patches for a genuine triage failure were **REJECTED** because they broke past good FAQ
+runs. That is the verifier doing its job.
+
+Evidence: [live scoreboard](docs/case-studies/worker-c-live-scoreboard.md),
+[case studies](docs/case-studies/README.md), [Verify a fix](#verify-a-fix).
 
 ## What works today
 
@@ -329,9 +345,10 @@ The HTML report has the outcome, checks, findings, diagnosis with quotes, fixes 
 diffs, verification stats and the step timeline; inline CSS, no scripts, no external
 assets.
 
-Running the fork for real (without `--dry-run`) needs a model, for example a local one:
-
 ### Free, local, with Ollama
+
+Running the demo agent, or a fork for real (without `--dry-run`), needs a model. A local
+one is free:
 
 ```bash
 ollama pull qwen2.5:3b             # or llama3.2:3b / qwen2.5:7b: any tool-calling model
@@ -351,9 +368,19 @@ PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... MODEL=claude-haiku-4-5 \
 
 See [examples/refund_bot](examples/refund_bot/README.md) for details.
 
-Launch drafts (unpublished): [docs/launch/](docs/launch/).
-
 See [CHANGELOG.md](CHANGELOG.md) for what landed in 0.0.1.
+
+## Benchmark (seed, small n)
+
+`crashlab bench` injects 4 faults into 2 demo agents (3 episodes per cell, fixes verified
+with k=3) and scores the diagnoser on a held-out agent (`sql-analyst`) that nothing was
+tuned on. On Gemini flash-lite, the LLM diagnoser labelled **6/6 triggered faults
+correctly (Wilson 95% CI 61–100%)**; the heuristic baseline got 2/6 (10–70%). No fix was
+VERIFIED on the held-out agent (0/3, 1/3 LIKELY): its faults were in the tool and the
+database, which a prompt patch can't repair, so the rejections are correct. On Groq
+gpt-oss-120b the LLM diagnoser labelled only **3/11 (10–57%)** on the held-out agent.
+Samples are small and the intervals are wide; details, all CIs and caveats in
+[bench/README.md](bench/README.md#seed-results).
 
 ## Development
 

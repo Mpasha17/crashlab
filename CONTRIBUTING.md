@@ -6,9 +6,8 @@ crashlab is pre-alpha. Useful contributions right now:
    issue with the cassette id and what broke (or worked). See `examples/integrations/`.
 2. **Offline tests** — pure unit tests under `tests/`, no live keys. Run
    `pytest` and `ruff check .` before a PR.
-3. **Docs** — fix quickstart pain; keep claims honest (CIs, small-n, quotas). Launch
-   drafts live under `docs/launch/` (do not publish them). Case studies under
-   `docs/case-studies/` must not invent results.
+3. **Docs** — fix quickstart pain; keep claims honest (CIs, small-n, quotas). Case
+   studies under `docs/case-studies/` must not invent results.
 
 Please do **not** commit API keys, `.crashlab/` live stores, or `crashlab-live/`.
 Do not publish to PyPI from a fork. Do not force-push `main`.
