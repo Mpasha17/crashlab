@@ -654,3 +654,34 @@ def test_unhandled_tool_error():
                 if f.kind == "unhandled_tool_error"]  # fmt: skip
     assert not [f for f in evaluate(_crashed_run(run_error="KeyError"), ChecksConfig())
                 if f.kind == "unhandled_tool_error"]  # fmt: skip
+
+
+def _restart_run(*, side_effects: bool):
+    def chat(i, msgs, err=None):
+        return crashlab.Step(
+            run_id="r", idx=i, span_id=f"c{i}", operation="chat", name="m", request_hash="h",
+            request={"messages": msgs}, response=None if err else {"messages": []}, error=err,
+        )  # fmt: skip
+
+    task = [{"role": "user", "content": "order 3 widgets"}]
+    rate = crashlab.models.ErrorInfo(type="openai.RateLimitError", message="429")
+    tool = crashlab.Step(
+        run_id="r", idx=1, span_id="t", operation="execute_tool", name="place_order",
+        request_hash="h", request={"args": {"quantity": 3}}, response={"result": "O-1"},
+        attributes={"crashlab.tool.side_effects": side_effects},
+    )  # fmt: skip
+    steps = [chat(0, task), tool, chat(2, [*task, {"role": "tool", "content": "O-1"}], rate),
+             chat(3, task, rate)]  # fmt: skip
+    return crashlab.Run(run_id="r", name="t", steps=steps)
+
+
+def test_restart_after_a_side_effect_is_an_error():
+    # live (CrewAI, Groq 429 after place_order succeeded): CrewAI retried the whole task and
+    # sent the first request again; the old message said "no new information in between"
+    (f,) = [f for f in evaluate(_restart_run(side_effects=True), ChecksConfig())
+            if f.kind == "step_repetition"]  # fmt: skip
+    assert f.severity == "error" and f.steps == [0, 1, 3]
+    assert "place_order (side effects) succeeded at step 1" in f.message
+    (f,) = [f for f in evaluate(_restart_run(side_effects=False), ChecksConfig())
+            if f.kind == "step_repetition"]  # fmt: skip
+    assert f.severity == "warn" and "restarted after 1 tool call" in f.message

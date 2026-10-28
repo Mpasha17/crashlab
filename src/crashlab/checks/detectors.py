@@ -345,10 +345,29 @@ class StepRepetition(Detector):
         idxs = [s.idx for s in chats]
         sev = "critical" if len(chats) >= self.cfg.critical_at else "warn"
         last = (step.request.get("messages") or [None])[-1]
+        # tools that ran between the two identical requests: the conversation was rebuilt
+        # from scratch (a framework retry / restart), not a model stuck in a loop
+        between = [s for s in h.tool_steps() if prev.idx < s.idx < step.idx]
+        done = [s for s in between if s.error is None and s.source not in ("blocked", "fake")
+                and s.attributes.get("crashlab.tool.side_effects")]  # fmt: skip
+        if done:
+            sev = "critical" if sev == "critical" else "error"
+            what = (f"the run went back to the request of step {prev.idx} at step {step.idx} "
+                    f"after {done[0].name} (side effects) succeeded at step {done[0].idx}: a "
+                    "restart from here repeats that call (retry the failed LLM call, not the "
+                    "whole task)")  # fmt: skip
+            idxs = sorted({*idxs, done[0].idx})
+        elif between:
+            what = (f"the same LLM request was sent {len(chats)} times (steps "
+                    f"{_steps_text(idxs)}): the conversation was restarted after "
+                    f"{len(between)} tool call(s)")  # fmt: skip
+        else:
+            what = (
+                f"the same LLM request was sent {len(chats)} times "
+                f"(steps {_steps_text(idxs)}) with no new information in between"
+            )
         return [self.finding(
-            severity=sev, step=idxs[0], steps=idxs, key=f"request:{key}",
-            message=f"the same LLM request was sent {len(chats)} times "
-                    f"(steps {_steps_text(idxs)}) with no new information in between",
+            severity=sev, step=idxs[0], steps=idxs, key=f"request:{key}", message=what,
             evidence=[_ev(step, "request.messages[-1]", last)] if last is not None else [],
         )]  # fmt: skip
 
