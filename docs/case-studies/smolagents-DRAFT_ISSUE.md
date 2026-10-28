@@ -70,4 +70,4 @@ Please also check whether the text-to-SQL docs example uses the same pattern.
 We ran the unmodified example under [crashlab](https://github.com/Mpasha17/crashlab)
 with a `@crashlab.check` oracle that expects "Woodrow Wilson". The oracle failed; a
 no-LLM reproduction through `LocalPythonExecutor` confirmed the empty database. Full
-write-up (not an upstream PR): kept locally as a case study while deciding whether to file.
+write-up (not an upstream PR): https://github.com/Mpasha17/crashlab/blob/main/docs/case-studies/smolagents-text-to-sql.md

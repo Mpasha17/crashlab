@@ -1,12 +1,14 @@
 # Pre-launch checklist (Thu 29 Oct 17:30 IST)
 
-_Last checked: 2026-10-23 13:40 Asia/Calcutta_
+_Last checked: 2026-10-28 20:05 Asia/Calcutta_
 
 ## Must
-- [ ] CI green on origin/main (3.10–3.13) — re-check soft-launch HEAD (queue cancels mid-run often)
+- [x] CI green on origin/main `5a2028f` (3.10–3.13 + lint,
+  [run 40706038326](https://github.com/Mpasha17/crashlab/actions/runs/40706038326)) — re-check if HEAD moves
 - [x] README offline quickstart works from a **clean** venv with no keys
   (`docs/demo/quickstart-offline.sh`: import 5 demos, `check --all` exits 1 on expected
-  policy fail, `replay` of policy run reproduces). Verified 2026-10-23 ~11:43 IST.
+  policy fail, `replay` of policy run reproduces). Verified 2026-10-23 ~11:43 IST; re-verified
+  2026-10-28 ~20:00 IST with `pip install git+https://github.com/Mpasha17/crashlab`.
 - [x] Flagship case study linked from README (`docs/case-studies/smolagents-text-to-sql.md`)
 - [x] Demo opens: `docs/demo/terminal.html`, GIF, and `demoscript.sh`
 - [x] Secret-scan green on this push (`./scripts/scan.sh`); re-run before every push

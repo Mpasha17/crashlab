@@ -5,11 +5,11 @@ Drafts only until you say otherwise. Target soft launch: **Thu 29 Oct 17:30 IST*
 ## Must decide
 
 - [ ] **Approve launch copy** — `announcement.md` (X ≤280 + LinkedIn), `show-hn.md`, `one-pager.md`
-- [ ] **Post Show HN?** When (29 Oct vs later)? Hug + body ready in `show-hn.md`
+- [ ] **Post Show HN?** When (29 Oct vs later)? Title + body ready in `show-hn.md`
 - [ ] **Post X / LinkedIn?** Use ≤280 paste-ready block in `announcement.md` (or alt with REJECTED)
 - [ ] **File smolagents upstream issue?** Draft: `docs/case-studies/smolagents-DRAFT_ISSUE.md` — **not filed**
 - [ ] **openai-agents upstream?** Default **no** until a non-regressing fix exists (both prompt patches **REJECTED**)
-- [ ] **Confirm CI green** on the soft-launch HEAD (3.10–3.13) before announcing
+- [x] **CI green** on `5a2028f` (3.10–3.13 + lint, [run 40706038326](https://github.com/Mpasha17/crashlab/actions/runs/40706038326)) — re-check only if HEAD moves before announcing
 - [ ] **Still no PyPI** for this soft launch?
 
 ## Claims you can make (honest)

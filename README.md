@@ -10,6 +10,15 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
 - **Verify** a proposed fix by rerunning the failure and your past good runs.
 - **Export** the failure as a pytest regression test.
 
+![crashlab catching the smolagents empty-:memory: bug (terminal demo, no keys)](docs/demo/smolagents-text-to-sql.gif)
+
+```bash
+pip install "crashlab[openai] @ git+https://github.com/Mpasha17/crashlab"   # not on PyPI yet
+```
+
+Then try it [offline with no API key](#try-it-with-no-api-key-and-no-model) or see the
+[Quickstart](#quickstart).
+
 > **Status: pre-alpha (0.0.1).** Today crashlab **records** runs, lets you inspect them,
 > **replays** them strictly offline, grades them with **`@crashlab.check`** oracles,
 > **forks** them at any step with typed **patches** and **diffs** two runs. It also
@@ -32,7 +41,7 @@ fixes it; a no-LLM A/B through smolagents' own `LocalPythonExecutor` confirms up
 error, fixed → `('Woodrow Wilson',)`.
 
 Case studies: [docs/case-studies/](docs/case-studies/README.md). Flagship write-up: [smolagents text_to_sql](docs/case-studies/smolagents-text-to-sql.md).
-Terminal demo (no keys): [docs/demo/](docs/demo/README.md) · ![demo](docs/demo/smolagents-text-to-sql.gif). Draft upstream issue text
+Terminal demo (no keys): [docs/demo/](docs/demo/README.md) (GIF above). Draft upstream issue text
 was prepared locally and has **not** been filed.
 
 Also tried: OpenAI Agents SDK `examples/customer_service` (Triage Agent answers

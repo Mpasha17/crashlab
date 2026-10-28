@@ -1,6 +1,6 @@
 # Show HN: crashlab – crash-test your AI agents (record → diagnose → verify a fix)
 
-**Hug:** Show HN: crashlab – crash-test your AI agents
+**Title:** Show HN: crashlab – crash-test your AI agents
 
 **Text:**
 

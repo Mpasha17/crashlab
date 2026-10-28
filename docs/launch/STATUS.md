@@ -1,4 +1,4 @@
-**Last updated:** 2026-10-23 13:41 Asia/Calcutta
+**Last updated:** 2026-10-28 20:05 Asia/Calcutta
 
 # Launch readiness (updated live)
 
@@ -14,8 +14,14 @@
 - Launch drafts: announcement, Show HN, one-pager, checklist, STATUS, Day 11 report
 - Clean-venv offline quickstart verified (`docs/demo/quickstart-offline.sh`)
 - CHANGELOG 0.0.1, CONTRIBUTING, SECURITY.md, LICENSE (Apache-2.0)
-- CI: recent greens include `9f12d8f` / `020a467` / `320be73`; tip moves fast — run `git log -1` + Actions on soft-launch HEAD
-- Offline suite: 450 tests (see `pytest` locally; CI 3.10–3.13)
+- CI: **green** on 3.10–3.13 + lint at `5a2028f` (2026-10-28,
+  [run 40706038326](https://github.com/Mpasha17/crashlab/actions/runs/40706038326)). Earlier
+  runs hung 6h on a flaky concurrent-store race (fixed in `5a2028f`; jobs now time out at 20 min).
+  Re-check Actions on the soft-launch HEAD.
+- Offline suite: 482 tests (some skip without provider SDKs; CI 3.10–3.13)
+- Fresh venv `pip install git+https://github.com/Mpasha17/crashlab` + offline demo path
+  (import, ls, show, check --all, replay, diagnose --heuristic, export-test, report --html,
+  bench --offline) re-verified 2026-10-28 ~20:00 IST
 
 Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
 
@@ -25,7 +31,7 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
 - [ ] Do **not** file openai-agents issue until a non-regressing fix exists
 - [x] Groq clean smoke 2026-10-23 10:57 IST: **3/3 pass** after failed_generation recovery
   (`b31ca7e`). sqlv4 clean 1/3 was pre-fix; denominator can be treated as healthy.
-- [ ] Confirm CI green on the soft-launch HEAD (3.10–3.13)
+- [x] CI green on `5a2028f` (3.10–3.13 + lint) — re-confirm on the final soft-launch HEAD
 - [x] Worker C live 2026-10-23 ~11:41–13:41 IST Asia/Calcutta:
   - Groq refund_bot clean A17: **pass** (4/4) `01M5KP4VCRTZ1D4DYRE7B6QQT7`
   - Groq sql_analyst clean: **3/3 pass** (gpt-oss-120b)
