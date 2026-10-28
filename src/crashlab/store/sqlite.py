@@ -285,7 +285,15 @@ class SQLiteIndex:
             sql += " LIMIT ?"
             args.append(limit)
         with closing(self._connect()) as conn:
-            return [dict(r) for r in conn.execute(sql, args)]
+            rows = [dict(r) for r in conn.execute(sql, args)]
+            # a run still recording (or whose process was killed) has its usage written
+            # only at the end: count the steps it has stored so far
+            for r in rows:
+                if r.get("status") == "running" and not r.get("steps"):
+                    r["steps"] = conn.execute(
+                        "SELECT COUNT(*) FROM steps WHERE run_id = ?", (r["run_id"],)
+                    ).fetchone()[0]
+            return rows
 
     def get_run_json(self, run_id: str) -> dict[str, Any] | None:
         if not self.exists():

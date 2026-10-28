@@ -157,7 +157,10 @@ class Replayer:
         if src is None:
             raise self._diverge(
                 "extra_step",
-                f"replay made {here}, but the recording has only {len(self.steps)} steps",
+                f"replay made {here}, but the recording has only {len(self.steps)} steps"
+                + (
+                    _UNFINISHED.format(n=len(self.steps)) if self.source.status == "running" else ""
+                ),
                 step_idx=idx,
                 actual=request,
             )
@@ -215,7 +218,12 @@ class Replayer:
         if self.divergence is not None:
             return self.divergence
         src = self.source
-        if exc is not None and not isinstance(exc, DivergenceError):
+        # a recording that never finished (process killed, or still running) has no
+        # outcome to compare: every recorded step matched, what ran after is not compared
+        unfinished = src.status == "running"
+        if unfinished:
+            pass
+        elif exc is not None and not isinstance(exc, DivergenceError):
             recorded = src.error.type.rsplit(".", 1)[-1] if src.error else None
             if src.status != "error" or recorded != type(exc).__name__:
                 return self._diverge(
@@ -241,7 +249,7 @@ class Replayer:
                 f"{listed}{more}",
                 step_idx=missing[0],
             )
-        if exc is None and run.output != src.output:
+        if exc is None and not unfinished and run.output != src.output:
             fields, diff = diff_values(src.output, run.output, fromfile="recorded output",
                                        tofile="replay output")  # fmt: skip
             return self._diverge(
@@ -254,6 +262,11 @@ class Replayer:
             )
         return None
 
+
+_UNFINISHED = (
+    "; the recording never finished (status running: its process was killed or is still "
+    "running), so it ends after {n} steps: everything recorded was reproduced"
+)
 
 ToolsMode = Literal["cassette_if_match", "live"]
 

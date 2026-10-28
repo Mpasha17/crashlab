@@ -1264,14 +1264,23 @@ def replay_cmd(
         console.print(f"[red]cannot replay:[/] {_e(err)}")
         raise typer.Exit(code=2) from err
     served = sum(1 for s in rep.steps if s.source == "cassette")
-    console.print(
-        f"[green]reproduced[/]: {served}/{len(rep.steps)} steps served from the cassette, "
-        + (
-            f"same error as recorded ({_e(rep.error.type)})."
-            if rep.error
-            else "identical requests and output."
+    if source.status == "running":
+        console.print(
+            f"[green]reproduced[/]: {served}/{len(rep.steps)} steps served from the cassette. "
+            "[yellow]The recording never finished[/] (status running: its process was "
+            "killed or is still running): everything it recorded matched; the replay's "
+            + (f"error ({_e(rep.error.type)})" if rep.error else "output")
+            + " has nothing to be compared with."
         )
-    )
+    else:
+        console.print(
+            f"[green]reproduced[/]: {served}/{len(rep.steps)} steps served from the cassette, "
+            + (
+                f"same error as recorded ({_e(rep.error.type)})."
+                if rep.error
+                else "identical requests and output."
+            )
+        )
     console.print(
         f"replay run [cyan]{rep.run_id}[/] (replay of {source.run_id})  status: "
         f"{rep.status}  outcome: " + f"[{_OUTCOME_STYLE.get(rep.outcome, '')}]{rep.outcome}[/]"
