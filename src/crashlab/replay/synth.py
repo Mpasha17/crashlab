@@ -17,7 +17,7 @@ from .rebuild import rebuild, rebuild_chunk
 # --- chunk synthesis -----------------------------------------------------------------
 
 
-def openai_chat_chunks(raw: dict[str, Any]) -> list[dict[str, Any]]:
+def openai_chat_chunks(raw: dict[str, Any], *, tool_index: bool = True) -> list[dict[str, Any]]:
     base = {"object": "chat.completion.chunk"}
     for key in ("id", "created", "model", "system_fingerprint", "service_tier"):
         if raw.get(key) is not None:
@@ -44,7 +44,8 @@ def openai_chat_chunks(raw: dict[str, Any]) -> list[dict[str, Any]]:
         out.append(chunk({"index": idx, "delta": delta, "finish_reason": None}))
         for i, tc in enumerate(msg.get("tool_calls") or []):
             call = {k: v for k, v in tc.items() if k not in ("function",)}
-            call["index"] = i
+            if tool_index:  # else: as recorded, the provider sent no index
+                call["index"] = i
             call["function"] = dict(tc.get("function") or {})
             out.append(
                 chunk({"index": idx, "delta": {"tool_calls": [call]}, "finish_reason": None})
@@ -131,11 +132,14 @@ SYNTHESIZERS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
 }
 
 
-def synthesize(api: str, raw: dict[str, Any] | None, chunk_type: str | None) -> list[Any]:
+def synthesize(
+    api: str, raw: dict[str, Any] | None, chunk_type: str | None, *, tool_index: bool = True
+) -> list[Any]:
     if not raw:
         return []
     make = SYNTHESIZERS.get(api, openai_chat_chunks)
-    return [rebuild_chunk(c, chunk_type) for c in make(raw)]
+    chunks = make(raw, tool_index=tool_index) if make is openai_chat_chunks else make(raw)
+    return [rebuild_chunk(c, chunk_type) for c in chunks]
 
 
 # --- stream objects ------------------------------------------------------------------

@@ -50,6 +50,10 @@ class OpenAIChatAssembler(Assembler):
         self.meta: dict[str, Any] = {}
         self.choices: dict[int, dict[str, Any]] = {}
         self.usage: dict[str, Any] | None = None
+        # some providers (Gemini's OpenAI endpoint) send tool-call deltas without an
+        # index; replay must send them the same way, or a client that chokes on it
+        # (smolagents) passes in replay and the recorded failure is not reproduced
+        self.tool_index_missing = False
 
     def _add(self, data: dict[str, Any]) -> None:
         for key in ("id", "model", "created", "system_fingerprint", "service_tier"):
@@ -84,6 +88,8 @@ class OpenAIChatAssembler(Assembler):
                     st["reasoning_key"] = st["reasoning_key"] or rkey
                     break
             for tc in delta.get("tool_calls") or []:
+                if tc.get("index") is None:
+                    self.tool_index_missing = True
                 tidx = tc.get("index") or 0
                 call = st["tool_calls"].setdefault(
                     tidx, {"id": None, "type": "function", "name": [], "arguments": []}

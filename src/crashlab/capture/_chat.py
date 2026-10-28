@@ -166,7 +166,12 @@ class ChatCall:
             chunk_type = src.attributes.get("crashlab.stream.chunk_type") or (
                 R.DEFAULT_CHUNK_TYPES.get(api)
             )
-            items = synth.synthesize(api, src.raw_response, chunk_type)
+            items = synth.synthesize(
+                api,
+                src.raw_response,
+                chunk_type,
+                tool_index=not src.attributes.get("crashlab.stream.tool_call_index_missing"),
+            )
             if error is not None and not items:
                 return _raise_later(error) if is_async else _raise(error)
             stream_obj: Any = (
@@ -200,6 +205,8 @@ class ChatCall:
         if asm.chunk_type:
             attrs["crashlab.stream.chunk_type"] = asm.chunk_type
         attrs["crashlab.stream.complete"] = bool(complete and error is None)
+        if getattr(asm, "tool_index_missing", False):
+            attrs["crashlab.stream.tool_call_index_missing"] = True
         raw = N.strip_binary(raw) if raw else None
         if error is not None and not isinstance(error, GeneratorExit):
             self.pending.fail(  # type: ignore[union-attr]

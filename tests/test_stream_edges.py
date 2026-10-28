@@ -118,3 +118,34 @@ def test_stream_abandoned_by_a_raising_consumer_is_still_recorded(openai_mod, cr
     step = run.steps[0]
     assert step.operation == "chat" and step.attributes["crashlab.stream.complete"] is False
     assert step.response["messages"][0]["parts"][0]["content"].startswith("a ")
+
+
+@crashlab.agent(name="chat-tool-index", ignore_args=["client"])
+def tool_call_indexes(q: str, client=None) -> list:
+    stream = client.chat.completions.create(
+        model="m", messages=[{"role": "user", "content": q}], stream=True
+    )
+    return [
+        tc.index for chunk in stream for ch in chunk.choices for tc in ch.delta.tool_calls or []
+    ]
+
+
+def test_tool_call_deltas_without_index_replay_without_index(openai_mod, crashlab_dir):
+    # Gemini's OpenAI endpoint streams tool calls with no index (smolagents then fails:
+    # "Tool call index is not provided"); replay must not quietly add one
+    base = {"id": "c1", "object": "chat.completion.chunk", "created": 1, "model": "m"}
+    call = {"id": "call_1", "type": "function",
+            "function": {"name": "place_order", "arguments": '{"quantity": 2}'}}  # fmt: skip
+    chunks = [
+        {**base, "choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [call]}}]},
+        {**base, "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
+    ]
+    script = Script([(sse(chunks, named=False), "text/event-stream")])
+    out = tool_call_indexes("hi", client=crashlab.wrap(_client(openai_mod, script)))
+    assert out == [None]
+    run = crashlab.load("last")
+    assert run.steps[0].attributes["crashlab.stream.tool_call_index_missing"] is True
+    replayed = crashlab.replay(
+        run, overrides={"client": crashlab.wrap(_client(openai_mod, Script([500])))}
+    )
+    assert replayed.output == [None]
