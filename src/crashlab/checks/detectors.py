@@ -90,6 +90,8 @@ _ERROR_TEXT = re.compile(
 )
 _ERROR_KEYS = ("error", "errors", "exception", "error_message", "errorMessage", "fault")
 _STATUS_KEYS = ("status_code", "statusCode", "http_status", "code", "status")
+# a status *word* that means the call did not do what was asked ({"status": "rejected"})
+_FAILED_STATUS = frozenset({"error", "failed", "failure", "rejected", "denied", "declined"})
 _TRUNC_TAIL = ("...", "…", "[truncated]", "(truncated)", "<truncated>")
 
 
@@ -118,6 +120,14 @@ def classify_result(result: Any, cfg: Any = None) -> list[ResultIssue]:
         elif on("error_bodies") and _ERROR_TEXT.match(text) and len(text) < 4000:
             issues.append(ResultIssue("error_body", "warn", "an error message instead of data",
                                       0, True))  # fmt: skip
+        elif on("error_bodies") and text.lstrip()[:1] == "{" and len(text) < 4000:
+            # many tools return JSON text, not a dict: {"status": "rejected", "error": ...}
+            try:
+                obj = json.loads(text)
+            except ValueError:
+                obj = None
+            if isinstance(obj, dict):
+                issues += [i for i in classify_result(obj, cfg) if i.reason == "error_body"]
         if not text.strip() and on("empty"):
             issues.append(ResultIssue("empty", "info", "an empty string"))
         elif on("truncated") and not issues:
@@ -150,6 +160,13 @@ def classify_result(result: Any, cfg: Any = None) -> list[ResultIssue]:
             else:
                 for key in _STATUS_KEYS:
                     code = result.get(key)
+                    if isinstance(code, str) and code.strip().lower() in _FAILED_STATUS:
+                        issues.append(
+                            ResultIssue(
+                                "error_body", "info", f"a failed status ({key}={code!r})", 0, True
+                            )
+                        )
+                        break
                     if isinstance(code, int) and not isinstance(code, bool) and 400 <= code < 600:
                         issues.append(
                             ResultIssue(

@@ -461,3 +461,31 @@ def test_no_llm_calls_is_quiet_with_a_chat_step_or_when_disabled():
     assert [f for f in evaluate(run, ChecksConfig()) if f.kind == "no_llm_calls"] == []
     lone = crashlab.Run(run_id="r", name="t", steps=[_tool_step(0)])
     assert evaluate(lone, resolve_config({"no_llm_calls": False})) == []
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        '{"status": "rejected", "error": "insufficient stock for gizmo: 2 available"}',
+        '{"status": "failed", "detail": "card declined"}',
+        {"status": "rejected"},
+    ],
+)
+def test_json_text_and_failed_status_words_are_error_bodies(result):
+    # live (PydanticAI, out-of-stock backend): place_order returned JSON *text* with
+    # "status": "rejected" 6 times in a row (varied quantities) and nothing was flagged
+    assert [i.reason for i in classify_result(result)] == ["error_body"]
+
+
+@pytest.mark.parametrize("result", ['{"status": "ok", "order_id": "O-1"}', {"status": "done"}])
+def test_ok_status_words_are_clean(result):
+    assert classify_result(result) == []
+
+
+def test_rejected_json_text_results_make_a_streak():
+    rejected = '{"status": "rejected", "error": "insufficient stock: 2 available"}'
+    RESULTS.extend([rejected] * 3)
+    run = _run([tool_call_response(i, "lookup", {"q": str(i)}) for i in range(3)]
+               + [text_response(9, "sorry")])  # fmt: skip
+    (f,) = run.findings_of("tool_error_streak")
+    assert f.steps == [1, 3, 5] and "an error object" in f.message
