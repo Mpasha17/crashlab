@@ -1180,6 +1180,13 @@ def check_cmd(
         raise typer.Exit(code=2)
     if all_runs:
         refs = [r["run_id"] for r in store.list_runs(limit=None, name=name)]
+        if not refs:
+            if as_json:
+                typer.echo("[]")
+            else:
+                what = f"named {name!r} " if name else ""
+                console.print(f"No runs {what}to check in {_e(store.root)}.", style="yellow")
+            return
     else:
         refs = list(run_refs or ["last"])
     overrides: dict[str, Any] = {}
@@ -1776,7 +1783,11 @@ def export_cmd(
     from .store import export_run
 
     store = Store()
-    run_id = store.resolve_run_id(run_ref)
+    try:
+        run_id = store.resolve_run_id(run_ref)
+    except RunNotFoundError as exc:
+        _console().print(f"[red]{_e(exc)}[/]")
+        raise typer.Exit(code=1) from exc
     path = export_run(store, run_id, output or Path(f"{run_id}.jsonl"))
     _console().print(f"exported {run_id} -> {_e(path)}")
 
@@ -1792,6 +1803,10 @@ def import_cmd(
     console = _console()
     store = Store()
     for path in paths:
+        if not path.is_file():
+            what = "is a directory" if path.is_dir() else "no such file"
+            console.print(f"[red]{_e(path)}: {what}[/]")
+            raise typer.Exit(code=2)
         try:
             run_id, added = import_run(store, path, replace=replace)
         except (OSError, ValueError) as err:
