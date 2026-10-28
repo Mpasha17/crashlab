@@ -64,6 +64,28 @@ def _events(index=True):
     ]
 
 
+def _groq_events():
+    """Groq-shaped: per-chunk ``created``, ``x_groq`` (id first, usage last), a reasoning
+    ``channel`` on deltas, role on the first chunk only, usage only inside x_groq."""
+    ev = [_ch({"role": "assistant", "content": None, "channel": "analysis"})]
+    ev[0]["x_groq"] = {"id": "req_1", "seed": 7}
+    for n, piece in enumerate(["The", " user", " asks"]):
+        ev.append({**_ch({"reasoning": piece, "channel": "analysis"}), "created": 7 + n // 2})
+    ev.append({**_ch({"content": "Hi", "channel": "final"}), "created": 9})
+    ev.append({**_ch({"tool_calls": [_call(0, head=True, args='{"c":"P"}')]}), "created": 9})
+    last = {**_ch({}, "tool_calls"), "created": 9}
+    last["x_groq"] = {"usage": {"prompt_tokens": 5, "completion_tokens": 9, "total_tokens": 14}}
+    return [*ev, last]
+
+
+def _deepseek_events():
+    """usage on the finish chunk itself (no separate usage-only chunk)."""
+    finish = _ch({"content": ""}, "stop")
+    finish["usage"] = {"prompt_tokens": 2, "completion_tokens": 2, "total_tokens": 4}
+    return [_ch({"role": "assistant", "content": ""}), _ch({"content": "Hi"}),
+            _ch({"content": " there"}), finish]  # fmt: skip
+
+
 STATE = {"live": True, "events": _events()}
 
 
@@ -85,9 +107,13 @@ def raw_chunks():
         yield chunk.model_dump()
 
 
-@pytest.mark.parametrize("index", [True, False], ids=["indexed", "no-index"])
-def test_replayed_chat_stream_matches_chunk_for_chunk(crashlab_dir, index):
-    STATE.update(live=True, events=_events(index))
+@pytest.mark.parametrize(
+    "events",
+    [_events(True), _events(False), _groq_events(), _deepseek_events()],
+    ids=["indexed", "no-index", "groq-extras", "usage-on-finish"],
+)
+def test_replayed_chat_stream_matches_chunk_for_chunk(crashlab_dir, events):
+    STATE.update(live=True, events=events)
     live = list(raw_chunks())
     assert len(live) == len(STATE["events"])
     STATE["live"] = False

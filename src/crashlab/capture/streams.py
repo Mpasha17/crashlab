@@ -43,6 +43,13 @@ class Assembler:
         raise NotImplementedError
 
 
+# chunk fields the replay rebuilds itself; anything else is kept per chunk (``_extras``)
+_TOP_KEYS = frozenset({"choices", "usage", "object"})
+_CHOICE_KEYS = frozenset({"index", "delta", "finish_reason"})
+_DELTA_KEYS = frozenset({"content", "tool_calls", "refusal", "reasoning_content",
+                         "reasoning", "function_call"})  # fmt: skip
+
+
 class OpenAIChatAssembler(Assembler):
     """ChatCompletionChunk stream (OpenAI, LiteLLM) -> ChatCompletion-shaped dict."""
 
@@ -57,18 +64,42 @@ class OpenAIChatAssembler(Assembler):
         self.tool_index_missing = False
         self.plan: list[list[list[Any]]] = []
         self.plan_ok = True
+        self._last_extras: dict[str, Any] = {}
+
+    def _extras(self, data: dict[str, Any], ch: dict[str, Any] | None) -> list[list[Any]]:
+        """``["x", {...}]`` when this chunk's other fields (``created``, provider extras
+        such as Groq's ``x_groq`` or a delta's ``channel``, ``role``, logprobs) differ from
+        the previous chunk's; replay carries them forward."""
+        x: dict[str, Any] = {}
+        top = {k: v for k, v in data.items() if k not in _TOP_KEYS and v is not None}
+        if top:
+            x["t"] = top
+        if ch is not None:
+            cx = {k: v for k, v in ch.items() if k not in _CHOICE_KEYS and v is not None}
+            delta = ch.get("delta") or {}
+            dx = {k: v for k, v in delta.items() if k not in _DELTA_KEYS and v is not None}
+            if cx:
+                x["c"] = cx
+            if dx:
+                x["d"] = dx
+        if x == self._last_extras:
+            return []
+        self._last_extras = x
+        return [["x", x]]
 
     def _plan(self, data: dict[str, Any]) -> None:
         choices = data.get("choices") or []
         if not choices:
-            self.plan.append([["u"]])
+            self.plan.append([["u"], *self._extras(data, None)])
             return
         if len(choices) > 1 or (choices[0].get("index") or 0) != 0:
             self.plan_ok = False
             return
         ch = choices[0]
         delta = ch.get("delta") or {}
-        ops: list[list[Any]] = []
+        ops: list[list[Any]] = self._extras(data, ch)
+        if data.get("usage"):
+            ops.append(["U"])  # usage on a content / finish chunk, not a separate one
         if isinstance(delta.get("content"), str):
             ops.append(["c", len(delta["content"])])
         for rkey in ("reasoning_content", "reasoning"):
@@ -181,7 +212,8 @@ class OpenAIChatAssembler(Assembler):
     @property
     def stream_plan(self) -> list[list[list[Any]]] | None:
         """The shape of every chunk (``["c", n]`` content piece, ``["r", n]`` reasoning
-        piece, ``["t", pieces]`` tool-call delta, ``["f"]`` finish, ``["u"]`` usage-only chunk), so
+        piece, ``["t", pieces]`` tool-call delta, ``["f"]`` finish, ``["u"]`` usage-only chunk,
+        ``["U"]`` usage on this chunk, ``["x", fields]`` other fields from here on), so
         replay re-chunks the stream as it arrived: a generator agent that yields chunk by
         chunk reproduces. None for multi-choice streams."""
         return self.plan if self.plan_ok and len(self.plan) > 1 else None

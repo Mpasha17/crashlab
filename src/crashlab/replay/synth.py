@@ -44,18 +44,28 @@ def _planned_chunks(
     at_args = [0] * len(calls_raw)
     out: list[dict[str, Any]] = []
     at_c = at_r = 0
-    tools_sent = role_sent = False
+    # plans with ["x", ...] carry role and every other field as streamed
+    role_sent = any(op[0] == "x" for op in ops)
+    tools_sent = False
+    extras: dict[str, Any] = {}
     for entry in plan:
-        if entry == [["u"]]:
+        for op in entry:
+            if op[0] == "x" and len(op) > 1 and isinstance(op[1], dict):
+                extras = op[1]
+        top = extras.get("t") if isinstance(extras.get("t"), dict) else {}
+        if entry and entry[0] == ["u"]:
             if raw.get("usage"):
-                out.append(chunk(None, usage=raw["usage"]))
+                out.append({**chunk(None, usage=raw["usage"]), **top})
             continue
         delta: dict[str, Any] = {}
         if not role_sent:
             delta["role"] = msg.get("role") or "assistant"
             role_sent = True
         finish = None
+        usage_here = False
         for op in entry:
+            if op[0] == "U":
+                usage_here = True
             if op[0] == "c":
                 delta["content"] = text[at_c : at_c + op[1]]
                 at_c += op[1]
@@ -99,7 +109,13 @@ def _planned_chunks(
                     delta["tool_calls"] = calls
             elif op[0] == "f":
                 finish = ch.get("finish_reason")
-        out.append(chunk({"index": ch.get("index") or 0, "delta": delta, "finish_reason": finish}))
+        if isinstance(extras.get("d"), dict):
+            delta = {**extras["d"], **delta}
+        choice = {"index": ch.get("index") or 0, "delta": delta, "finish_reason": finish}
+        if isinstance(extras.get("c"), dict):
+            choice = {**extras["c"], **choice}
+        usage = {"usage": raw["usage"]} if usage_here and raw.get("usage") else {}
+        out.append({**chunk(choice, **usage), **top})
     if msg.get("tool_calls") and not tools_sent:
         return None
     return out
