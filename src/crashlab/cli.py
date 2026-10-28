@@ -555,9 +555,9 @@ def _next_hints(run: Run) -> list[str]:
     for f in (d.fixes if d else [])[:1]:
         if f.file:
             at = f.as_patch.target_step() if f.as_patch is not None else None
-            hints.append(f"crashlab fork {rid} --at {at or 0} --patch {f.file}")
+            hints.append(f"crashlab fork {rid} --at {at or 0} --patch {f.fix_id}")
         if not f.tried and not run.fix_attempts:
-            hints.append(f"crashlab fix {rid} --model MODEL --try     # fork once with fix-1")
+            hints.append(f"crashlab fix {rid} --model MODEL --try     # fork once with {f.fix_id}")
         if not run.fix_attempts:
             hints.append(f"crashlab verify {rid} --fix {f.fix_id} -k 5     # k forks + controls")
         else:
@@ -1483,6 +1483,23 @@ def _flag_patches(
     return out
 
 
+def _fork_patch(source: Run, ref: str) -> Any:
+    """``--patch``: a patch file, or a fix on the run's diagnosis (``fix-1`` / ``1``)."""
+    from . import patch as P
+
+    if Path(ref).expanduser().is_file() or source.diagnosis is None:
+        return P.load(ref)
+    from .verify.runner import VerifyError, resolve_fix
+
+    try:
+        f = resolve_fix(source, ref)
+    except VerifyError:
+        return P.load(ref)  # the file error names the path
+    if f.as_patch is None:
+        raise ValueError(f"{f.fix_id} has no patch")
+    return P.as_patchset(f.as_patch)
+
+
 @app.command("fork")
 def fork_cmd(
     run_ref: str = typer.Argument("last", help="Run id, unique id prefix, or 'last'."),
@@ -1496,7 +1513,8 @@ def fork_cmd(
         None,
         "--patch",
         "-p",
-        help="Patch file (.json / .yaml): one patch, a list, or {patches: [...]}. Repeatable.",
+        help="Patch file (.json / .yaml): one patch, a list, or {patches: [...]}; or a fix "
+        "id (fix-1) from `crashlab fix`. Repeatable.",
     ),
     system_append: str | None = typer.Option(
         None, "--system-append", help="Append to the system prompt."
@@ -1588,7 +1606,7 @@ def fork_cmd(
     try:
         patches = P.PatchSet()
         for path in patch_files or []:
-            patches = patches + P.load(path)
+            patches = patches + _fork_patch(source, path)
         patches = patches + _flag_patches(
             system_append=system_append,
             system_prepend=system_prepend,

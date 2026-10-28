@@ -543,3 +543,14 @@ def test_daily_limit_trials_say_so(monkeypatch):
     v = crashlab.verify(run, 1, k=2, regress="none", save=False)
     assert v.verdict == "INCONCLUSIVE"
     assert any("4 trial(s) hit the provider's daily limit" in x for x in v.reasons), v.reasons
+
+
+def test_cli_fork_takes_a_fix_id():
+    """The `next:` hint used to print the patch file's absolute path, which wrapped at 80
+    columns and broke copy-paste; it now prints `--patch fix-1`, which fork resolves."""
+    run, _ = _setup()
+    res = runner.invoke(app, ["fork", run.run_id, "--at", "0", "--patch", "fix-1", "--dry-run"])
+    assert res.exit_code == 0, res.output
+    assert "patch for" in res.output
+    res = runner.invoke(app, ["fork", run.run_id, "--at", "0", "--patch", "fix-9", "--dry-run"])
+    assert res.exit_code == 2 and "bad patch" in res.output
