@@ -153,6 +153,7 @@ def test_patch_that_breaks_a_good_run_is_rejected():
     assert v.patched.passes == 2 and v.control.passes == 0
     assert v.verdict == "REJECTED" and v.regressions[0].run_id == clean.run_id
     assert "regression" in v.reasons[0]
+    assert v.regressions[0].note.startswith("failed: ")  # which check, not a blank note
 
 
 def test_regression_blocked_at_a_side_effect_is_not_checked_not_failed():

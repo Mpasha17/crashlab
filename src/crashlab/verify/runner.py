@@ -121,6 +121,23 @@ def resolve_regression(store: Any, run: Run, regress: Any, limit: int) -> list[s
 BLOCKED = "SideEffectBlockedError"
 
 
+def _failed_note(root: Any, t: Trial) -> str | None:
+    """``"failed: check (message); ..."`` for a regression run that failed its checks."""
+    if t.status != "fail" or not t.run_id:
+        return None
+    try:
+        from ..store import Store
+
+        checks = Store(root).load_run(t.run_id).checks
+    except Exception:  # noqa: BLE001 - a note is best effort
+        checks = []
+    bad = [f"{c.name} ({c.message})" if c.message else c.name
+           for c in checks if c.status != "pass"]  # fmt: skip
+    if not bad and t.failed_checks:
+        bad = list(t.failed_checks)
+    return f"failed: {'; '.join(bad)}"[:300] if bad else None
+
+
 def _blocked_steps(run: Run) -> list[str]:
     return [f"{s.name} (step {s.idx})" for s in run.steps if s.source == "blocked"]
 
@@ -288,7 +305,12 @@ def verify(
         )
         record(t)
         v.regression.append(
-            RegressionResult(run_id=rid, status=t.status, trial_run=t.run_id, note=t.error)
+            RegressionResult(
+                run_id=rid,
+                status=t.status,
+                trial_run=t.run_id,
+                note=t.error or _failed_note(store.root, t),
+            )
         )
 
     v.patched = arm([t for t in v.trials if t.role == "patched"], k)
