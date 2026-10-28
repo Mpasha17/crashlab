@@ -469,3 +469,24 @@ def test_cli_fix_verify_attempts_1_stops_and_hints(policy_client, monkeypatch):
     assert res.exit_code == 0, res.output
     assert len(crashlab.load(run.run_id).fix_attempts) == 1
     assert "run `crashlab fix` again for a new proposal" in " ".join(res.output.split())
+
+
+def test_fix_number_means_the_fix_id_before_the_rank():
+    """After `crashlab fix` is re-run the diagnosis may hold only fix-2 (rank 1); `--fix 2`
+    must pick fix-2, and `--fix 1` must not silently verify fix-2."""
+    from crashlab.models import Diagnosis, Fix
+    from crashlab.verify.runner import VerifyError, resolve_fix
+
+    run = crashlab.Run(run_id="r1", name="a")
+    run.diagnosis = Diagnosis.model_construct(
+        fixes=[Fix(fix_id="fix-2", rank=1, kind="system_prompt")]
+    )
+    assert resolve_fix(run, "2").fix_id == "fix-2"
+    assert resolve_fix(run, "fix-2").fix_id == "fix-2"
+    assert resolve_fix(run, 1).fix_id == "fix-2"  # rank still works when no id matches
+    run.diagnosis = Diagnosis.model_construct(
+        fixes=[Fix(fix_id="fix-1", rank=2, kind="x"), Fix(fix_id="fix-2", rank=1, kind="x")]
+    )
+    assert resolve_fix(run, "1").fix_id == "fix-1"
+    with pytest.raises(VerifyError):
+        resolve_fix(run, "7")

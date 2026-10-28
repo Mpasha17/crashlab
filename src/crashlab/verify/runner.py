@@ -69,8 +69,13 @@ def resolve_fix(run: Run, fix: Any) -> Fix:
         return fix
     ref = str(fix)
     fixes = run.diagnosis.fixes if run.diagnosis else []
+    # an id first: after a re-run of `fix` the diagnosis may hold only fix-2 (rank 1), and
+    # `--fix 2` means fix-2, as the "fix-2: REJECTED" lines name it
     for f in fixes:
-        if ref in (f.fix_id, str(f.rank)) or (f.file and Path(f.file).name == ref):
+        if f.fix_id in (ref, f"fix-{ref}") or (f.file and Path(f.file).name == ref):
+            return f
+    for f in fixes:
+        if ref == str(f.rank):
             return f
     path = Path(ref).expanduser()
     if path.is_file():
