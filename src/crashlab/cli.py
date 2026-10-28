@@ -84,6 +84,11 @@ def _findings_table(findings: list[Finding], title: str = "runtime findings") ->
 
 
 def _console(stderr: bool = False) -> Console:
+    # rich answers 80x25 on TERM=dumb (CI, editors, agent shells) and ignores COLUMNS,
+    # unless both width and height are given
+    cols, lines = os.environ.get("COLUMNS", ""), os.environ.get("LINES", "")
+    if cols.isdigit() and int(cols) > 0:
+        return Console(stderr=stderr, width=int(cols), height=int(lines) if lines.isdigit() else 25)
     return Console(stderr=stderr)
 
 

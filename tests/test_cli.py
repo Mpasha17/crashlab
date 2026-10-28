@@ -206,3 +206,12 @@ def test_help_groups_commands_in_workflow_order():
              "Replay and fork", "replay", "Share and benchmark", "bench"]  # fmt: skip
     pos = [at(m) for m in marks]
     assert -1 not in pos and pos == sorted(pos), list(zip(marks, pos, strict=True))
+
+
+def test_show_honours_columns_on_a_dumb_terminal():
+    # TERM=dumb (CI logs, editors, agent shells): rich fixed the width at 80 and ignored COLUMNS
+    _record_one()
+    for cols in (60, 160):
+        out = runner.invoke(app, ["show", "last"], env={"TERM": "dumb", "COLUMNS": str(cols)})
+        widths = [len(line) for line in out.output.splitlines()]
+        assert max(widths) == cols, (cols, max(widths))
