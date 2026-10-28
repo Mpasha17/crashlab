@@ -158,49 +158,48 @@ def _raw_create(inner_completions: Any, adapter: ChatAdapter, server: str | None
     return create
 
 
+def _wrap_resource(inner: Any, adapter: ChatAdapter, server: str | None) -> Proxy:
+    """``chat.completions`` / ``responses`` (or ``beta.chat.completions``) with every
+    recordable entry point bound: create, parse, stream(), with_raw_response.create."""
+    kw: dict[str, Any] = {}
+    if callable(getattr(inner, "create", None)):
+        kw["create"] = _create(inner, adapter, server)
+    if callable(getattr(inner, "parse", None)):
+        kw["parse"] = _parse(inner, adapter, server)
+    # CrewAI calls with_raw_response.create; bind recording onto that path too
+    raw = getattr(inner, "with_raw_response", None)
+    if raw is not None and callable(getattr(raw, "create", None)):
+        kw["with_raw_response"] = Proxy(raw, create=_raw_create(inner, adapter, server))
+    streaming = getattr(inner, "with_streaming_response", None)
+    if streaming is not None and callable(getattr(streaming, "create", None)):
+        kw["with_streaming_response"] = _warn_streaming_response(inner, adapter.api)
+    proxy = Proxy(inner, **kw)
+    if "create" in kw:
+        _bind_stream_helper(proxy, inner)
+    return proxy
+
+
 class WrappedOpenAI(WrappedClient):
     """Thin proxy around ``openai.OpenAI`` / ``openai.AsyncOpenAI`` (or compatible)."""
 
     def __init__(self, client: Any, *, provider: str = "openai") -> None:
         server = server_address(client)
         overrides: dict[str, Any] = {"_crashlab_provider": provider}
+        adapter = _adapter(CHAT, provider)
         chat = getattr(client, "chat", None)
         if chat is not None and getattr(chat, "completions", None) is not None:
-            adapter = _adapter(CHAT, provider)
-            create = _create(chat.completions, adapter, server)
-            completions_kw: dict[str, Any] = {"create": create}
-            if callable(getattr(chat.completions, "parse", None)):
-                completions_kw["parse"] = _parse(chat.completions, adapter, server)
-            # CrewAI calls with_raw_response.create; bind recording onto that path too
-            if getattr(chat.completions, "with_raw_response", None) is not None:
-                completions_kw["with_raw_response"] = Proxy(
-                    chat.completions.with_raw_response,
-                    create=_raw_create(chat.completions, adapter, server),
-                )
-            if getattr(chat.completions, "with_streaming_response", None) is not None:
-                completions_kw["with_streaming_response"] = _warn_streaming_response(
-                    chat.completions, adapter.api
-                )
-            completions = Proxy(chat.completions, **completions_kw)
-            _bind_stream_helper(completions, chat.completions)
+            completions = _wrap_resource(chat.completions, adapter, server)
             overrides["chat"] = Proxy(chat, completions=completions)
+        # older docs / libraries call client.beta.chat.completions.parse / .stream
+        beta = getattr(client, "beta", None)
+        beta_chat = getattr(beta, "chat", None)
+        if getattr(beta_chat, "completions", None) is not None:
+            beta_completions = _wrap_resource(beta_chat.completions, adapter, server)
+            overrides["beta"] = Proxy(beta, chat=Proxy(beta_chat, completions=beta_completions))
         responses = getattr(client, "responses", None)
         if responses is not None and callable(getattr(responses, "create", None)):
             resp_adapter = _adapter(RESPONSES, provider)
-            resp_kw: dict[str, Any] = {"create": _create(responses, resp_adapter, server)}
-            if callable(getattr(responses, "parse", None)):
-                resp_kw["parse"] = _parse(responses, resp_adapter, server)
-            if getattr(responses, "with_raw_response", None) is not None:
-                resp_kw["with_raw_response"] = Proxy(
-                    responses.with_raw_response,
-                    create=_raw_create(responses, resp_adapter, server),
-                )
-            if getattr(responses, "with_streaming_response", None) is not None:
-                resp_kw["with_streaming_response"] = _warn_streaming_response(
-                    responses, resp_adapter.api
-                )
-            overrides["responses"] = Proxy(responses, **resp_kw)
-            _bind_stream_helper(overrides["responses"], responses)
+            overrides["responses"] = _wrap_resource(responses, resp_adapter, server)
         super().__init__(client, **overrides)
 
     def _rewrap(self, client: Any) -> WrappedOpenAI:

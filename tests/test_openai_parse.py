@@ -241,3 +241,35 @@ def test_with_streaming_response_warns_it_is_not_recorded(crashlab_dir):
 
     with pytest.warns(RuntimeWarning, match="with_streaming_response.create is not recorded"):
         assert agent() == _TEXT
+
+
+@crashlab.agent(name="beta-parse")
+def beta_parse_agent(q: str) -> dict:
+    client = _client()
+    out = client.beta.chat.completions.parse(
+        model="m", messages=[{"role": "user", "content": q}], response_format=Weather
+    )
+    with client.beta.chat.completions.stream(
+        model="m", messages=[{"role": "user", "content": q}], response_format=Weather
+    ) as stream:
+        for _ in stream:
+            pass
+        streamed = stream.get_final_completion().choices[0].message.parsed
+    assert streamed == out.choices[0].message.parsed
+    return out.choices[0].message.parsed.model_dump()
+
+
+def test_beta_chat_completions_parse_and_stream_record(crashlab_dir):
+    if getattr(getattr(openai.OpenAI(api_key="x"), "beta", None), "chat", None) is None:
+        pytest.skip("openai SDK without client.beta.chat")
+    LIVE["on"] = True
+    CALLS.clear()
+    assert beta_parse_agent("weather?") == ANSWER
+    run = crashlab.load("last")
+    assert [s.operation for s in run.steps] == ["chat", "chat"]
+    LIVE["on"] = False
+    try:
+        assert crashlab.replay(run).output == ANSWER
+    finally:
+        LIVE["on"] = True
+    assert len(CALLS) == 2
