@@ -1,7 +1,8 @@
 """Recording proxy for ``anthropic.Anthropic`` / ``anthropic.AsyncAnthropic``.
 
-Intercepts ``client.messages.create`` (plain and ``stream=True``) and
-``client.messages.stream(...)``. The ``anthropic`` package is never imported here.
+Intercepts ``client.messages.create`` (plain and ``stream=True``),
+``client.messages.stream(...)`` and ``client.messages.parse(...)`` (structured outputs).
+``anthropic`` is imported only lazily, to re-run its parser over a replayed ``parse()``.
 Not intercepted yet: ``client.beta.messages``, ``messages.batches``, ``count_tokens``.
 """
 
@@ -64,6 +65,21 @@ class WrappedAnthropic(WrappedClient):
             return RecordingMessageStreamManager(manager, call)
 
         messages_kw: dict[str, Any] = {"create": create, "stream": stream}
+        if callable(getattr(messages, "parse", None)):
+
+            def parse(*args: Any, **kwargs: Any) -> Any:
+                out = invoke(MESSAGES, messages.parse, args, kwargs, server=server,
+                             is_async=is_async)  # fmt: skip
+                if is_async:
+
+                    async def finish() -> Any:
+                        return _reparse(await out, kwargs)
+
+                    return finish()
+                return _reparse(out, kwargs)
+
+            parse.__doc__ = getattr(messages.parse, "__doc__", None)
+            messages_kw["parse"] = parse
         if getattr(messages, "with_raw_response", None) is not None:
             raw = messages.with_raw_response
 
@@ -79,6 +95,20 @@ class WrappedAnthropic(WrappedClient):
 
     def _rewrap(self, client: Any) -> WrappedAnthropic:
         return WrappedAnthropic(client)
+
+
+def _reparse(obj: Any, kwargs: dict[str, Any]) -> Any:
+    """A replayed ``messages.parse()`` result is rebuilt as a plain ``Message``: run the
+    SDK's parser over it so ``.parsed_output`` works as when recorded."""
+    if obj is None or type(obj).__name__.startswith("Parsed"):
+        return obj
+    try:
+        from anthropic import omit
+        from anthropic.lib._parse._response import parse_response
+
+        return parse_response(response=obj, output_format=kwargs.get("output_format", omit))
+    except Exception:  # pragma: no cover - SDK internals moved: serve what we rebuilt
+        return obj
 
 
 def _replay_stream_manager(call: ChatCall, src: Any, is_async: bool) -> Any:
