@@ -131,6 +131,9 @@ class OpenAIChatAssembler(Assembler):
                 self.meta[key] = data[key]
         if data.get("usage"):
             self.usage = data["usage"]
+        elif self.usage is None and isinstance((data.get("x_groq") or {}).get("usage"), dict):
+            # Groq streams without stream_options.include_usage report it only here
+            self.usage = data["x_groq"]["usage"]
         if self.plan_ok:
             self._plan(data)
         for ch in data.get("choices") or []:

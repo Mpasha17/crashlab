@@ -144,3 +144,23 @@ def test_litellm_stream_replays_chunk_for_chunk(crashlab_dir, monkeypatch):
     assert len(live) > 3
     replayed = crashlab.replay(crashlab.load("last"), fn=litellm_chunks)
     assert replayed.status == "ok" and replayed.output == live
+
+
+def test_groq_usage_only_in_x_groq_is_recorded(crashlab_dir):
+    # Groq streams without stream_options.include_usage put usage only in x_groq
+    STATE.update(live=True, events=_groq_events())
+
+    @crashlab.agent(name="groq-usage")
+    def groq_usage():
+        http = httpx.Client(transport=httpx.MockTransport(_handle))
+        client = crashlab.wrap(
+            openai.OpenAI(api_key="sk-x", base_url="http://t/v1", http_client=http)
+        )
+        stream = client.chat.completions.create(
+            model="m", messages=[{"role": "user", "content": "hi"}], stream=True
+        )
+        return [c.choices[0].delta.content for c in stream if c.choices]
+
+    groq_usage()
+    run = crashlab.load("last")
+    assert (run.usage.input_tokens, run.usage.output_tokens) == (5, 9)
