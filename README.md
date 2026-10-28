@@ -188,8 +188,25 @@ OpenAI streams only report token usage if you pass `stream_options={"include_usa
 
 ```bash
 pip install "crashlab[openai]"
-# or crashlab[anthropic], crashlab[litellm]
+# or crashlab[anthropic], crashlab[litellm] (also installs mcp, which litellm 1.106+
+# imports for tool calls)
 ```
+
+**Pick the model that diagnoses and fixes runs** (any OpenAI-compatible endpoint, not
+only OpenAI). Set it once, then `crashlab diagnose` / `fix` / `fix --verify` need no flags:
+
+```bash
+# Gemini (free tier) via its OpenAI-compatible endpoint
+export CRASHLAB_DIAGNOSER_MODEL=gemini-flash-lite-latest
+export CRASHLAB_DIAGNOSER_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+export CRASHLAB_DIAGNOSER_API_KEY="$GEMINI_API_KEY"
+# Groq: openai/gpt-oss-120b + https://api.groq.com/openai/v1 + $GROQ_API_KEY
+# Ollama: qwen2.5:7b + http://localhost:11434/v1 (no key)
+```
+
+Or per command: `--model M --base-url URL --api-key-env NAME_OF_THE_ENV_VAR` (the flag takes
+the variable's *name*, never the key). This model is separate from your agent's: forks
+and `verify` re-run your agent with its own client and keys.
 
 Using a framework? Wrap the client it uses; per-framework notes (AutoGen, AG2, Haystack,
 DSPy, Google ADK, LangChain, Agno, CrewAI, OpenAI Agents SDK, smolagents) are in
@@ -316,6 +333,12 @@ OPENAI_BASE_URL=https://api.groq.com/openai/v1 OPENAI_API_KEY=$GROQ_API_KEY \
   --base-url https://api.groq.com/openai/v1 --api-key-env GROQ_API_KEY --try
 ```
 
+If verify REJECTS fix-1, run `crashlab fix` again: once a fix was verified, the fix model
+is told which ones were rejected and proposes something new (fix-2 ...). `fix --verify`
+does this on its own: after a REJECTED verdict it tries the next fix (`--attempts 2`, the
+default). In live tests on seven agent stacks the first proposal was REJECTED on four and a
+later one was VERIFIED.
+
 ### Verify a fix
 
 ```bash
@@ -325,6 +348,22 @@ OPENAI_BASE_URL=https://api.groq.com/openai/v1 OPENAI_API_KEY=$GROQ_API_KEY \
 # or all in one: diagnose (if needed) -> fix -> verify
 crashlab fix 01M57GM7H9 --model ... --verify -k 5
 ```
+
+**Side-effect tools in forks.** A `side_effects=True` tool never runs for real outside
+recording. A fork serves it the recorded result of an *identical* call; a call the
+recording never made (order 5 instead of 10, "widgets" for "widget") is blocked, and that
+trial can't be graded. If your fix is meant to change such a call, register a fake.
+crashlab calls the fake instead, and the trial counts (steps show `◇ fake`):
+
+```python
+@crashlab.fake_tool("place_order")             # same signature as the real tool
+def fake_place_order(product: str, qty: int) -> dict:
+    return {"order_id": "FAKE-1", "product": product, "qty": qty}
+# or: @crashlab.tool(side_effects=True, fake=fake_place_order)
+```
+
+Or pass `--allow-live-side-effects` when the tools point at a sandbox. When trials were
+blocked, the verify panel prints a one-line hint naming both.
 
 Verdicts: **VERIFIED** (patched Wilson 95% lower bound above the control's upper bound,
 or controls all fail and patched all pass; no regression), **LIKELY** (better, but not
@@ -345,6 +384,19 @@ crashlab export-test 01M5GTK1FR --fix auto -o tests/crashlab   # test + cassette
 pytest --crashlab            # (pip install pytest) exported tests only: offline, no keys, no network
 crashlab report 01M5GTK1FR --html report.html   # one self-contained file to share
 ```
+
+Offline recipe: the exported test needs only `crashlab`, your agent's code and its
+framework installed, with no keys and no network. To prove it in CI or locally:
+
+```bash
+crashlab export-test last --fix auto -o tests/crashlab
+env -u OPENAI_API_KEY -u GEMINI_API_KEY pytest --crashlab tests/crashlab
+unshare -rn pytest --crashlab tests/crashlab    # Linux: no network namespace at all
+```
+
+Pin anything your agent reads from the environment (model name, `stream=`, feature
+flags) into the recorded input or the code. A replay re-runs your code, so a different
+model or streaming setting is a divergence, not a pass.
 
 The exported test replays the failing run and asserts its `@check` results, and (with
 `--fix`) replays a passing patched run from `crashlab verify` with the fix re-applied,
