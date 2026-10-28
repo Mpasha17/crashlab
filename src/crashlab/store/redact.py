@@ -22,18 +22,21 @@ DEFAULT_SENSITIVE_KEYS = re.compile(
     re.IGNORECASE,
 )
 
+# A leading ``\b`` stops ``re`` from scanning for the literal prefix, so each pattern
+# cost ~0.2 s on a 20 MB tool result; ``KEY(?<!\wKEY)`` is the same test (no word
+# character right before the prefix) checked after the fast literal scan.
 DEFAULT_VALUE_PATTERNS: list[str] = [
     r"sk-(?:proj-|ant-(?:api\d+-)?|or-v1-)?[A-Za-z0-9_\-]{16,}",  # OpenAI / Anthropic / OpenRouter
-    r"(?i)\bbearer\s+[A-Za-z0-9._\-~+/]{8,}=*",
-    r"\bAKIA[0-9A-Z]{16}\b",  # AWS access key id
-    r"\bgh[pousr]_[A-Za-z0-9]{20,}\b",  # GitHub tokens
-    r"\bgithub_pat_[A-Za-z0-9_]{20,}\b",
-    r"\bxai-[A-Za-z0-9]{20,}\b",
-    r"\bAIza[0-9A-Za-z_\-]{35}\b",  # Google API key
-    r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b",  # Slack
-    r"\bhf_[A-Za-z0-9]{20,}\b",  # Hugging Face
-    r"\bgsk_[A-Za-z0-9]{20,}\b",  # Groq
-    r"\bAQ\.Ab8[A-Za-z0-9_\-]{8,}\b",  # Alibaba / DashScope-shaped
+    r"(?i)bearer(?<!\wbearer)\s+[A-Za-z0-9._\-~+/]{8,}=*",
+    r"AKIA(?<!\wAKIA)[0-9A-Z]{16}\b",  # AWS access key id
+    r"gh(?<!\wgh)[pousr]_[A-Za-z0-9]{20,}\b",  # GitHub tokens
+    r"github_pat_(?<!\wgithub_pat_)[A-Za-z0-9_]{20,}\b",
+    r"xai-(?<!\wxai-)[A-Za-z0-9]{20,}\b",
+    r"AIza(?<!\wAIza)[0-9A-Za-z_\-]{35}\b",  # Google API key
+    r"xox(?<!\wxox)[abprs]-[A-Za-z0-9-]{10,}\b",  # Slack
+    r"hf_(?<!\whf_)[A-Za-z0-9]{20,}\b",  # Hugging Face
+    r"gsk_(?<!\wgsk_)[A-Za-z0-9]{20,}\b",  # Groq
+    r"AQ\.Ab8(?<!\wAQ\.Ab8)[A-Za-z0-9_\-]{8,}\b",  # Alibaba / DashScope-shaped
 ]
 
 Hook = Callable[[str], str]
