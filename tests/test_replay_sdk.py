@@ -125,8 +125,8 @@ def test_anthropic_sdk_create_stream_and_helper(crashlab_dir):
 def test_a_status_error_body_left_out_of_the_message_is_kept(crashlab_dir):
     # live (Gemini's OpenAI endpoint, streamed LangGraph): the body is a JSON list, so the
     # OpenAI SDK's message is only "Error code: 400"; show / diagnose had nothing to go on
-    import httpx
-    import openai
+    openai = pytest.importorskip("openai")  # the no-provider-SDK CI job has neither
+    httpx = pytest.importorskip("httpx")
 
     from crashlab.capture._steps import error_info
     from crashlab.replay.rebuild import rebuild_exception
