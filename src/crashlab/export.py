@@ -121,7 +121,9 @@ def _render(
         f"def test_{slug}_reproduces(crashlab_replay):",
         f'    run = crashlab_replay(CASSETTES / "{cassette}")',
         f"    assert run.outcome == {_q(run.outcome)}",
-        "    assert {c.name: c.status for c in run.checks} == EXPECTED_CHECKS",
+        "    checks = {c.name: c.status for c in run.checks}",
+        "    # checks added after the recording may join; the recorded ones must still agree",
+        "    assert {k: checks.get(k) for k in EXPECTED_CHECKS} == EXPECTED_CHECKS, checks",
     ]
     if fixed is not None:
         out += [

@@ -229,3 +229,22 @@ def test_long_fix_literal_is_split_lint_clean(tmp_path, text):
                 text=True,
             )
             assert res.returncode == 0, res.stdout
+
+
+def test_exported_test_survives_a_check_added_later(tmp_path):
+    # live: adding an oracle to the agent (no_false_order_claim) broke every exported test,
+    # because the generated test compared the whole set of checks
+    pytest.importorskip("openai")
+    run, _ = _setup()
+    out = tmp_path / "exported"
+    [cass, test] = export_test(run.run_id, out_dir=out)
+    src = test.read_text()
+    m = re.search(r"EXPECTED_CHECKS = \{\n(.*?)\}", src, re.S)
+    assert m and m.group(1).strip()
+    test.write_text(src.replace(m.group(0), "EXPECTED_CHECKS = {\n}"))  # as if all were new
+    res = _pytest(out)
+    assert res.returncode == 0 and "1 passed" in res.stdout, res.stdout + res.stderr
+    # a recorded check that changes its result still fails the test
+    test.write_text(src.replace('"refund_within_policy": "fail"', '"refund_within_policy": "pass"'))
+    res = _pytest(out)
+    assert res.returncode == 1 and "1 failed" in res.stdout, res.stdout
