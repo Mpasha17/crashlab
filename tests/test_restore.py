@@ -153,3 +153,36 @@ def test_fix_verify_verifies_the_restore_before_a_weak_model_fix(policy_client, 
     assert len(attempts) == 1 and attempts[0]["fix_id"] == "fix-1"
     assert attempts[0]["verdict"] in ("VERIFIED", "LIKELY")
     assert "substitute" in attempts[0]["patch"] or "replace" in attempts[0]["patch"]
+
+
+def test_restore_proposals_without_a_fix_model_or_when_it_fails(crashlab_dir, monkeypatch):
+    from crashlab.diagnose import DiagnoseError
+    from crashlab.diagnose import fixes as fixes_mod
+
+    monkeypatch.delenv("CRASHLAB_DIAGNOSER_MODEL", raising=False)
+    run, _ = _diagnosed_with_good(1)
+    fixes = crashlab.propose_fixes(run)
+    assert len(fixes) == 1 and fixes[0].notes[0].startswith("restored from")
+    d = crashlab.load(run.run_id).diagnosis
+    assert any("no fix model" in n for n in d.fix_notes)
+
+    def boom(*a, **k):
+        raise DiagnoseError("429 quota exceeded")
+
+    monkeypatch.setattr(fixes_mod, "_ask", boom)
+    fixes = crashlab.propose_fixes(crashlab.load(run.run_id), "some-model")
+    d = crashlab.load(run.run_id).diagnosis
+    assert len(fixes) == 1 and any("the fix model failed (429" in n for n in d.fix_notes)
+    assert d.fix_method["cache_key"] is None
+
+
+def test_no_model_and_nothing_to_restore_still_errors(crashlab_dir, monkeypatch):
+    import pytest
+
+    from crashlab.diagnose import DiagnoseError
+
+    monkeypatch.delenv("CRASHLAB_DIAGNOSER_MODEL", raising=False)
+    run = _policy_run()
+    crashlab.diagnose(run, fn=lambda m: json.dumps(GOOD))
+    with pytest.raises(DiagnoseError, match="no fix model"):
+        crashlab.propose_fixes(crashlab.load(run.run_id))

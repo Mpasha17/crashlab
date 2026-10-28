@@ -425,12 +425,15 @@ def propose_fixes(
         return []
 
     model = model or os.environ.get(ENV_MODEL) or ("custom" if fn is not None else None)
-    if not model:
+    restored = restore_proposals(run, good_runs(store, run)) if in_store else []
+    notes: list[str] = []
+    if not model and not restored:
         raise DiagnoseError(f"no fix model: pass model=..., or set ${ENV_MODEL}")
     msgs = fix_messages(run, d, max_field=max_field, hide_input=tuple(hide_input))
-    key = cache_key(f"{FIX_PROMPT_VERSION}:{model}", msgs)
+    key = cache_key(f"{FIX_PROMPT_VERSION}:{model}", msgs) if model else None
     if (
         cache
+        and key
         and d.fixes
         and d.fix_method.get("cache_key") == key
         and d.fix_method.get("ranker") == RANKER_VERSION
@@ -438,25 +441,34 @@ def propose_fixes(
         d.fix_method = {**d.fix_method, "cached": True}
         return d.fixes
 
-    reply, info = _ask(
-        run,
-        msgs,
-        model,
-        client=client,
-        fn=fn,
-        base_url=base_url or os.environ.get(ENV_BASE_URL) or None,
-        api_key=api_key or os.environ.get(ENV_API_KEY) or None,
-        json_mode=json_mode,
-        store=store if in_store else None,
-        prompt_version=FIX_PROMPT_VERSION,
-    )
-    raw = parse_json(reply)
-    items = raw.get("fixes") if isinstance(raw, dict) else None
-    notes: list[str] = []
-    if not isinstance(items, list):
-        notes.append('the fix model did not return {"fixes": [...]}')
-        items = []
-    restored = restore_proposals(run, good_runs(store, run)) if in_store else []
+    reply, raw, info, items = None, None, {}, []
+    if not model:
+        notes.append(f"no fix model (set ${ENV_MODEL}): only restore proposals from past good runs")
+    else:
+        try:
+            reply, info = _ask(
+                run,
+                msgs,
+                model,
+                client=client,
+                fn=fn,
+                base_url=base_url or os.environ.get(ENV_BASE_URL) or None,
+                api_key=api_key or os.environ.get(ENV_API_KEY) or None,
+                json_mode=json_mode,
+                store=store if in_store else None,
+                prompt_version=FIX_PROMPT_VERSION,
+            )
+        except DiagnoseError as e:
+            if not restored:
+                raise
+            notes.append(f"the fix model failed ({str(e)[:200]}); only restore proposals")
+            key = None  # not cached: a later `crashlab fix` asks the model again
+        else:
+            raw = parse_json(reply)
+            items = raw.get("fixes") if isinstance(raw, dict) else None
+            if not isinstance(items, list):
+                notes.append('the fix model did not return {"fixes": [...]}')
+                items = []
     tried = {str(a.get("patch")) for a in run.fix_attempts if a.get("patch")}
     fixes: list[Fix] = []
     for item in [*restored, *items]:
@@ -488,7 +500,7 @@ def propose_fixes(
         "ranker": RANKER_VERSION,
         "cached": False,
     }
-    if raw is None:
+    if model and raw is None and reply is not None:
         d.fix_method["raw_reply"] = str(reply)[:500]
     if save and in_store:
         save_fix_files(store, run, fixes)

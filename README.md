@@ -171,7 +171,8 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   to a person ("let me know", "ask the customer to confirm") are dropped: verification
   forks run unattended. If the agent has past passing runs whose system prompt or tool
   descriptions differ, a **restore** proposal puts the missing or changed text back where
-  it was (no LLM; only text most good runs agree on) and is ranked first, then in-place
+  it was (no LLM, so it is proposed even with no fix model or when the model call fails;
+  only text most good runs agree on) and is ranked first, then in-place
   edits, tool edits and appended rules. Kept fixes are stored with the
   run and saved as patch files for `crashlab fork --patch`; `--try` forks once with the
   top fix and shows the checks.
