@@ -41,7 +41,9 @@ dependencies = [
 [project.optional-dependencies]
 openai = ["openai>=1.40"]
 anthropic = ["anthropic>=0.30"]
-litellm = ["litellm>=1.40"]
+# mcp: litellm 1.106 imports it whenever tools= is passed but only lists it in its
+# proxy/mcp extras (ModuleNotFoundError: mcp otherwise)
+litellm = ["litellm>=1.40", "mcp>=1.0"]
 yaml = ["pyyaml>=6"]  # YAML patch files for `crashlab fork --patch fix.yaml`
 dev = [
     "pytest>=8",
