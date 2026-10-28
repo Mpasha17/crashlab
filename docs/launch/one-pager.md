@@ -27,8 +27,9 @@ are not counted as fails.
 **Evidence so far.**
 - Seed fault-injection bench on a held-out SQL agent (Gemini flash-lite): LLM label
   ok 6/6 triggered (CI 61–100%); heuristic 2/6. Small n — see bench/README.md.
-- **Flagship:** real bug in smolagents text-to-sql (empty `:memory:` DB across threads).
-  StaticPool fix verified with a no-LLM A/B. Upstream issue not filed yet.
+- **Flagship:** known smolagents text-to-sql bug (empty `:memory:` DB across threads;
+  open fix PR [#2475](https://github.com/huggingface/smolagents/pull/2475)) reproduced and diagnosed independently; crashlab adds a
+  no-LLM repro and the root cause. Not filed as an issue (would duplicate the PR).
 - OpenAI Agents customer_service: genuine triage follow-up failure on a smaller open
   model; two prompt patches correctly **REJECTED** (regression / no gain).
 - CrewAI path: crashlab now records `with_raw_response.create`; 3/3 live scenarios pass.

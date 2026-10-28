@@ -15,10 +15,13 @@ and decorate tools. crashlab then:
 - proposes a typed patch and verifies it (k live forks + controls + regression)
 - exports a pytest regression test and a self-contained HTML report
 
-Honest early evidence: we ran it on huggingface/smolagents' official text-to-sql
-example and found a real bug — CodeAgent was querying an empty `:memory:` SQLite
-because the default pool is per-thread and the executor hops threads. A StaticPool
-fix works; no-LLM A/B confirms it. Write-up in the repo under docs/case-studies/.
+Honest early evidence: we ran huggingface/smolagents' official text-to-sql example
+unmodified, and the oracle failed — CodeAgent was querying an empty `:memory:` SQLite.
+crashlab pinned the cause: LocalPythonExecutor runs each code block in a fresh
+ThreadPoolExecutor, and SQLAlchemy's default SingletonThreadPool opens a new, empty
+in-memory DB in that thread. We weren't first: it's a known bug with an open,
+unmerged fix PR (https://github.com/huggingface/smolagents/pull/2475). crashlab reproduced and diagnosed it independently and adds
+a no-LLM repro confirming the StaticPool fix. Write-up in the repo under docs/case-studies/.
 
 We also crashed the OpenAI Agents SDK customer_service example (triage answers
 follow-ups itself on a smaller open model). Two prompt patches were correctly

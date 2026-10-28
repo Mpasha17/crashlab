@@ -7,7 +7,7 @@
 
 | Project | Why | Result |
 |---|---|---|
-| **huggingface/smolagents** `examples/text_to_sql.py` | High stars, tools, clear oracle | **Flagship:** empty `:memory:` SQLite across CodeAgent threads. StaticPool fix verified no-LLM. DRAFT issue ready, not filed. |
+| **huggingface/smolagents** `examples/text_to_sql.py` | High stars, tools, clear oracle | **Flagship:** empty `:memory:` SQLite across CodeAgent threads — known bug (open fix PR #2475), reproduced independently. StaticPool fix verified no-LLM. Issue not filed (duplicate of PR). |
 | **openai/openai-agents-python** `examples/customer_service` | Official multi-agent handoff example | Genuine triage follow-up failure on qwen. Two prompt fixes **REJECTED** (regression). Do not file yet. |
 | **CrewAI** (tiny custom crew) | Third framework | No logic bug; found crashlab gap (`with_raw_response`). Fixed; 3/3 live scenarios pass. |
 | LlamaIndex | Planned third | Deferred: openai 2.x vs agents 3.x pin in shared venv |

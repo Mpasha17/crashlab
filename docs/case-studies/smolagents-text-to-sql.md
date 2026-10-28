@@ -3,8 +3,12 @@
 **Project:** [huggingface/smolagents](https://github.com/huggingface/smolagents) 1.26.0
 (SQLAlchemy 2.1.6). The example file was used unmodified.
 
-**Status:** Finding is real and the fix is verified with a no-LLM A/B. No upstream
-issue or PR has been opened from this work; draft text lives with the Day 11 notes.
+**Status:** Known, still-unmerged bug: an open fix PR already exists,
+[huggingface/smolagents#2475](https://github.com/huggingface/smolagents/pull/2475) (opened 8 Jul 2026 by xiangyuhao723).
+crashlab reproduced and diagnosed it independently; what it adds is a no-LLM repro and
+the root cause below, and the fix is verified with a no-LLM A/B. No upstream issue was
+filed (it would duplicate the PR); a comment draft for the PR is in
+[smolagents-PR2475-comment-DRAFT.md](smolagents-PR2475-comment-DRAFT.md) (not posted).
 
 ## Task
 The example's question: *"Can you give me the name of the client who got the most
@@ -50,4 +54,5 @@ not recorded. That is `CRASHLAB_THREAD_FALLBACK` (commit `419235a`).
 
 ## Draft upstream issue
 
-Prepared, **not filed**: [smolagents-DRAFT_ISSUE.md](smolagents-DRAFT_ISSUE.md).
+**Not filed: duplicate of open PR #2475.** Kept for reference:
+[smolagents-DRAFT_ISSUE.md](smolagents-DRAFT_ISSUE.md).

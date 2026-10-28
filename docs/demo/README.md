@@ -1,6 +1,7 @@
 # Demo: smolagents empty-`:memory:` bug
 
-Terminal capture of the Day 11 flagship finding. **No API keys.**
+Terminal capture of the Day 11 flagship reproduction (a known bug; open fix PR
+[#2475](https://github.com/huggingface/smolagents/pull/2475)). **No API keys.**
 
 ## Quick look (no install)
 

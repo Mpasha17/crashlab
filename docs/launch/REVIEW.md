@@ -7,14 +7,15 @@ Drafts only until you say otherwise. Target soft launch: **Thu 29 Oct 17:30 IST*
 - [ ] **Approve launch copy** — `announcement.md` (X ≤280 + LinkedIn), `show-hn.md`, `one-pager.md`
 - [ ] **Post Show HN?** When (29 Oct vs later)? Title + body ready in `show-hn.md`
 - [ ] **Post X / LinkedIn?** Use ≤280 paste-ready block in `announcement.md` (or alt with REJECTED)
-- [ ] **File smolagents upstream issue?** Draft: `docs/case-studies/smolagents-DRAFT_ISSUE.md` — **not filed**
+- [x] **smolagents upstream issue:** **not filed** — duplicate of open fix PR [#2475](https://github.com/huggingface/smolagents/pull/2475)
+- [ ] **Comment on PR #2475?** Draft: `docs/case-studies/smolagents-PR2475-comment-DRAFT.md` — **not posted**
 - [ ] **openai-agents upstream?** Default **no** until a non-regressing fix exists (both prompt patches **REJECTED**)
 - [x] **CI green** on `5a2028f` (3.10–3.13 + lint, [run 40706038326](https://github.com/Mpasha17/crashlab/actions/runs/40706038326)) — re-check only if HEAD moves before announcing
 - [ ] **Still no PyPI** for this soft launch?
 
 ## Claims you can make (honest)
 
-- Flagship: smolagents empty-`:memory:` bug; StaticPool fix; no-LLM A/B verified
+- Flagship: smolagents empty-`:memory:` bug — known (open fix PR #2475); crashlab reproduced + diagnosed it independently; no-LLM A/B verified
 - OpenAI Agents triage failure real; verify **REJECTED** both prompt patches (that is the point)
 - refund-bot **policy_drop** restore-policy: **VERIFIED** on Groq 120b, Groq 20b, Gemini flash-lite (3/3 vs control 0/3)
 - refund-bot **misleading_desc**: **VERIFIED** on Groq 20b + Gemini; 120b formal verify **INCONCLUSIVE** (TPD)
@@ -25,6 +26,7 @@ Drafts only until you say otherwise. Target soft launch: **Thu 29 Oct 17:30 IST*
 ## Do not claim
 
 - VERIFIED on OpenAI Agents SDK fix
+- That crashlab *discovered* the smolagents bug first (PR #2475 predates it)
 - html_502 as VERIFIED
 - misleading_desc VERIFIED on Groq 120b (TPD / INCONCLUSIVE)
 - Large-n statistical superiority / PyPI availability

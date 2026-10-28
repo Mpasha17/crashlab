@@ -12,13 +12,14 @@ _Last checked: 2026-10-28 20:05 Asia/Calcutta_
 - [x] Flagship case study linked from README (`docs/case-studies/smolagents-text-to-sql.md`)
 - [x] Demo opens: `docs/demo/terminal.html`, GIF, and `demoscript.sh`
 - [x] Secret-scan green on this push (`./scripts/scan.sh`); re-run before every push
-- [ ] Decide: file smolagents DRAFT_ISSUE.md upstream or not — see [REVIEW.md](REVIEW.md)
+- [x] smolagents issue: **not filed** (duplicate of open PR #2475)
+- [ ] Decide: post the PR #2475 comment draft or not — see [REVIEW.md](REVIEW.md)
 - [ ] Decide: file openai-agents triage follow-up — default **no** until non-regressing fix
 - [x] LICENSE (Apache-2.0) + CONTRIBUTING + SECURITY.md present
 - [ ] Tag not required for soft launch; do **not** publish to PyPI yet
 
 ## Should
-- [x] smolagents empty-`:memory:` fix verified (no-LLM A/B + demo) — flagship
+- [x] smolagents empty-`:memory:` fix verified (no-LLM A/B + demo) — flagship; known bug, open PR #2475
 - [ ] OpenAI Agents triage: two prompt fixes **REJECTED**; needs non-regressing remedy before filing
 - [x] policy_drop SystemPromptPatch **VERIFIED** on Groq 120b, Groq 20b, Gemini flash-lite (3/3 vs 0/3)
 - [x] misleading_desc **VERIFIED** on Groq 20b + Gemini; 120b verify **INCONCLUSIVE** (TPD)

@@ -1,7 +1,9 @@
-# DRAFT upstream issue — not filed
+# DRAFT upstream issue — not filed: duplicate of open PR #2475
 
-File only if Mahaboob decides to. Do not open this against huggingface/smolagents
-from the agent.
+**Not filed: duplicate of open PR [#2475](https://github.com/huggingface/smolagents/pull/2475)** (same `StaticPool` fix, opened
+8 Jul 2026 by xiangyuhao723). Kept for reference; our additions (no-LLM repro, root
+cause) are in [smolagents-PR2475-comment-DRAFT.md](smolagents-PR2475-comment-DRAFT.md).
+Do not open this against huggingface/smolagents.
 
 **Repo:** https://github.com/huggingface/smolagents
 **Example:** `examples/text_to_sql.py`

@@ -5,7 +5,7 @@ Upstream issues/PRs are **not** filed from these notes unless Mahaboob decides t
 
 | finding | verdict | draft issue |
 |---|---|---|
-| [smolagents text_to_sql empty `:memory:` DB](smolagents-text-to-sql.md) | fix verified (no-LLM A/B) | [DRAFT](smolagents-DRAFT_ISSUE.md) |
+| [smolagents text_to_sql empty `:memory:` DB](smolagents-text-to-sql.md) | known bug (open fix PR [#2475](https://github.com/huggingface/smolagents/pull/2475)); reproduced + fix verified (no-LLM A/B) | [not filed: dup of #2475](smolagents-DRAFT_ISSUE.md) · [PR comment DRAFT](smolagents-PR2475-comment-DRAFT.md) |
 | [OpenAI Agents SDK triage follow-up](openai-agents-customer-service.md) | failure real; both prompt fixes **REJECTED** | [DRAFT](openai-agents-DRAFT_ISSUE.md) |
 | [CrewAI `with_raw_response` recording](crewai-integration.md) | crashlab gap fixed; 3/3 live scenarios pass | — |
 | [Groq sqlv4 test-split note](groq-sqlv4-note.md) | bench rerun, not an upstream bug | — |
@@ -16,7 +16,7 @@ Upstream issues/PRs are **not** filed from these notes unless Mahaboob decides t
 | [refund-bot misleading_desc](refund-misleading-desc-note.md) | **VERIFIED** on 20b + Gemini; 120b INCONCLUSIVE (TPD) | — |
 | [Worker C live scoreboard](worker-c-live-scoreboard.md) | session 2026-10-23 IST | — |
 
-Demo for the flagship smolagents finding: [../demo/](../demo/).
+Demo for the flagship smolagents reproduction: [../demo/](../demo/).
 
 Tried and deferred: LlamaIndex (openai 2.x vs openai-agents 3.x pin conflict in the
 shared Day-11 venv). Prefer a separate venv next time.

@@ -26,23 +26,25 @@ Then try it [offline with no API key](#try-it-with-no-api-key-and-no-model) or s
 > forks, then **exports** a pytest regression test and a shareable HTML report (see
 > [ARCHITECTURE.md](ARCHITECTURE.md)). Not on PyPI yet.
 
-## Found a real bug (Day 11)
+## Reproduced a real upstream bug (Day 11)
 
 We pointed crashlab at well-known open-source agent examples, with oracles from their
 documented behaviour — no injected faults.
 
-**Flagship finding: [huggingface/smolagents](https://github.com/huggingface/smolagents)
-`examples/text_to_sql.py`.** The example builds `sqlite:///:memory:`, then
-`CodeAgent` runs every tool call in a fresh `ThreadPoolExecutor`. SQLAlchemy's default
-pool for `:memory:` is per-thread, so the agent queries an **empty** database
-(`no such table: receipts`) and invents a failure. Direct calls on the main thread work,
-which hides the bug. A one-line engine change (`StaticPool` + `check_same_thread=False`)
-fixes it; a no-LLM A/B through smolagents' own `LocalPythonExecutor` confirms upstream →
-error, fixed → `('Woodrow Wilson',)`.
+**Flagship: [huggingface/smolagents](https://github.com/huggingface/smolagents)
+`examples/text_to_sql.py`.** This is a known, still-unmerged bug with an open fix PR
+([#2475](https://github.com/huggingface/smolagents/pull/2475), opened 8 Jul 2026 by xiangyuhao723); crashlab reproduced and
+diagnosed it independently. The example builds `sqlite:///:memory:`, then
+`LocalPythonExecutor` runs every code block in a fresh `ThreadPoolExecutor`.
+SQLAlchemy's default `SingletonThreadPool` for `:memory:` opens a new, **empty**
+database in that thread, so the agent hits `no such table: receipts` and invents a
+failure. Direct calls on the main thread work, which hides the bug. crashlab adds a
+no-LLM repro through smolagents' own `LocalPythonExecutor`: upstream → error,
+`StaticPool` + `check_same_thread=False` → `('Woodrow Wilson',)`.
 
 Case studies: [docs/case-studies/](docs/case-studies/README.md). Flagship write-up: [smolagents text_to_sql](docs/case-studies/smolagents-text-to-sql.md).
-Terminal demo (no keys): [docs/demo/](docs/demo/README.md) (GIF above). Draft upstream issue text
-was prepared locally and has **not** been filed.
+Terminal demo (no keys): [docs/demo/](docs/demo/README.md) (GIF above). We did **not** file an
+upstream issue: it would duplicate PR #2475.
 
 Also tried: OpenAI Agents SDK `examples/customer_service` (Triage Agent answers
 follow-up FAQ questions itself on a smaller open model; two scoped prompt patches were

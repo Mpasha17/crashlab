@@ -7,7 +7,8 @@
 ## Ready
 - CrewAI integration: `with_raw_response` recording fixed; 3/3 live scenarios pass
   (`examples/integrations/crewai.md`)
-- Flagship story: smolagents empty-`:memory:` bug — case study, DRAFT_ISSUE (not filed),
+- Flagship story: smolagents empty-`:memory:` bug (known; open fix PR #2475; reproduced +
+  diagnosed independently) — case study, DRAFT_ISSUE (not filed: duplicate of PR #2475),
   demo GIF + terminal.html + demoscript, README section
 - Seed bench + sqlv4 Groq test-split documented with CIs and caveats
 - OpenAI Agents triage failure documented; both prompt fixes **REJECTED** (honest)
@@ -27,7 +28,8 @@ Full Day 11 narrative: [DAY11_REPORT.md](DAY11_REPORT.md).
 
 ## Open before soft launch
 - [ ] Mahaboob review of `docs/launch/*` copy (announcement, Show HN, one-pager)
-- [ ] Decide whether to file smolagents DRAFT_ISSUE upstream
+- [x] smolagents issue: **not filed** — duplicate of open PR #2475
+- [ ] Decide whether to post the PR #2475 comment draft (`docs/case-studies/smolagents-PR2475-comment-DRAFT.md`)
 - [ ] Do **not** file openai-agents issue until a non-regressing fix exists
 - [x] Groq clean smoke 2026-10-23 10:57 IST: **3/3 pass** after failed_generation recovery
   (`b31ca7e`). sqlv4 clean 1/3 was pre-fix; denominator can be treated as healthy.
