@@ -50,7 +50,7 @@ Notes:
   and responses. We did not test whether stacking `@crashlab.tool()` under the SDK's
   `@function_tool` keeps the schema that the SDK derives from the signature, so separate
   `execute_tool` steps are untested for this SDK.
-- - **Close the async client at the end of each `@crashlab.agent` call.**
+- **Close the async client at the end of each `@crashlab.agent` call.**
   `crashlab verify` / `fork` call the entry function many times; each call uses
   `asyncio.run()`, which closes the loop. An `AsyncOpenAI` left open across calls
   raises `RuntimeError: Event loop is closed` on the next trial. Pattern:
