@@ -96,6 +96,11 @@ class NoLlmCallsConfig(_Cfg):
     """Tool calls were recorded but no LLM call: the model client is probably not wrapped."""
 
 
+class FailedSideEffectClaimConfig(_Cfg):
+    """Every call of a side-effect tool failed, yet the final answer reads like it worked
+    ("your order is placed", "I could only get 2"). Heuristic (English success words)."""
+
+
 class ChecksConfig(BaseModel):
     """Which built-in runtime checks run, with what thresholds."""
 
@@ -112,6 +117,9 @@ class ChecksConfig(BaseModel):
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     length_cutoff: LengthCutoffConfig = Field(default_factory=LengthCutoffConfig)
     no_llm_calls: NoLlmCallsConfig = Field(default_factory=NoLlmCallsConfig)
+    failed_side_effect_claim: FailedSideEffectClaimConfig = Field(
+        default_factory=FailedSideEffectClaimConfig
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -135,6 +143,7 @@ _SECTIONS = (
     "budget",
     "length_cutoff",
     "no_llm_calls",
+    "failed_side_effect_claim",
 )
 
 

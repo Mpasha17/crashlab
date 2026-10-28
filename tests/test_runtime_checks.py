@@ -489,3 +489,74 @@ def test_rejected_json_text_results_make_a_streak():
                + [text_response(9, "sorry")])  # fmt: skip
     (f,) = run.findings_of("tool_error_streak")
     assert f.steps == [1, 3, 5] and "an error object" in f.message
+
+
+def _effect_run(results, output, *, reply=None):
+    steps = []
+    for i, res in enumerate(results):
+        err = None
+        if isinstance(res, Exception):
+            err = crashlab.models.ErrorInfo(type="KeyError", message=str(res), is_tool_error=True)
+            res = None
+        steps.append(crashlab.Step(
+            run_id="r", idx=i, span_id=f"s{i}", operation="execute_tool", name="place_order",
+            request_hash="h", request={"args": {"quantity": 3}}, response={"result": res},
+            error=err, attributes={"crashlab.tool.side_effects": True},
+        ))  # fmt: skip
+    steps.append(crashlab.Step(
+        run_id="r", idx=len(steps), span_id="c", operation="chat", name="m", request_hash="h",
+        request={}, response={"messages": [{"role": "assistant", "parts": [
+            {"type": "text", "content": reply or output}]}]},
+    ))  # fmt: skip
+    return crashlab.Run(run_id="r", name="t", steps=steps, output=output)
+
+
+REJ = '{"status": "rejected", "error": "insufficient stock for widget: 2 available"}'
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "I could only get 2 widgets (stock limit) for a total of $9.00.",
+        "Your order for 3 widgets has been placed, total $13.50.",
+        "Done! Order ID O-123.",
+    ],
+)
+def test_failed_side_effect_claim(output):
+    # live (LangGraph, PydanticAI, LlamaIndex, OpenAI Agents on Groq 120b): place_order was
+    # rejected (out of stock) and the agent told the customer "I could only get 2 widgets"
+    # with no second order; only an info finding was raised
+    found = [f for f in evaluate(_effect_run([REJ], output), ChecksConfig())
+             if f.kind == "failed_side_effect_claim"]  # fmt: skip
+    assert len(found) == 1 and found[0].severity == "error"
+    assert "every place_order call failed" in found[0].message
+    assert found[0].evidence and found[0].evidence[0].field == "response.text"
+
+
+@pytest.mark.parametrize(
+    ("results", "output"),
+    [
+        ([REJ], "Sorry, I couldn't place the order: only 2 widgets are in stock."),
+        ([REJ], "Your order was not placed because only 2 are available."),
+        ([REJ, '{"order_id": "O-1", "quantity": 2}'], "I could only get 2 widgets, total $9."),
+        ([KeyError("x")], "We have 2 widgets left. Shall I order those?"),
+    ],
+)
+def test_failed_side_effect_claim_quiet(results, output):
+    found = [f for f in evaluate(_effect_run(results, output), ChecksConfig())
+             if f.kind == "failed_side_effect_claim"]  # fmt: skip
+    assert found == []
+
+
+def test_response_text_reads_recorded_parts():
+    # recorded replies are {"parts": [{"type": "text", "content": ...}]}; response_text
+    # read only "content", so text-based checks (same reply twice, length-cutoff
+    # evidence) saw an empty reply on every real run
+    from crashlab.checks.detectors import response_text
+
+    step = crashlab.Step(
+        run_id="r", idx=0, span_id="s", operation="chat", name="m", request_hash="h",
+        request={}, response={"messages": [{"role": "assistant", "parts": [
+            {"type": "reasoning", "content": "think"}, {"type": "text", "content": "Hi."}]}]},
+    )  # fmt: skip
+    assert response_text(step) == "Hi."

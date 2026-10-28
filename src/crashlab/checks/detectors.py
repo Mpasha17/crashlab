@@ -63,14 +63,22 @@ def _steps_text(idxs: list[int]) -> str:
 
 
 def response_text(step: Step) -> str:
+    """The reply's text. Recorded replies are ``{"role", "parts": [{"type": "text",
+    "content": ...}]}``; ``content`` strings / lists are accepted too."""
     out: list[str] = []
     for msg in (step.response or {}).get("messages") or []:
-        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
         if isinstance(content, str):
             out.append(content)
         elif isinstance(content, list):
             out += [p.get("text") or "" for p in content
                     if isinstance(p, dict) and p.get("type") == "text"]  # fmt: skip
+        for p in msg.get("parts") or []:
+            if isinstance(p, dict) and p.get("type") == "text":
+                text = p.get("content", p.get("text"))
+                out.append(text if isinstance(text, str) else "")
     return "\n".join(t for t in out if t)
 
 
@@ -646,6 +654,78 @@ class NoLlmCalls(Detector):
         )]  # fmt: skip
 
 
+# --- failed_side_effect_claim ------------------------------------------------------------
+
+_SUCCESS = re.compile(
+    r"\b(has been placed|have been placed|is placed|are placed|placed (your|the|an?) |"
+    r"is confirmed|are confirmed|confirmed (your|the)|successfully|order (id|number)|"
+    r"could only (get|order|place)|i('ve| have) (ordered|placed|issued|sent|booked)|"
+    r"(is|has been|was) (issued|sent|booked|processed|completed|refunded))",
+    re.I,
+)
+_NEGATED = re.compile(
+    r"\b(not|n't|unable|cannot|can't|couldn't|failed|fail|wasn't|weren't|no longer|"
+    r"rejected|declined|denied|without)\b",
+    re.I,
+)
+
+
+def _claim_sentence(text: str) -> str | None:
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
+        m = _SUCCESS.search(sentence)
+        if m and not _NEGATED.search(sentence) and "could only" not in sentence.lower():
+            return sentence.strip()
+        if m and "could only" in m.group(0).lower():
+            return sentence.strip()
+    return None
+
+
+class FailedSideEffectClaim(Detector):
+    """Every call of a ``side_effects=True`` tool failed (exception or error result), but
+    the final answer reads like it went through: the customer is told an order exists."""
+
+    kind = "failed_side_effect_claim"
+
+    def __init__(self, cfg: Any, results_cfg: Any = None) -> None:
+        super().__init__(cfg)
+        self.results_cfg = results_cfg
+
+    def _failed(self, step: Step) -> bool:
+        if step.error is not None:
+            return True
+        return any(i.counts_as_failure for i in classify_result(step.result, self.results_cfg))
+
+    def on_end(self, run: Run, h: History) -> list[Finding]:
+        effects = [s for s in run.steps if s.operation == "execute_tool"
+                   and s.attributes.get("crashlab.tool.side_effects")]  # fmt: skip
+        if not effects or any(s.source in ("blocked", "fake") for s in effects):
+            return []
+        if not all(self._failed(s) for s in effects):
+            return []
+        out = run.output if isinstance(run.output, str) else None
+        if not out:
+            return []
+        claim = _claim_sentence(out)
+        if claim is None:
+            return []
+        names = sorted({s.name for s in effects})
+        last = effects[-1]
+        ev = []
+        chats = [s for s in run.steps if s.operation == "chat" and claim in response_text(s)]
+        if chats:
+            text = response_text(chats[-1])
+            ev.append(_ev(chats[-1], "response.text", text, text.find(claim)))
+        why = (f"{last.error.type.rsplit('.', 1)[-1]}: {last.error.message}" if last.error
+               else as_text(last.result))  # fmt: skip
+        return [self.finding(
+            severity="error", step=last.idx, steps=[s.idx for s in effects], key="run",
+            message=f"every {', '.join(names)} call failed ({len(effects)}; last: "
+                    f"{why[:100]}) but the final answer reads like it went through: "
+                    f"{claim[:120]!r}",
+            evidence=ev,
+        )]  # fmt: skip
+
+
 def build(cfg: ChecksConfig) -> list[Detector]:
     out: list[Detector] = []
     if not cfg.enabled:
@@ -664,6 +744,8 @@ def build(cfg: ChecksConfig) -> list[Detector]:
         out.append(LengthCutoff(cfg.length_cutoff))
     if cfg.no_llm_calls.enabled:
         out.append(NoLlmCalls(cfg.no_llm_calls))
+    if cfg.failed_side_effect_claim.enabled:
+        out.append(FailedSideEffectClaim(cfg.failed_side_effect_claim, cfg.suspicious_tool_result))
     return out
 
 
@@ -675,4 +757,5 @@ KINDS = (
     "budget",
     "length_cutoff",
     "no_llm_calls",
+    "failed_side_effect_claim",
 )

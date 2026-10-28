@@ -32,6 +32,7 @@ _FINDING_RULES: dict[str, tuple[TaxonomyLabel | None, int]] = {
     "length_cutoff": (None, 6),
     "budget": (None, 7),
     "no_llm_calls": (None, 8),
+    "failed_side_effect_claim": (TaxonomyLabel.TOOL_ERROR_MISHANDLED, 4),
 }
 
 
