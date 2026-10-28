@@ -100,7 +100,9 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   are the output, and replay re-chunks recorded streams as they arrived.
 - **Threads:** `crashlab.bind_context(fn)`, `crashlab.ContextThreadPoolExecutor` and
   `crashlab.run_in_thread(fn, ...)` keep recording tool/LLM calls made in worker threads
-  (asyncio tasks and `asyncio.to_thread` work out of the box).
+  (asyncio tasks and `asyncio.to_thread` work out of the box). Calls in a child process
+  (multiprocessing, `os.fork`) are not part of the parent's run; an agent called there
+  records a run of its own.
 - **Local store** `.crashlab/` (or `$CRASHLAB_DIR`): a SQLite index plus one JSONL cassette
   per run. API keys, auth headers (`Authorization`, `x-api-key` ...) and token-like strings
   are redacted before anything is written; add your own rules with

@@ -59,6 +59,9 @@ class RunContext:
     # consumer raised mid-stream and its traceback keeps the stream alive) are recorded
     # as partial then, not lost after the run is saved
     open_streams: list[Any] = field(default_factory=list)
+    # the process recording this run; a forked child inherits the context but not the
+    # step counter's future, so its steps would collide with the parent's (see current())
+    pid: int = field(default_factory=os.getpid)
 
     def finish_open_streams(self) -> None:
         streams, self.open_streams = self.open_streams, []
@@ -247,17 +250,44 @@ def _thread_fallback() -> RunContext | None:
     return ctx if owner != threading.get_ident() else None
 
 
+_forked_warned: int | None = None  # pid of the child process already warned
+
+
+def _own(ctx: RunContext | None) -> RunContext | None:
+    """``ctx`` unless it belongs to another process. A child made by ``fork``
+    (multiprocessing's "fork" start method, ``os.fork``) inherits the parent's run but
+    its steps cannot reach the parent's counter or cassette: they were stored with
+    duplicate step indexes and a replay of the parent diverged (and hung waiting for the
+    child). Calls in a child are not part of the parent's run, as with "spawn" and
+    "forkserver"; an agent called there records a run of its own."""
+    global _forked_warned
+    if ctx is None or ctx.pid == os.getpid():
+        return ctx
+    if _forked_warned != os.getpid():
+        _forked_warned = os.getpid()
+        import warnings
+
+        warnings.warn(
+            f"crashlab: calls in child process {os.getpid()} are not recorded in run "
+            f"{ctx.run.run_id} ({ctx.run.name!r}) of parent process {ctx.pid}; record "
+            "them in the parent, or call a @crashlab.agent in the child for a run of its own",
+            RuntimeWarning,
+            stacklevel=4,
+        )
+    return None
+
+
 def current() -> RunContext | None:
     """Return the active run context, or None when no run is being recorded."""
     ctx = _current_run.get()
-    return ctx if ctx is not None else _thread_fallback()
+    return _own(ctx if ctx is not None else _thread_fallback())
 
 
 def bound_current() -> RunContext | None:
     """The run bound to this context only (no worker-thread fallback). Used to decide
     whether an agent call is nested: a top-level call in another thread (a web server
     handling two requests) is its own run, not a step of whatever run is live."""
-    return _current_run.get()
+    return _own(_current_run.get())
 
 
 def current_run() -> Run | None:
