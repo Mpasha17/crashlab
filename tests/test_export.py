@@ -202,3 +202,30 @@ def test_local_roots_wheel_vs_editable(tmp_path, monkeypatch):
     tokens_w = {t for _, t in exp._local_roots(store)}
     assert "$SITE_PACKAGES" in tokens_w and "$CRASHLAB" in tokens_w
     monkeypatch.setitem(sys.modules, "crashlab", real_pkg)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'replace "2. Never refund" with "2. Only refund \\"delivered\\" orders" ' * 3,
+        "it's a plain line " * 12,
+        "x" * 300,
+    ],
+)
+def test_long_fix_literal_is_split_lint_clean(tmp_path, text):
+    from crashlab.export import _q_chunks
+
+    src = "FIX = (\n" + "\n".join(f"    {c}" for c in _q_chunks(text)) + "\n)\n"
+    ns: dict = {}
+    exec(src, ns)
+    assert ns["FIX"] == text and all(len(x) <= 100 for x in src.splitlines())
+    if importlib.util.find_spec("ruff"):
+        f = tmp_path / "t.py"
+        f.write_text(src)
+        for cmd in (["check", "--isolated"], ["format", "--check", "--isolated"]):
+            res = subprocess.run(
+                [sys.executable, "-m", "ruff", *cmd, "--line-length", "100", str(f)],
+                capture_output=True,
+                text=True,
+            )
+            assert res.returncode == 0, res.stdout

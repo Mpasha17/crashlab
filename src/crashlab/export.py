@@ -52,11 +52,24 @@ def _checks(run: Run) -> dict[str, str]:
     return {c.name: c.status for c in run.checks}
 
 
+def _q_chunks(text: str, width: int = 92) -> list[str]:
+    """``text`` as implicitly concatenated string literals, each at most ``width`` wide
+    once quoted (no ``noqa`` needed: lint configs differ on E501 / RUF100)."""
+    chunks: list[str] = []
+    cur = ""
+    for ch in text:
+        if cur and len(_q(cur + ch)) > width:
+            chunks.append(_q(cur))
+            cur = ""
+        cur += ch
+    return [*chunks, _q(cur)] if cur or not chunks else chunks
+
+
 def _q(text: str) -> str:
     """A Python string literal the way ruff format writes it (double quotes unless the
     text contains double quotes and no single ones)."""
-    if '"' in text and "'" not in text and "\\" not in text:
-        return "'" + text + "'"
+    if '"' in text and "'" not in text:
+        return repr(text)  # single quotes, backslashes escaped
     return json.dumps(text, ensure_ascii=False)
 
 
@@ -97,7 +110,11 @@ def _render(
         if len(fix_line) <= 100:
             out.append(fix_line)
         else:
-            out.append(f"FIX = (\n    {fix_line[6:]}  # noqa: E501\n)")
+            out.append(
+                "FIX = (\n"
+                + "\n".join(f"    {c}" for c in _q_chunks(fixed.patch_description or ""))
+                + "\n)"
+            )
     out += [
         "",
         "",
