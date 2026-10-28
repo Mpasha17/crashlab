@@ -123,3 +123,24 @@ def test_replayed_chat_stream_matches_chunk_for_chunk(crashlab_dir, events):
         STATE["live"] = True
     assert replayed.status == "ok"
     assert replayed.output == live
+
+
+def test_litellm_stream_replays_chunk_for_chunk(crashlab_dir, monkeypatch):
+    # LiteLLM's chunk objects keep keys sent as null (system_fingerprint, citations,
+    # delta.provider_specific_fields): replay must send them the same way
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    litellm = pytest.importorskip("litellm")
+    wrapped = crashlab.wrap(litellm)
+
+    @crashlab.agent(name="litellm-chunks")
+    def litellm_chunks():
+        for chunk in wrapped.completion(
+            model="gpt-4o-mini", mock_response="Hello world, this is a mocked reply.",
+            messages=[{"role": "user", "content": "hi"}], stream=True,
+        ):  # fmt: skip
+            yield chunk.model_dump()
+
+    live = list(litellm_chunks())
+    assert len(live) > 3
+    replayed = crashlab.replay(crashlab.load("last"), fn=litellm_chunks)
+    assert replayed.status == "ok" and replayed.output == live

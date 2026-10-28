@@ -68,16 +68,17 @@ class OpenAIChatAssembler(Assembler):
 
     def _extras(self, data: dict[str, Any], ch: dict[str, Any] | None) -> list[list[Any]]:
         """``["x", {...}]`` when this chunk's other fields (``created``, provider extras
-        such as Groq's ``x_groq`` or a delta's ``channel``, ``role``, logprobs) differ from
-        the previous chunk's; replay carries them forward."""
+        such as Groq's ``x_groq`` or a delta's ``channel``, ``role``, logprobs; keys sent
+        as null too, which LiteLLM's chunk objects keep) differ from the previous chunk's;
+        replay carries them forward."""
         x: dict[str, Any] = {}
-        top = {k: v for k, v in data.items() if k not in _TOP_KEYS and v is not None}
+        top = {k: v for k, v in data.items() if k not in _TOP_KEYS}
         if top:
             x["t"] = top
         if ch is not None:
-            cx = {k: v for k, v in ch.items() if k not in _CHOICE_KEYS and v is not None}
+            cx = {k: v for k, v in ch.items() if k not in _CHOICE_KEYS}
             delta = ch.get("delta") or {}
-            dx = {k: v for k, v in delta.items() if k not in _DELTA_KEYS and v is not None}
+            dx = {k: v for k, v in delta.items() if k not in _DELTA_KEYS}
             if cx:
                 x["c"] = cx
             if dx:
