@@ -431,8 +431,9 @@ def test_a_failed_diagnoser_call_shows_the_providers_message(crashlab_dir):
     # live (Gemini's OpenAI endpoint): "the diagnoser call failed: RateLimitError: Error
     # code: 429" and nothing else; the reason (quota) was only in the list-shaped body
     openai = pytest.importorskip("openai")
-    import httpx
+    from ._transport import httpx_module
 
+    httpx = httpx_module()  # openai>=3 is on httpx2
     run = _policy_run()
     body = [{"error": {"code": 429, "message": "Quota exceeded for metric: generate_content "
                        "requests per minute", "status": "RESOURCE_EXHAUSTED"}}]  # fmt: skip

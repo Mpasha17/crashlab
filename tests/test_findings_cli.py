@@ -172,6 +172,7 @@ def test_demo_imports_checks_and_replays_offline():
                "--system-append", "Never refund orders older than 30 days.").output  # fmt: skip
     assert "+Never refund orders older than 30 days." in out
     _needs("openai")
+    _needs("litellm")  # local_breaker_qwen was recorded through LiteLLM
     for run_id in ids.values():
         src = crashlab.load(run_id)
         rep = replay(run_id)  # strict replay: no network, no keys
