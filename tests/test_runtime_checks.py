@@ -632,8 +632,10 @@ def _crashed_run(*, chat_after=False, run_error="TimeoutError"):
         request_hash="h", request={"args": {"quantity": 3}}, error=err,
     )]  # fmt: skip
     if chat_after:
-        steps.append(crashlab.Step(run_id="r", idx=1, span_id="c", operation="chat", name="m",
-                                   request_hash="h", request={}, response={"messages": []}))  # fmt: skip
+        steps.append(crashlab.Step(
+            run_id="r", idx=1, span_id="c", operation="chat", name="m", request_hash="h",
+            request={}, response={"messages": []},
+        ))  # fmt: skip
     run_err = crashlab.models.ErrorInfo(
         type=run_error, message="order service timed out" if run_error == "TimeoutError" else "boom"
     )
