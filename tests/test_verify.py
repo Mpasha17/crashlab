@@ -557,3 +557,24 @@ def test_cli_fork_takes_a_fix_id():
     assert "patch for" in res.output
     res = runner.invoke(app, ["fork", run.run_id, "--at", "0", "--patch", "fix-9", "--dry-run"])
     assert res.exit_code == 2 and "bad patch" in res.output
+
+
+class _WrongModel:
+    """Every live call is refused like a provider that does not know the model (an env
+    var left over from another test pointed the agent at it)."""
+
+    def __init__(self) -> None:
+        self.chat = type("C", (), {"completions": self})()
+
+    def create(self, **kw):
+        raise FakeAPIError("NotFoundError: models/qwen/x is not found", 404)
+
+
+def test_setup_errors_are_errored_not_a_rejection():
+    # live (Google ADK): AGENT_MODEL leaked from the shell, every trial got a 404 at its
+    # first call, and verify said REJECTED with "2 past good run(s) fail with the patch"
+    run, _ = _setup()
+    v = crashlab.verify(run, "fix-1", k=2, client=crashlab.wrap(_WrongModel()))
+    assert v.verdict == "INCONCLUSIVE"
+    assert all(t.status == "errored" for t in v.trials)
+    assert any("setup error" in (t.error or "") for t in v.trials)

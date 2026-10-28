@@ -32,6 +32,14 @@ _INFRA_RE = re.compile(
     re.I,
 )
 _DAILY = re.compile(r"per day|PerDay|\((TPD|RPD)\)", re.I)
+#: a provider rejecting the call's setup (key, model name, permissions): says nothing
+#: about the fix when it happens before any live LLM call succeeded
+SETUP_STATUS = {401, 403, 404}
+_SETUP_RE = re.compile(
+    r"authenticat|invalid api key|api key not valid|permission denied|notfounderror|"
+    r"model\b[^.]{0,80}\b(?:not found|does not exist|not supported)|\b(401|403|404)\b",
+    re.I,
+)
 DEFAULT_K = 5
 DEFAULT_REGRESSION_LIMIT = 10
 
@@ -50,6 +58,24 @@ def is_infra_error(error: Any) -> bool:
         return True
     text = f"{getattr(error, 'type', type(error).__name__)} {getattr(error, 'message', error)}"
     return bool(_INFRA_RE.search(text))
+
+
+def is_setup_error(run: Run) -> bool:
+    """True when ``run`` errored on a provider setup error (bad key, unknown model, e.g.
+    an env var pointing the agent at another provider's model) before any live LLM call
+    succeeded: the trial never tested the fix."""
+    if run.status != "error" or run.error is None:
+        return False
+    live_ok = [
+        s
+        for s in run.steps
+        if s.operation == "chat" and s.source in ("live", "patched") and s.error is None
+    ]
+    if live_ok:
+        return False
+    code = getattr(run.error, "status_code", None)
+    text = f"{run.error.type} {run.error.message}"
+    return code in SETUP_STATUS or bool(_SETUP_RE.search(text))
 
 
 def _live_usage(run: Run) -> tuple[float, int]:
@@ -210,6 +236,9 @@ def _trial(
     err = _err_text(branch.error.type, branch.error.detail) if branch.error else None
     if branch.status == "error" and is_infra_error(branch.error):
         status = "errored"
+    elif is_setup_error(branch):
+        status = "errored"
+        err = f"setup error (not counted; check the agent's model/key/env): {err}"
     elif blocked := _blocked_steps(branch):
         # the agent made a side-effect tool call the source run never made (often just a
         # different argument, e.g. "widgets" for "widget"); crashlab refused to run it live
