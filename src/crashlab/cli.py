@@ -1822,5 +1822,16 @@ def import_cmd(
     console.print(f"store: {_e(store.root)}")
 
 
+def run() -> None:
+    """Console entry point: ``app`` plus clean one-line errors for an unusable store."""
+    from .store import StoreError
+
+    try:
+        app()
+    except StoreError as exc:
+        _console().print(f"[red]{_e(exc)}[/]")
+        raise SystemExit(2) from None
+
+
 if __name__ == "__main__":  # pragma: no cover
-    app()
+    run()

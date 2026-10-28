@@ -51,7 +51,7 @@ dev = [
 ]
 
 [project.scripts]
-crashlab = "crashlab.cli:app"
+crashlab = "crashlab.cli:run"
 
 [project.entry-points.pytest11]
 crashlab = "crashlab.pytest_plugin"

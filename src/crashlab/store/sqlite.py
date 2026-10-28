@@ -137,14 +137,22 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+class StoreError(OSError):
+    """The store directory or its index cannot be used (not a directory, no permission,
+    a corrupt ``index.sqlite`` ...)."""
+
+
 class SQLiteIndex:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self._initialized = False
 
     def _connect(self) -> sqlite3.Connection:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.path, timeout=30)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(self.path, timeout=30)
+        except (OSError, sqlite3.Error) as exc:
+            raise StoreError(f"cannot use crashlab store {self.path.parent}: {exc}") from exc
         conn.row_factory = sqlite3.Row
         if not self._initialized:
             try:
@@ -155,6 +163,14 @@ class SQLiteIndex:
                     if not self._initialized:
                         _retry_locked(lambda: _init_schema(conn))
                         self._initialized = True
+            except sqlite3.DatabaseError as exc:
+                conn.close()
+                if isinstance(exc, sqlite3.OperationalError) and "locked" in str(exc):
+                    raise
+                raise StoreError(
+                    f"{self.path} is not a usable crashlab index ({exc}); move it away "
+                    "and crashlab starts a new one"
+                ) from exc
             except BaseException:
                 conn.close()
                 raise

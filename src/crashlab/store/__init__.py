@@ -15,7 +15,7 @@ from typing import Any
 from ..models import Diagnosis, Finding, Run, Step
 from .cassette import CassetteWriter, read_cassette, step_to_line
 from .redact import get_redactor
-from .sqlite import SQLiteIndex
+from .sqlite import SQLiteIndex, StoreError
 
 ENV_DIR = "CRASHLAB_DIR"
 
@@ -177,6 +177,7 @@ def load(ref: str = "last", *, store_dir: str | os.PathLike[str] | None = None) 
 __all__ = [
     "ENV_DIR",
     "RunNotFoundError",
+    "StoreError",
     "Store",
     "crashlab_dir",
     "export_run",

@@ -6,9 +6,11 @@ import functools
 import inspect
 import os
 import platform
+import sqlite3
 import subprocess
 import sys
 import time
+import warnings
 from collections.abc import Callable
 from typing import Any, TypeVar, overload
 
@@ -143,8 +145,23 @@ class record:
             replayer.prepare_run(run)  # replay_of / forked_from, fork_step, patch, tags
             replayer.replay_run_id = run.run_id
             store_dir = store_dir or replayer.store_dir
-        store = Store(store_dir)
-        store.begin_run(run)
+        try:
+            store = Store(store_dir)
+            store.begin_run(run)
+        except (OSError, sqlite3.Error) as err:
+            if replayer is not None:
+                raise
+            # recording must never take the agent down: an unusable store (a file, a
+            # read-only dir, a corrupt index) means this run is simply not recorded
+            warnings.warn(
+                f"crashlab: cannot record run {self.name!r} in "
+                f"{store_dir or os.environ.get('CRASHLAB_DIR') or '.crashlab'}: "
+                f"{type(err).__name__}: {err}; the agent runs unrecorded",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            self.ctx = None
+            return run
         self.ctx = RunContext(
             run=run,
             store=store,
@@ -158,6 +175,8 @@ class record:
         return run
 
     def __exit__(self, exc_type, exc, tb) -> bool:
+        if self.ctx is None and self._token is None:  # store unusable: not recorded
+            return False
         assert self.ctx is not None and self._token is not None
         run = self.ctx.run
         try:

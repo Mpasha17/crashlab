@@ -64,6 +64,31 @@ def read_lines(path: Path) -> list[dict[str, Any]]:
 
 
 def read_cassette(path: Path) -> list[Step]:
-    steps = [line_to_step(line) for line in read_lines(path)]
+    """The steps of a cassette, sorted by ``seq``. A damaged line (a process killed
+    mid-write leaves a truncated last line) is skipped with a warning instead of making
+    the whole run unreadable; a replay then reports the step as missing."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    steps: list[Step] = []
+    bad: list[int] = []
+    with path.open(encoding="utf-8", errors="replace") as fh:
+        for n, raw in enumerate(fh, 1):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                steps.append(line_to_step(json.loads(raw)))
+            except (ValueError, TypeError):  # JSONDecodeError / pydantic ValidationError
+                bad.append(n)
+    if bad:
+        import warnings
+
+        shown = ", ".join(map(str, bad[:5])) + (" ..." if len(bad) > 5 else "")
+        warnings.warn(
+            f"crashlab: skipped {len(bad)} damaged line(s) in {path} (line {shown})",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     steps.sort(key=lambda s: s.idx)
     return steps
