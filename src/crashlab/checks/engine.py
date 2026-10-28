@@ -167,6 +167,10 @@ class CheckEngine:
     def on_end(self, run: Run) -> list[Finding]:
         if not self.detectors:
             return []
+        if len(self.h.steps) > len(run.steps):
+            # a live run's steps go to the store as they happen; run.steps is empty here, so
+            # end-of-run checks (no_llm_calls, failed_side_effect_claim ...) saw nothing
+            run = run.model_copy(update={"steps": list(self.h.steps)})
         found: list[Finding] = []
         for d in self.detectors:
             try:

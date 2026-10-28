@@ -213,7 +213,6 @@ class record:
             tripped = self.ctx.tripped
             if self.ctx.checks is not None:  # end-of-run checks can no longer stop anything
                 self.ctx.circuit_breaker = False
-                self.ctx.add_findings(self.ctx.checks.on_end(run))
             if tripped is not None and exc is None:  # the agent swallowed the stop
                 from ..checks.engine import CircuitBreakerError
 
@@ -241,6 +240,8 @@ class record:
                     run.outcome_reason = run.outcome_reason or f"exception: {exc_type.__name__}"
             else:
                 run.status = "ok"
+            if self.ctx.checks is not None:  # after run.error is set: checks read it
+                self.ctx.add_findings(self.ctx.checks.on_end(run))
             self._run_checks(run, keep_outcome=user_outcome)
             if self.ctx.store_failed:  # still try to close the run, marked incomplete
                 run.tags.append("recording-incomplete")
