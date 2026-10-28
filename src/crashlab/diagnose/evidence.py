@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..models import Diagnosis, Evidence, Run, TaxonomyLabel
-from .fields import find_quote
+from .fields import find_quote, quote_in_run_error
 from .taxonomy import parse_label
 
 UNKNOWN_CONFIDENCE_CAP = 0.2
@@ -93,6 +93,8 @@ def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
             notes.append(f"dropped quote {short!r}: step {item.get('step')!r} does not exist")
             continue
         fld = find_quote(steps[idx], quote)
+        if fld is None and quote_in_run_error(run, quote):
+            fld = "run.error"  # the run's exception, which surfaced after this step
         if fld is None:
             notes.append(f"dropped quote {short!r}: not found verbatim in step {idx}")
             continue

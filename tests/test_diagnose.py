@@ -403,3 +403,25 @@ def test_parse_json_accepts_single_quoted_values():
         "b": "it's",
     }
     assert parse_json("{'unterminated: 1") is None
+
+
+def test_a_quote_from_the_runs_own_error_is_evidence():
+    # e.g. smolagents raises AgentGenerationError after the last recorded step: the
+    # failure is only in run.error, and quoting it must not downgrade the label
+    run = _policy_run()
+    run.error = crashlab.models.ErrorInfo(
+        type="smolagents.utils.AgentGenerationError",
+        message="Error while generating output:\nTool call index is not provided in tool delta",
+    )
+    raw = _with(
+        label="EXTERNAL_FAILURE",
+        failing_step=4,
+        evidence=[
+            {"step": 4, "quote": "smolagents.utils.AgentGenerationError: Error while genera..."},
+            {"step": 4, "quote": "the provider said no"},  # still not anywhere: dropped
+        ],
+    )
+    d = validate(raw, run)
+    assert d.label is crashlab.TaxonomyLabel.EXTERNAL_FAILURE
+    assert [(e.step_idx, e.field) for e in d.evidence] == [(4, "run.error")]
+    assert len(d.notes) == 1 and "the provider said no" in d.notes[0]

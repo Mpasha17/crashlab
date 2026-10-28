@@ -121,3 +121,13 @@ def find_quote(step: Step, quote: str) -> str | None:
         if q in normalize(text):
             return name
     return None
+
+
+def quote_in_run_error(run: Any, quote: str) -> bool:
+    """Whether ``quote`` is verbatim (after normalization) in the run's own error, e.g. an
+    exception the framework raised outside any recorded step."""
+    err = getattr(run, "error", None)
+    if err is None:
+        return False
+    q = normalize(_ELLIPSIS.sub("", normalize(_LABEL.sub("", quote))).strip())
+    return len(q) >= 3 and q in normalize(f"{err.type}: {err.message}")
