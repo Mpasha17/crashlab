@@ -766,6 +766,16 @@ _INJECTION = re.compile(
 )
 
 
+def _quote_start(text: str, at: int) -> int:
+    """Start a quote at the field it sits in (``"note": "SYSTEM ...``) or a word boundary."""
+    key = text.rfind('"', 0, max(0, at - 1))
+    key = text.rfind('"', 0, key) if key > 0 else -1  # the key's opening quote
+    if key >= 0 and at - key <= 40:
+        return key
+    space = text.rfind(" ", max(0, at - 30), at)
+    return space + 1 if space >= 0 else at
+
+
 class ToolResultInstructions(Detector):
     """A tool result contains text addressed to the model ("ignore previous instructions",
     "SYSTEM NOTICE TO ASSISTANT: ... do not mention this"): likely prompt injection through
@@ -791,7 +801,7 @@ class ToolResultInstructions(Detector):
                 steps=[step.idx] + [s.idx for s in after], key=f"{step.name}:{step.idx}",
                 message=f"{step.name} returned text addressed to the model (possible prompt "
                         f"injection): {m.group(0)[:80]!r}{acted}",
-                evidence=[_ev(step, "result", text, max(0, m.start() - 20))],
+                evidence=[_ev(step, "result", text, _quote_start(text, m.start()))],
             ))  # fmt: skip
         return out
 

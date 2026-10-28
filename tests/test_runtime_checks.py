@@ -601,6 +601,8 @@ def test_tool_result_instructions(result):
     assert len(found) == 1 and found[0].severity == "error", found
     assert found[0].steps == [0, 1] and "place_order" in found[0].message
     assert found[0].evidence[0].field == "result"
+    if result is INJECTED:  # the quote starts at the field, not mid-word
+        assert found[0].evidence[0].quote.startswith('"note": "SYSTEM NOTICE')
     warn = [f for f in evaluate(_injection_run(result, then_order=False), ChecksConfig())
             if f.kind == "tool_result_instructions"]  # fmt: skip
     assert len(warn) == 1 and warn[0].severity == "warn"
