@@ -656,6 +656,13 @@ def test_unhandled_tool_error():
                 if f.kind == "unhandled_tool_error"]  # fmt: skip
     assert not [f for f in evaluate(_crashed_run(run_error="KeyError"), ChecksConfig())
                 if f.kind == "unhandled_tool_error"]  # fmt: skip
+    # a fork that crashlab stopped at a blocked side-effect call is not the agent's crash
+    run = _crashed_run()
+    run.steps[0].error = crashlab.models.ErrorInfo(
+        type="crashlab.replay.divergence.SideEffectBlockedError", message="blocked"
+    )
+    run.error = run.steps[0].error
+    assert not [f for f in evaluate(run, ChecksConfig()) if f.kind == "unhandled_tool_error"]
 
 
 def _restart_run(*, side_effects: bool):
@@ -683,7 +690,8 @@ def test_restart_after_a_side_effect_is_an_error():
     (f,) = [f for f in evaluate(_restart_run(side_effects=True), ChecksConfig())
             if f.kind == "step_repetition"]  # fmt: skip
     assert f.severity == "error" and f.steps == [0, 1, 3]
-    assert "place_order (side effects) succeeded at step 1" in f.message
+    assert "restarted from the request of step 0 1 time(s)" in f.message
+    assert "place_order (side effects) had succeeded (steps 1)" in f.message
     (f,) = [f for f in evaluate(_restart_run(side_effects=False), ChecksConfig())
             if f.kind == "step_repetition"]  # fmt: skip
     assert f.severity == "warn" and "restarted after 1 tool call" in f.message
@@ -721,3 +729,16 @@ def test_end_of_run_checks_see_the_live_steps():
     with pytest.raises(TimeoutError):
         crash()
     assert "unhandled_tool_error" in {f.kind for f in crashlab.load("last").findings}
+
+
+def test_repeated_side_effect_call_is_an_error():
+    # live (CrewAI): after LLM errors the task restarted and place_order(widgets, 5) ran 3
+    # times, all successful (three orders); this was only a warn like a repeated lookup
+    ok = '{"order_id": "O-118", "quantity": 5}'
+    run = _effect_run([ok, ok, ok], "Done.")
+    (f,) = [f for f in evaluate(run, ChecksConfig()) if f.kind == "step_repetition"]
+    assert f.severity == "error" and "side effects and succeeded 3 times" in f.message
+    run = _effect_run([REJ, REJ, REJ], "Sorry.")  # failed calls are not duplicates
+    assert all(
+        f.severity != "error" for f in evaluate(run, ChecksConfig()) if f.kind == "step_repetition"
+    )

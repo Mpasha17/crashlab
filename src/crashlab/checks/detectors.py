@@ -321,6 +321,12 @@ class StepRepetition(Detector):
             sev = "warn" if len(outcomes) == 1 else "info"
         tail = ("and got the same result each time" if len(outcomes) == 1
                 else "with different results (polling?)")  # fmt: skip
+        ok = [s for s in same if s.error is None and s.source not in ("blocked", "fake")
+              and not any(i.counts_as_failure for i in classify_result(s.result))]  # fmt: skip
+        if step.attributes.get("crashlab.tool.side_effects") and len(ok) >= 2:
+            # a payment / order / email repeated with the same arguments: likely duplicates
+            sev = "critical" if sev == "critical" else "error"
+            tail += f"; it has side effects and succeeded {len(ok)} times (duplicates?)"
         args = excerpt(as_text(step.args), 0, 120)
         first = same[0]
         ev = [_ev(first, "args", first.args)]
@@ -345,18 +351,22 @@ class StepRepetition(Detector):
         idxs = [s.idx for s in chats]
         sev = "critical" if len(chats) >= self.cfg.critical_at else "warn"
         last = (step.request.get("messages") or [None])[-1]
-        # tools that ran between the two identical requests: the conversation was rebuilt
-        # from scratch (a framework retry / restart), not a model stuck in a loop
+        # tools that ran between the identical requests: the conversation was rebuilt from
+        # scratch (a framework retry / restart), not a model stuck in a loop
         between = [s for s in h.tool_steps() if prev.idx < s.idx < step.idx]
-        done = [s for s in between if s.error is None and s.source not in ("blocked", "fake")
+        first = chats[0]
+        done = [s for s in h.tool_steps() if first.idx < s.idx < step.idx and s.error is None
+                and s.source not in ("blocked", "fake")
                 and s.attributes.get("crashlab.tool.side_effects")]  # fmt: skip
         if done:
-            sev = "critical" if sev == "critical" else "error"
-            what = (f"the run went back to the request of step {prev.idx} at step {step.idx} "
-                    f"after {done[0].name} (side effects) succeeded at step {done[0].idx}: a "
-                    "restart from here repeats that call (retry the failed LLM call, not the "
-                    "whole task)")  # fmt: skip
-            idxs = sorted({*idxs, done[0].idx})
+            sev = "critical" if sev == "critical" or len(done) >= 2 else "error"
+            names = ", ".join(sorted({s.name for s in done}))
+            what = (f"the run restarted from the request of step {first.idx} "
+                    f"{len(chats) - 1} time(s) (steps {_steps_text(idxs[1:])}) after "
+                    f"{names} (side effects) had succeeded (steps "
+                    f"{_steps_text([s.idx for s in done])}): each restart repeats it "
+                    "(retry the failed LLM call, not the whole task)")  # fmt: skip
+            idxs = sorted({*idxs, *(s.idx for s in done)})
         elif between:
             what = (f"the same LLM request was sent {len(chats)} times (steps "
                     f"{_steps_text(idxs)}): the conversation was restarted after "
@@ -822,6 +832,8 @@ class UnhandledToolError(Detector):
         if not failed:
             return []
         last = failed[-1]
+        if last.source == "blocked" or "SideEffectBlocked" in last.error.type:
+            return []  # crashlab stopped the fork there, not the agent's code
         if any(s.operation == "chat" and s.idx > last.idx for s in run.steps):
             return []  # the model got another turn after it
         short = last.error.type.rsplit(".", 1)[-1]
