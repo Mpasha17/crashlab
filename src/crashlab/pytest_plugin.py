@@ -64,6 +64,18 @@ def crashlab_replay(crashlab_store: Path) -> Any:
         except Exception as e:
             cause = e.__cause__ or e.__context__
             if isinstance(cause, ModuleNotFoundError) or "No module named" in str(e):
+                missing = getattr(cause, "name", None) or ""
+                entry = (store.load_run(run_id).entrypoint or "").split(":", 1)[0]
+                top = entry.split(".", 1)[0]
+                if missing and top and missing.split(".", 1)[0] == top:
+                    # the agent's own code is not importable: a regression test must not
+                    # quietly skip (CI would stay green without testing anything)
+                    pytest.fail(
+                        f"cannot import the agent's module {entry!r} to replay {run_id}: "
+                        f"{cause}. Run pytest from the project root, or add the directory "
+                        "that contains it to pytest's `pythonpath` setting.",
+                        pytrace=False,
+                    )
                 pytest.skip(f"replay needs a provider SDK: {e}")
             raise
 
