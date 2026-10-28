@@ -163,3 +163,14 @@ def test_dashscope_shaped_token_in_nested_message_content():
     assert key not in str(out)
     assert out["messages"][0]["content"].startswith("token ")
     assert out["messages"][0]["content"].endswith(" end")
+
+
+def test_check_messages_are_redacted():
+    import crashlab
+    from crashlab.verify.oracles import CheckSpec, run_check
+
+    key = "gsk_" + "Q" * 20 + "w8R2t5Y7u9I1o3P4a6S8"
+    spec = CheckSpec(name="leaky", agent=None, fn=lambda run: f"tool returned {key}")
+    run = crashlab.Run(run_id="r", name="x")
+    result = run_check(spec, run)
+    assert result.status == "fail" and key not in result.message

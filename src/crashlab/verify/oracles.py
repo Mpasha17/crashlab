@@ -82,6 +82,15 @@ def _doc_line(fn: CheckFn) -> str | None:
 
 
 def run_check(spec: CheckSpec, run: Run) -> CheckResult:
+    result = _run_check(spec, run)
+    if result.message:  # a check message quoting a tool result can carry a key
+        from ..store.redact import get_redactor
+
+        result.message = get_redactor().redact_str(result.message)
+    return result
+
+
+def _run_check(spec: CheckSpec, run: Run) -> CheckResult:
     try:
         value = spec.fn(run)
     except AssertionError as exc:
