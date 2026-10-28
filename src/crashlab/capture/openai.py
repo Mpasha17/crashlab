@@ -63,7 +63,9 @@ def _raw_create(inner_completions: Any, adapter: ChatAdapter, server: str | None
 
     def create(*args: Any, **kwargs: Any) -> Any:
         # invoke records via normalize; _parsed_for_record unwraps LegacyAPIResponse
-        return invoke(adapter, raw_resource.create, args, kwargs, server=server, is_async=is_async)
+        return invoke(
+            adapter, raw_resource.create, args, kwargs, server=server, is_async=is_async, raw=True
+        )
 
     create.__doc__ = getattr(raw_resource.create, "__doc__", None)
     return create

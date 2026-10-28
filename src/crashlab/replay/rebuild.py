@@ -123,6 +123,12 @@ def _validate(cls: Any, data: dict[str, Any]) -> Any:
         attempts.append(lambda: cls.model_validate(data))
     if root != "litellm":
         attempts.append(lambda: cls(**data))
+    if root in ("openai", "anthropic") and hasattr(cls, "construct"):
+        # what the SDKs themselves do with a response body: build the (nested) models
+        # without validation, so provider extensions such as Groq's
+        # service_tier="on_demand" still give a real ChatCompletion (LangChain checks
+        # isinstance) instead of a ReplayObject
+        attempts.append(lambda: cls.construct(**data))
     for attempt in attempts:
         try:
             return attempt()
@@ -228,3 +234,56 @@ def rebuild_exception(info: ErrorInfo) -> BaseException:
         except (AttributeError, TypeError):
             pass
     return exc
+
+
+class ReplayRawResponse:
+    """Stand-in for the SDKs' raw-response wrapper (OpenAI ``LegacyAPIResponse``,
+    Anthropic ``APIResponse``) returned by ``with_raw_response.create`` during replay.
+
+    LangChain (``raw.parse()``, ``raw.headers``) and CrewAI (``raw.text``,
+    ``raw.http_response``) read these; there is no live HTTP exchange to expose, so the
+    headers are empty and the body is the recorded response.
+    """
+
+    status_code = 200
+    is_closed = True
+    retries_taken = 0
+
+    def __init__(self, parsed: Any, raw: Any = None) -> None:
+        self._parsed = parsed
+        self._raw = raw if raw is not None else {}
+        self.headers: dict[str, str] = {}
+
+    def parse(self, *, to: Any = None) -> Any:
+        return self._parsed
+
+    async def aparse(self) -> Any:  # pragma: no cover - not used by known callers
+        return self._parsed
+
+    @property
+    def text(self) -> str:
+        import json
+
+        return json.dumps(self._raw, ensure_ascii=False, default=str)
+
+    @property
+    def content(self) -> bytes:
+        return self.text.encode()
+
+    def json(self) -> Any:
+        return self._raw
+
+    @property
+    def http_response(self) -> Any:
+        try:
+            import httpx
+        except ImportError:  # pragma: no cover - every supported SDK depends on httpx
+            return None
+        return httpx.Response(
+            200,
+            json=self._raw,
+            request=httpx.Request("POST", "https://crashlab.replay.invalid/"),
+        )
+
+    def __repr__(self) -> str:
+        return f"<ReplayRawResponse {type(self._parsed).__name__}>"

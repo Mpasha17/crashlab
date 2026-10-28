@@ -150,8 +150,12 @@ class ChatCall:
     def replay_source(self) -> Step | None:
         return self.pending.replay_source() if self.pending is not None else None
 
-    def serve_replay(self, src: Step, *, is_async: bool) -> Any:
-        """Finish this step from the recording and return what the live call returned."""
+    def serve_replay(self, src: Step, *, is_async: bool, raw: bool = False) -> Any:
+        """Finish this step from the recording and return what the live call returned.
+
+        ``raw``: the call went through ``with_raw_response.create``, so the caller expects
+        a raw-response object (``.parse()``, ``.headers``) around the completion.
+        """
         from ..replay import rebuild as R
         from ..replay import synth
 
@@ -165,15 +169,23 @@ class ChatCall:
             items = synth.synthesize(api, src.raw_response, chunk_type)
             if error is not None and not items:
                 return _raise_later(error) if is_async else _raise(error)
-            if is_async:  # `await create(stream=True)` returns the stream
-                return _return_later(synth.AsyncReplayStream(items, error))
-            return synth.ReplayStream(items, error)
+            stream_obj: Any = (
+                synth.AsyncReplayStream(items, error)
+                if is_async
+                else synth.ReplayStream(items, error)
+            )
+            if raw:
+                stream_obj = R.ReplayRawResponse(stream_obj, src.raw_response)
+            # `await create(stream=True)` returns the stream
+            return _return_later(stream_obj) if is_async else stream_obj
         if error is not None:
             return _raise_later(error) if is_async else _raise(error)
         resp_type = src.attributes.get("crashlab.response.type") or R.DEFAULT_RESPONSE_TYPES.get(
             api
         )
         obj = R.rebuild(src.raw_response or {}, resp_type)
+        if raw:
+            obj = R.ReplayRawResponse(obj, src.raw_response)
         return _return_later(obj) if is_async else obj
 
     def finish_stream(
@@ -254,6 +266,7 @@ def invoke(
     server: str | None = None,
     bind_to: Callable[..., Any] | None = None,
     is_async: bool | None = None,
+    raw: bool = False,
 ) -> Any:
     """Call ``fn(*args, **kwargs)`` and record it. Works for sync and async callables.
 
@@ -277,7 +290,7 @@ def invoke(
     if src is not None:
         if is_async is None:
             is_async = inspect.iscoroutinefunction(fn)
-        return call.serve_replay(src, is_async=is_async)
+        return call.serve_replay(src, is_async=is_async, raw=raw)
     try:
         result = fn(*args, **kwargs)
     except BaseException as exc:
