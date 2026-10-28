@@ -353,3 +353,20 @@ def test_missing_script_entry_point_says_to_run_from_the_recording_directory(tmp
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ReplayError, match="relative to the directory the run was recorded in"):
         resolve_entrypoint("agent_app.py:run_agent")
+
+
+def test_a_different_model_at_a_chat_step_hints_at_unrecorded_config():
+    from crashlab.replay.divergence import MODEL_HINT, DivergenceError
+
+    def err(op_a, op_b, name_b):
+        return DivergenceError(
+            "step",
+            "s",
+            expected={"operation": op_a, "name": "gemini-flash-lite-latest"},
+            actual={"operation": op_b, "name": name_b},
+            fields=["name"] if op_a == op_b else ["operation"],
+        )
+
+    assert MODEL_HINT in str(err("chat", "chat", "openai/gpt-oss-120b"))
+    assert MODEL_HINT not in str(err("chat", "execute_tool", "lookup"))
+    assert MODEL_HINT not in str(err("execute_tool", "execute_tool", "other"))

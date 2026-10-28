@@ -153,6 +153,18 @@ def nondeterminism_hint(diff: str) -> str | None:
     return NONDETERMINISM_HINT if norm == [_VOLATILE.sub("<v>", x) for x in added] else None
 
 
+MODEL_HINT = (
+    "hint: the agent called a different model than when recorded. If the model (or "
+    "provider) comes from an env var or config file, set it the same way when replaying, "
+    "or make it an argument of the @crashlab.agent function so the recording carries it."
+)
+
+
+def _both_chat(err: Any) -> bool:
+    ops = [getattr(err, x, None) or {} for x in ("expected", "actual")]
+    return all(isinstance(o, dict) and o.get("operation") == "chat" for o in ops)
+
+
 class DivergenceError(Exception):
     """A strict replay did not match its recording.
 
@@ -194,6 +206,8 @@ class DivergenceError(Exception):
             hint = nondeterminism_hint(self.diff) if self.kind == "request" else None
             if hint:
                 lines.append(hint)
+        if self.kind == "step" and self.fields == ["name"] and _both_chat(self):
+            lines.append(MODEL_HINT)
         return "\n".join(lines)
 
     def __str__(self) -> str:
