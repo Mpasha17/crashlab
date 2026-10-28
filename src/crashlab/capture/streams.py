@@ -196,12 +196,15 @@ class AnthropicAssembler(Assembler):
         self.blocks: dict[int, dict[str, Any]] = {}
         self.json_parts: dict[int, list[str]] = {}
         self.pieces: dict[int, list[int]] = {}  # streamed delta lengths per block
+        self.usage_events: dict[str, Any] = {}  # usage as message_start / _delta sent it
 
     def _add(self, data: dict[str, Any]) -> None:
         t = data.get("type")
         if t == "message_start":
             msg = dict(data.get("message") or {})
             msg.pop("content", None)
+            if isinstance(msg.get("usage"), dict):
+                self.usage_events["start"] = dict(msg["usage"])
             self.message.update(msg)
         elif t == "content_block_start":
             self.blocks[data.get("index", len(self.blocks))] = dict(data.get("content_block") or {})
@@ -230,6 +233,7 @@ class AnthropicAssembler(Assembler):
                 if k in delta:
                     self.message[k] = delta[k]
             if data.get("usage"):
+                self.usage_events["delta"] = dict(data["usage"])
                 usage = dict(self.message.get("usage") or {})
                 usage.update({k: v for k, v in data["usage"].items() if v is not None})
                 self.message["usage"] = usage
@@ -246,9 +250,13 @@ class AnthropicAssembler(Assembler):
     @property
     def stream_plan(self) -> dict[str, Any] | None:
         """Delta lengths per content block, so replay re-chunks text / thinking / tool
-        input as streamed (``text_stream`` consumers see the same pieces)."""
+        input as streamed (``text_stream`` consumers see the same pieces), and the usage
+        ``message_start`` / ``message_delta`` carried."""
         blocks = {str(i): n for i, n in self.pieces.items() if len(n) > 1}
-        return {"blocks": blocks} if blocks else None
+        plan: dict[str, Any] = {"blocks": blocks} if blocks else {}
+        if "start" in self.usage_events and "delta" in self.usage_events:
+            plan["usage"] = self.usage_events  # running token counts per event
+        return plan or None
 
 
 class ResponsesAssembler(Assembler):
@@ -488,9 +496,17 @@ class _DeltaObserver:
     def __init__(self, raw: Any) -> None:
         self._raw = raw
         self.pieces: dict[int, list[int]] = {}
+        self.usage_events: dict[str, Any] = {}
 
     def _note(self, event: Any) -> None:
-        if getattr(event, "type", None) != "content_block_delta":
+        etype = getattr(event, "type", None)
+        if etype in ("message_start", "message_delta"):
+            src = getattr(event, "message", None) if etype == "message_start" else event
+            usage = to_jsonable(getattr(src, "usage", None))
+            if isinstance(usage, dict):
+                self.usage_events["start" if etype == "message_start" else "delta"] = usage
+            return
+        if etype != "content_block_delta":
             return
         delta = getattr(event, "delta", None)
         value = getattr(delta, _DELTA_FIELDS.get(getattr(delta, "type", None) or "", ""), None)
@@ -512,7 +528,10 @@ class _DeltaObserver:
 
     def plan(self) -> dict[str, Any] | None:
         blocks = {str(i): n for i, n in self.pieces.items() if len(n) > 1}
-        return {"blocks": blocks} if blocks else None
+        plan: dict[str, Any] = {"blocks": blocks} if blocks else {}
+        if "start" in self.usage_events and "delta" in self.usage_events:
+            plan["usage"] = self.usage_events
+        return plan or None
 
 
 def _observe(stream: Any) -> _DeltaObserver | None:

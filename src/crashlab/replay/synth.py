@@ -197,6 +197,17 @@ def _cut(text: str, lengths: Any) -> list[str]:
     return out
 
 
+def _recorded_usage(plan: Any, usage: dict[str, Any]) -> dict[str, Any] | None:
+    """The usage the recorded ``message_start`` / ``message_delta`` events carried, when
+    it still adds up to the response's usage (a patched response does not)."""
+    sent = plan.get("usage") if isinstance(plan, dict) else None
+    if not (isinstance(sent, dict) and isinstance(sent.get("start"), dict)
+            and isinstance(sent.get("delta"), dict)):  # fmt: skip
+        return None
+    merged = {**sent["start"], **{k: v for k, v in sent["delta"].items() if v is not None}}
+    return sent if merged == usage else None
+
+
 def anthropic_events(raw: dict[str, Any], plan: Any = None) -> list[dict[str, Any]]:
     blocks_plan = plan.get("blocks") if isinstance(plan, dict) else None
     blocks_plan = blocks_plan if isinstance(blocks_plan, dict) else {}
@@ -207,6 +218,9 @@ def anthropic_events(raw: dict[str, Any], plan: Any = None) -> list[dict[str, An
     start_msg.setdefault("type", "message")
     start_msg.setdefault("role", "assistant")
     start_msg["usage"] = {**usage, "output_tokens": usage.get("output_tokens", 0)}
+    sent = _recorded_usage(plan, usage)
+    if sent is not None:
+        start_msg["usage"] = sent["start"]
     events: list[dict[str, Any]] = [{"type": "message_start", "message": start_msg}]
     for i, block in enumerate(raw.get("content") or []):
         t = block.get("type")
@@ -232,6 +246,8 @@ def anthropic_events(raw: dict[str, Any], plan: Any = None) -> list[dict[str, An
     stop = {"stop_reason": raw.get("stop_reason"), "stop_sequence": raw.get("stop_sequence")}
     out_usage = {k: v for k, v in usage.items() if k != "output_tokens"}
     out_usage["output_tokens"] = usage.get("output_tokens", 0)
+    if sent is not None:
+        out_usage = sent["delta"]
     events.append({"type": "message_delta", "delta": stop, "usage": out_usage})
     events.append({"type": "message_stop"})
     return events
