@@ -106,13 +106,29 @@ class WrappedAnthropic(WrappedClient):
         return WrappedAnthropic(client)
 
 
+def _already_parsed(obj: Any) -> bool:
+    """A live result carries model instances; one rebuilt from a cassette carries the
+    recorded JSON (a dict) or nothing."""
+
+    def done(value: Any) -> bool:
+        return value is not None and not isinstance(value, dict)
+
+    for choice in getattr(obj, "choices", None) or []:
+        if done(getattr(getattr(choice, "message", None), "parsed", None)):
+            return True
+    try:
+        return any(done(getattr(obj, a, None)) for a in ("output_parsed", "parsed_output"))
+    except Exception:  # a property over a malformed body
+        return False
+
+
 def _reparse(obj: Any, kwargs: dict[str, Any]) -> Any:
     """A replayed ``messages.parse()`` result is rebuilt from JSON: run the
     SDK's parser over it so ``.parsed_output`` works as when recorded."""
     from ..context import is_replaying
 
-    if obj is None or not is_replaying():
-        return obj  # recorded live: the SDK already parsed it
+    if obj is None or not is_replaying() or _already_parsed(obj):
+        return obj  # a live call (recording, or a fork past its fork step): SDK-parsed
     try:
         from anthropic import omit
         from anthropic.lib._parse import _response as P

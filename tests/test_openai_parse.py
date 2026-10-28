@@ -274,3 +274,35 @@ def test_beta_chat_completions_parse_and_stream_record(crashlab_dir):
     finally:
         LIVE["on"] = True
     assert len(CALLS) == 2
+
+
+@crashlab.agent(name="parse-fork")
+def fork_agent(q: str) -> str:
+    out = _client().chat.completions.parse(
+        model="m",
+        messages=[{"role": "system", "content": "Be terse."}, {"role": "user", "content": q}],
+        response_format=Weather,
+    )
+    return out.choices[0].message.parsed.city
+
+
+def test_fork_of_a_parse_run_goes_live_with_the_patch_and_no_warnings(crashlab_dir):
+    LIVE["on"] = True
+    CALLS.clear()
+    assert fork_agent("weather?") == "Paris"
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        forked = crashlab.fork(
+            crashlab.load("last"),
+            at_step=0,
+            patch={"kind": "system_prompt", "op": "append", "text": "Use metric."},
+        )
+    # the live parsed result past the fork step is not re-parsed (pydantic warned)
+    assert not [w for w in caught if "serializer" in str(w.message)]
+    assert forked.status == "ok" and forked.output == "Paris"
+    assert len(CALLS) == 2  # the fork step went live
+    LIVE["on"] = False
+    try:
+        assert crashlab.replay(forked).output == "Paris"
+    finally:
+        LIVE["on"] = True

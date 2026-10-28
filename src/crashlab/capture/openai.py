@@ -71,13 +71,29 @@ def _create(inner: Any, adapter: ChatAdapter, server: str | None):
     return create
 
 
+def _already_parsed(obj: Any) -> bool:
+    """A live result carries model instances; one rebuilt from a cassette carries the
+    recorded JSON (a dict) or nothing."""
+
+    def done(value: Any) -> bool:
+        return value is not None and not isinstance(value, dict)
+
+    for choice in getattr(obj, "choices", None) or []:
+        if done(getattr(getattr(choice, "message", None), "parsed", None)):
+            return True
+    try:
+        return any(done(getattr(obj, a, None)) for a in ("output_parsed", "parsed_output"))
+    except Exception:  # a property over a malformed body
+        return False
+
+
 def _reparse(obj: Any, kwargs: dict[str, Any], api: str) -> Any:
     """A replayed ``parse()`` result is rebuilt from JSON (``.parsed`` lost): run the
     SDK's own parser over it so ``.parsed`` / ``.output_parsed`` work as when recorded."""
     from ..context import is_replaying
 
-    if obj is None or not is_replaying():
-        return obj  # recorded live: the SDK already parsed it
+    if obj is None or not is_replaying() or _already_parsed(obj):
+        return obj  # a live call (recording, or a fork past its fork step): SDK-parsed
     try:
         from openai import omit
     except ImportError:  # pragma: no cover - older SDKs
