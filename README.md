@@ -181,7 +181,8 @@ warns once when it is used in a run), Anthropic `messages.batches` / beta `tool_
 Structured outputs — Anthropic `messages.parse()` (also `client.beta.messages`), OpenAI
 `chat.completions.parse()` / `responses.parse()` (also `client.beta.chat`) — the `.stream()`
 helpers and `with_raw_response.create` (CrewAI path) **are** recorded. OpenAI
-`embeddings.create` records as an `embeddings` step (its tokens count; no cost estimate).
+`embeddings.create` records as an `embeddings` step (its tokens count; no cost estimate);
+Anthropic `messages.count_tokens` as a `custom` step (so replay stays offline).
 OpenAI streams only report token usage if you pass `stream_options={"include_usage": True}`.
 
 ## Quickstart

@@ -3,7 +3,8 @@
 Intercepts ``create`` (plain and ``stream=True``), ``stream(...)`` and ``parse(...)``
 (structured outputs) on ``client.messages`` and ``client.beta.messages``. ``anthropic`` is
 imported only lazily, to re-run its parser over a replayed ``parse()``.
-Not intercepted yet: ``messages.batches``, ``count_tokens``, the beta ``tool_runner``.
+Also ``count_tokens`` (a ``custom`` step). Not intercepted yet: ``messages.batches``, the beta
+``tool_runner``.
 """
 
 from __future__ import annotations
@@ -26,6 +27,24 @@ MESSAGES = ChatAdapter(
     normalize_request=N.normalize_anthropic_request,
     normalize_response=N.normalize_anthropic_response,
     new_assembler=AnthropicAssembler,
+)
+
+
+def _count_tokens_response(resp: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    raw = N.to_jsonable(resp)
+    raw = raw if isinstance(raw, dict) else {"input_tokens": raw}
+    return {"input_tokens": raw.get("input_tokens")}, raw
+
+
+# a pre-flight token count (no generation): recorded so replay stays offline; operation
+# "custom" keeps it out of LLM-call counts, tokens and cost
+COUNT_TOKENS = ChatAdapter(
+    provider="anthropic",
+    api="anthropic.messages.count_tokens",
+    normalize_request=N.normalize_anthropic_request,
+    normalize_response=_count_tokens_response,
+    new_assembler=AnthropicAssembler,
+    operation="custom",
 )
 
 
@@ -79,6 +98,14 @@ def _wrap_messages(messages: Any, server: str | None) -> Proxy:
 
         parse.__doc__ = getattr(messages.parse, "__doc__", None)
         messages_kw["parse"] = parse
+    if callable(getattr(messages, "count_tokens", None)):
+
+        def count_tokens(*args: Any, **kwargs: Any) -> Any:
+            return invoke(COUNT_TOKENS, messages.count_tokens, args, kwargs, server=server,
+                          is_async=is_async)  # fmt: skip
+
+        count_tokens.__doc__ = getattr(messages.count_tokens, "__doc__", None)
+        messages_kw["count_tokens"] = count_tokens
     if getattr(messages, "with_raw_response", None) is not None:
         raw = messages.with_raw_response
 

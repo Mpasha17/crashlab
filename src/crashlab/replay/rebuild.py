@@ -23,6 +23,7 @@ DEFAULT_RESPONSE_TYPES = {
     "openai.responses": "openai.types.responses.Response",
     "openai.embeddings": "openai.types.CreateEmbeddingResponse",
     "anthropic.messages": "anthropic.types.Message",
+    "anthropic.messages.count_tokens": "anthropic.types.MessageTokensCount",
     "litellm.completion": "litellm.types.utils.ModelResponse",
 }
 DEFAULT_CHUNK_TYPES = {

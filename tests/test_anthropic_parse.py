@@ -153,3 +153,33 @@ def test_generic_response_type_imports_unparametrized():
 
     cls = import_path("anthropic.types.parsed_message.ParsedMessage[TypeVar]")
     assert cls is not None and cls.__name__ == "ParsedMessage"
+
+
+@crashlab.agent(name="anthropic-count")
+def count_agent(q: str) -> int:
+    def handle(request):
+        CALLS.append(request.url.path)
+        assert LIVE["on"], "replay hit the network"
+        if request.url.path.endswith("/count_tokens"):
+            return httpx.Response(200, json={"input_tokens": 42})
+        return httpx.Response(200, json=MESSAGE)
+
+    client = crashlab.wrap(anthropic.Anthropic(
+        api_key="sk-ant-x", base_url="http://anthropic.local", max_retries=0,
+        http_client=httpx.Client(transport=httpx.MockTransport(handle))))  # fmt: skip
+    msgs = [{"role": "user", "content": q}]
+    n = client.messages.count_tokens(model="claude-x", messages=msgs).input_tokens
+    client.messages.create(model="claude-x", max_tokens=64, messages=msgs)
+    return n
+
+
+def test_count_tokens_records_and_replays_offline(crashlab_dir):
+    assert count_agent("hi") == 42
+    run = crashlab.load("last")
+    assert [s.operation for s in run.steps] == ["custom", "chat"]
+    assert run.usage.llm_calls == 1 and run.usage.input_tokens == 5
+    LIVE["on"] = False
+    try:
+        assert crashlab.replay(run).output == 42
+    finally:
+        LIVE["on"] = True
