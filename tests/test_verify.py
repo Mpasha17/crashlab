@@ -524,3 +524,22 @@ def test_a_rate_limited_trial_is_rerun_once(monkeypatch):
         results[:] = [Trial(role="patched", source_run="s", status="errored", error=err)]
         slept.clear()
         assert r._trial_retrying().status == "errored" and slept == []
+
+
+def test_daily_limit_trials_say_so(monkeypatch):
+    # live: every OpenAI Agents trial hit Groq's tokens-per-day limit; the verdict only said
+    # INCONCLUSIVE "no usable patched trial (3 errored)"
+    from crashlab.models import Trial
+    from crashlab.verify import runner as r
+
+    run, _ = _setup()
+    err = ("openai.RateLimitError: Error code: 429 - Rate limit reached for model `m` on "
+           "tokens per day (TPD): Limit 200000. Please try again in 1m28s.")  # fmt: skip
+
+    def errored(role, *a):
+        return Trial(role=role, source_run="s", status="errored", error=err)
+
+    monkeypatch.setattr(r, "_trial", errored)
+    v = crashlab.verify(run, 1, k=2, regress="none", save=False)
+    assert v.verdict == "INCONCLUSIVE"
+    assert any("4 trial(s) hit the provider's daily limit" in x for x in v.reasons), v.reasons

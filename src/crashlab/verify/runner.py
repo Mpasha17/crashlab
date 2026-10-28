@@ -31,6 +31,7 @@ _INFRA_RE = re.compile(
     r"connection|internalservererror|apiconnection|apitimeout|\b(429|500|502|503|504|529)\b",
     re.I,
 )
+_DAILY = re.compile(r"per day|PerDay|\((TPD|RPD)\)", re.I)
 DEFAULT_K = 5
 DEFAULT_REGRESSION_LIMIT = 10
 
@@ -364,6 +365,12 @@ def verify(
             "never made (crashlab never runs those live in a fork), not counted; register a "
             "fake (crashlab.fake_tool) or rerun with --allow-live-side-effects against a "
             "sandbox to count them"
+        )
+    daily = [t for t in v.trials if t.status == "errored" and _DAILY.search(t.error or "")]
+    if daily:
+        reasons.append(
+            f"{len(daily)} trial(s) hit the provider's daily limit (not counted): rerun "
+            "verify after it resets, or point the agent at another model / key"
         )
     v.reasons = reasons + v.reasons
     if save:
