@@ -699,6 +699,27 @@ def _target(
     return target, args, kwargs
 
 
+@contextlib.contextmanager
+def recorded_env(source: Run) -> Iterator[None]:
+    """Set the environment variables the run recorded (``@crashlab.agent(env=[...])``)
+    for the duration of a replay / fork; restore the caller's values afterwards."""
+    wanted = (source.env or {}).get("vars") or {}
+    saved = {k: os.environ.get(k) for k in wanted}
+    try:
+        for k, v in wanted.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = str(v)
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def _execute(
     replayer: Replayer,
     target: Callable[..., Any],
@@ -712,6 +733,7 @@ def _execute(
     if offline:
         guards.enter_context(placeholder_credentials())
         guards.enter_context(block_network(replayer))
+    guards.enter_context(recorded_env(replayer.source))
     error: BaseException | None = None
     with guards, pending_replay(replayer):
         try:

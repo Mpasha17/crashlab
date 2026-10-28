@@ -65,6 +65,24 @@ def git_version(cwd: str | None = None) -> str | None:
     return value
 
 
+_SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH")
+
+
+def _env_vars(names: Any) -> dict[str, str | None]:
+    """Values of the environment variables an agent reads (``env=``), recorded so replays
+    and forks run with the same model name / streaming flag. Names that look like secrets
+    are refused: their values would land in the store and in exported cassettes."""
+    out: dict[str, str | None] = {}
+    for name in names or ():
+        if any(h in name.upper() for h in _SECRET_HINTS):
+            raise ValueError(
+                f"crashlab: env={name!r} looks like a secret; only list non-secret settings "
+                "(model name, base URL, streaming flag). Replays never need real keys."
+            )
+        out[name] = os.environ.get(name)
+    return out
+
+
 def _env() -> dict[str, Any]:
     env: dict[str, Any] = {
         "python": platform.python_version(),
@@ -88,6 +106,10 @@ class record:
     overrides parts of that (``checks={"max_steps": 20, "circuit_breaker": True}``),
     ``False`` turns them off.
 
+    ``env`` lists environment variables the agent reads (``["AGENT_MODEL", "STREAM"]``):
+    their values are recorded and set again while the run is replayed or forked, so an
+    exported test does not depend on the shell it runs in. Secret-looking names are refused.
+
     The yielded :class:`~crashlab.models.Run` can be mutated, e.g. ``run.output = answer``
     or ``run.outcome = "pass"``; it is persisted when the block exits. An exception marks
     the run ``status="error"`` and ``outcome="fail"`` and is re-raised.
@@ -103,9 +125,11 @@ class record:
         store_dir: str | os.PathLike[str] | None = None,
         mode: str = "record",
         checks: Any = None,
+        env: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self.name = name
         self.checks = checks
+        self.env_vars = _env_vars(env)
         self.input = to_jsonable(input or {})
         if not isinstance(self.input, dict):
             self.input = {"input": self.input}
@@ -137,7 +161,7 @@ class record:
             status="running",
             started_at=utcnow(),
             code_version=git_version(),
-            env=_env(),
+            env={**_env(), **({"vars": self.env_vars} if self.env_vars else {})},
             tags=list(self.tags),
             span_id=new_span_id(),
         )
@@ -285,6 +309,7 @@ def agent(
     tags: list[str] | None = None,
     ignore_args: tuple[str, ...] = (),
     checks: Any = None,
+    env: list[str] | tuple[str, ...] | None = None,
 ) -> Callable[[F], F]: ...
 
 
@@ -296,13 +321,15 @@ def agent(
     tags: list[str] | None = None,
     ignore_args: tuple[str, ...] = (),
     checks: Any = None,
+    env: list[str] | tuple[str, ...] | None = None,
 ) -> Any:
     """Mark an agent entry function: each top-level call becomes one recorded run.
 
     Records the entry point path (``module:qualname``), the bound input arguments, the
     return value as ``output``, status, usage totals and the git sha. Arguments listed in
     ``ignore_args`` (e.g. a client object) are left out of the recorded input.
-    ``checks`` configures the runtime checks, as for :class:`record`.
+    ``checks`` configures the runtime checks and ``env`` the recorded environment
+    variables (model name, streaming flag ...), as for :class:`record`.
 
     A call made while another run is active is recorded as an ``invoke_agent`` step of
     the outer run instead of a separate run.
@@ -338,7 +365,8 @@ def agent(
                     pending.finish({"result": to_jsonable(out)})  # type: ignore[union-attr]
                     return out
                 inp = bind_arguments(f, args, kwargs, ignore_args)
-                with record(agent_name, input=inp, entrypoint=ep, tags=tags, checks=checks) as run:
+                with record(agent_name, input=inp, entrypoint=ep, tags=tags, checks=checks,
+                            env=env) as run:  # fmt: skip
                     out = await f(*args, **kwargs)
                     run.output = to_jsonable(out)
                     return out
@@ -359,7 +387,8 @@ def agent(
                     pending.finish({"result": to_jsonable(out)})  # type: ignore[union-attr]
                     return out
                 inp = bind_arguments(f, args, kwargs, ignore_args)
-                with record(agent_name, input=inp, entrypoint=ep, tags=tags, checks=checks) as run:
+                with record(agent_name, input=inp, entrypoint=ep, tags=tags, checks=checks,
+                            env=env) as run:  # fmt: skip
                     out = f(*args, **kwargs)
                     run.output = to_jsonable(out)
                     return out

@@ -370,3 +370,35 @@ def test_a_different_model_at_a_chat_step_hints_at_unrecorded_config():
     assert MODEL_HINT in str(err("chat", "chat", "openai/gpt-oss-120b"))
     assert MODEL_HINT not in str(err("chat", "execute_tool", "lookup"))
     assert MODEL_HINT not in str(err("execute_tool", "execute_tool", "other"))
+
+
+@crashlab.tool()
+def _which_model(model: str | None) -> str:
+    return f"using {model}"
+
+
+@crashlab.agent(name="env-agent", env=["W1_AGENT_MODEL", "W1_STREAM"])
+def _env_agent() -> str:
+    return _which_model(os.environ.get("W1_AGENT_MODEL"))
+
+
+def test_recorded_env_vars_are_set_again_on_replay(crashlab_dir, monkeypatch):
+    # live (smolagents, CrewAI): the harness read the model / stream flag from the env, so
+    # an exported test passed or diverged depending on the shell it ran in
+    monkeypatch.setenv("W1_AGENT_MODEL", "gemini-flash-lite-latest")
+    monkeypatch.delenv("W1_STREAM", raising=False)
+    _env_agent()
+    src = crashlab.load("last")
+    assert src.env["vars"] == {"W1_AGENT_MODEL": "gemini-flash-lite-latest", "W1_STREAM": None}
+    monkeypatch.setenv("W1_AGENT_MODEL", "openai/gpt-oss-20b")
+    monkeypatch.setenv("W1_STREAM", "1")
+    rep = crashlab.replay(src, fn=_env_agent)
+    assert rep.steps[0].args == {"model": "gemini-flash-lite-latest"}
+    # the caller's environment is restored afterwards
+    assert os.environ["W1_AGENT_MODEL"] == "openai/gpt-oss-20b" and os.environ["W1_STREAM"] == "1"
+
+
+def test_secret_looking_env_names_are_refused():
+    with pytest.raises(ValueError, match="looks like a secret"):
+        with crashlab.record("x", env=["OPENAI_API_KEY"]):
+            pass
