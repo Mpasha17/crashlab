@@ -191,3 +191,18 @@ def test_show_names_the_unpriced_model():
     assert "[tool.crashlab.prices]" in out
     _record_one()  # a priced model: no hint
     assert "no price for" not in runner.invoke(app, ["show", "last"], env=ENV).output
+
+
+def test_help_groups_commands_in_workflow_order():
+    # `crashlab --help` listed bench 3rd and verify before diagnose / fix
+    out = re.sub(r"\x1b\[[0-9;]*m", "", runner.invoke(app, ["--help"], env=ENV).output)
+
+    def at(word: str) -> int:  # a panel title ("─ Inspect ─"), or a command row ("fix   Propose")
+        end = r" [-─]" if word[0].isupper() else r"\s{2,}\S"
+        m = re.search(rf"(?<![\w-]){re.escape(word)}{end}", out)
+        return m.start() if m else -1
+
+    marks = ["Inspect", "ls", "Diagnose and fix", "diagnose", "fix", "verify",
+             "Replay and fork", "replay", "Share and benchmark", "bench"]  # fmt: skip
+    pos = [at(m) for m in marks]
+    assert -1 not in pos and pos == sorted(pos), list(zip(marks, pos, strict=True))

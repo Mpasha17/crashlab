@@ -1987,8 +1987,25 @@ def _first_sentence(text: str, limit: int = 60) -> str:
     return out
 
 
+# `crashlab --help`: the commands grouped in the order a failing run is handled
+_HELP_PANELS = (
+    ("Inspect", ("ls", "show", "report", "diff", "check")),
+    ("Diagnose and fix", ("diagnose", "fix", "verify", "export-test")),
+    ("Replay and fork", ("replay", "fork")),
+    ("Share and benchmark", ("export", "import", "bench")),
+)
+
+
 def _tidy_help(typer_app: typer.Typer) -> None:
+    order = {name: i for i, (_, names) in enumerate(_HELP_PANELS) for name in names}
+    panel = {name: title for title, names in _HELP_PANELS for name in names}
+    rank = [n for _, names in _HELP_PANELS for n in names]
+    typer_app.registered_commands.sort(
+        key=lambda c: (order.get(c.name or "", 99), rank.index(c.name) if c.name in rank else 99)
+    )
     for info in typer_app.registered_commands:
+        if info.name in panel and not isinstance(info.rich_help_panel, str):
+            info.rich_help_panel = panel[info.name]
         doc = info.help or (info.callback.__doc__ if info.callback else None)
         if not doc:
             continue
