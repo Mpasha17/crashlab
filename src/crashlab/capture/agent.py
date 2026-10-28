@@ -19,8 +19,8 @@ from .._ids import new_span_id, new_ulid
 from .._version import __version__
 from ..context import (
     RunContext,
+    bound_current,
     check_mode,
-    current,
     register_live,
     reset_current,
     set_current,
@@ -119,7 +119,7 @@ class record:
 
     # sync ------------------------------------------------------------------------------
     def __enter__(self) -> Run:
-        if current() is not None:
+        if bound_current() is not None:
             raise RuntimeError(
                 "crashlab.record(): a run is already active in this context; nested runs are "
                 "not supported (nested @crashlab.agent calls are recorded as invoke_agent steps)"
@@ -327,7 +327,7 @@ def agent(
 
             @functools.wraps(f)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-                if current() is not None:
+                if bound_current() is not None:
                     pending = _nested(args, kwargs)
                     try:
                         with pending.activate():  # type: ignore[union-attr]
@@ -348,7 +348,7 @@ def agent(
 
             @functools.wraps(f)
             def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-                if current() is not None:
+                if bound_current() is not None:
                     pending = _nested(args, kwargs)
                     try:
                         with pending.activate():  # type: ignore[union-attr]

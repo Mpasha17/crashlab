@@ -248,6 +248,13 @@ def current() -> RunContext | None:
     return ctx if ctx is not None else _thread_fallback()
 
 
+def bound_current() -> RunContext | None:
+    """The run bound to this context only (no worker-thread fallback). Used to decide
+    whether an agent call is nested: a top-level call in another thread (a web server
+    handling two requests) is its own run, not a step of whatever run is live."""
+    return _current_run.get()
+
+
 def current_run() -> Run | None:
     ctx = current()
     return ctx.run if ctx else None
