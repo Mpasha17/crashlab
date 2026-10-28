@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from collections.abc import Callable, Iterable
 from typing import Any
@@ -194,6 +195,22 @@ def _complete(client: Any, api: str, model: str, msgs: Messages, json_mode: bool
     return msg.content or ""
 
 
+_RETRY_AFTER = re.compile(r"(?:try again|retry) in (?:(\d+)m)?\s*([\d.]+)\s*s\b", re.I)
+RETRY_MAX_WAIT_S = 60.0
+
+
+def _retry_after(text: str) -> float | None:
+    """Seconds a 429 asks to wait ("Please try again in 7.1s", Gemini "retry in 34s"), if
+    short enough to wait once; None for anything else."""
+    if "429" not in text and "rate" not in text.lower() and "quota" not in text.lower():
+        return None
+    m = _RETRY_AFTER.search(text)
+    if m is None:
+        return None
+    wait = int(m.group(1) or 0) * 60 + float(m.group(2))
+    return wait + 1.0 if wait <= RETRY_MAX_WAIT_S else None
+
+
 def _ask(
     run: Run,
     msgs: Messages,
@@ -226,28 +243,37 @@ def _ask(
         api = _client_api(client)
         client = wrap(client)
     root = store.root if store is not None else crashlab_dir()
-    try:
-        with record(
-            DIAGNOSER_RUN_NAME,
-            input={"run_id": run.run_id, "model": model, "prompt_version": prompt_version},
-            store_dir=root / "diagnoser",
-            checks=False,
-            tags=[DIAGNOSER_RUN_NAME],
-        ) as drun:
-            reply = _complete(client, api, model, msgs, json_mode)
-            drun.output = reply
-    except DiagnoseError:
-        raise
-    except Exception as e:
-        from ..capture._steps import error_info
+    for attempt in (1, 2):
+        try:
+            with record(
+                DIAGNOSER_RUN_NAME,
+                input={"run_id": run.run_id, "model": model, "prompt_version": prompt_version},
+                store_dir=root / "diagnoser",
+                checks=False,
+                tags=[DIAGNOSER_RUN_NAME],
+            ) as drun:
+                reply = _complete(client, api, model, msgs, json_mode)
+                drun.output = reply
+            break
+        except DiagnoseError:
+            raise
+        except Exception as e:
+            from ..capture._steps import error_info
 
-        # the provider's text, also when the SDK message is only "Error code: 429" (Gemini's
-        # OpenAI endpoint sends a JSON list body the OpenAI SDK does not read)
-        text = error_info(e).detail
-        hint = " (daily quota exhausted)" if "PerDay" in text or "per day" in text.lower() else ""
-        raise DiagnoseError(
-            f"the diagnoser call failed{hint}: {type(e).__name__}: {text[:300]}"
-        ) from e
+            # the provider's text, also when the SDK message is only "Error code: 429"
+            # (Gemini's OpenAI endpoint sends a JSON list body the OpenAI SDK does not read)
+            text = error_info(e).detail
+            daily = "PerDay" in text or "per day" in text.lower()
+            wait = None if daily else _retry_after(text)
+            if attempt == 1 and wait is not None:
+                # a per-minute limit (free tiers, a shared org): wait as the provider asks
+                print(f"crashlab: diagnoser rate-limited; retrying in {wait:.0f}s", file=sys.stderr)
+                time.sleep(wait)
+                continue
+            hint = " (daily quota exhausted)" if daily else ""
+            raise DiagnoseError(
+                f"the diagnoser call failed{hint}: {type(e).__name__}: {text[:300]}"
+            ) from e
     u = drun.usage
     return reply, {
         "backend": api,

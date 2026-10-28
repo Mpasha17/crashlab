@@ -442,3 +442,30 @@ def test_a_failed_diagnoser_call_shows_the_providers_message(crashlab_dir):
                                 body=body)  # fmt: skip
     with pytest.raises(crashlab.DiagnoseError, match="Quota exceeded for metric"):
         crashlab.diagnose(run, "m", client=FakeOpenAI([err]), cache=False)
+
+
+def test_a_short_rate_limit_is_waited_out_once(monkeypatch):
+    # live (Groq, an org shared by several agents): "Rate limit reached ... tokens per minute
+    # (ITPM) ... Please try again in 7.09s" failed `crashlab fix` outright
+    import importlib
+
+    dg = importlib.import_module("crashlab.diagnose.diagnoser")
+
+    slept: list[float] = []
+    monkeypatch.setattr(dg.time, "sleep", slept.append)
+    msg = "429 Rate limit reached ... tokens per minute (ITPM). Please try again in 7.09s."
+    fake = FakeOpenAI([FakeAPIError(msg, 429), text_response(1, json.dumps(GOOD))])
+    d = crashlab.diagnose(_policy_run(), "m", client=fake, cache=False)
+    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION
+    assert slept and 8 <= slept[0] < 9
+    # a daily limit or a long wait is not waited for; a second 429 is not retried again
+    for text in ("429 tokens per day (TPD) ... Please try again in 7s.",
+                 "429 rate limit. Please try again in 10m0.48s."):  # fmt: skip
+        slept.clear()
+        fake = FakeOpenAI([FakeAPIError(text, 429), text_response(1, json.dumps(GOOD))])
+        with pytest.raises(DiagnoseError):
+            crashlab.diagnose(_policy_run(), "m", client=fake, cache=False)
+        assert slept == []
+    fake = FakeOpenAI([FakeAPIError(msg, 429), FakeAPIError(msg, 429)])
+    with pytest.raises(DiagnoseError, match="try again in 7.09s"):
+        crashlab.diagnose(_policy_run(), "m", client=fake, cache=False)
