@@ -493,6 +493,21 @@ def placeholder_credentials(names: tuple[str, ...] = PLACEHOLDER_ENV) -> Iterato
 # --- entry points --------------------------------------------------------------------
 
 
+def _loaded_script(path: Path) -> Any:
+    """The running script itself (``__main__``) when it is the entry point file: replaying
+    from inside the script that recorded must not execute its top level again (without an
+    ``if __name__ == "__main__"`` guard that recorded and replayed forever)."""
+    main = sys.modules.get("__main__")
+    main_file = getattr(main, "__file__", None)
+    if main_file:
+        try:
+            if Path(main_file).resolve() == path:
+                return main
+        except OSError:
+            pass
+    return None
+
+
 _SKIP_DIRS = {"node_modules", "site-packages", "__pycache__", "build", "dist"}
 
 
@@ -536,12 +551,16 @@ def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
                 "are relative to the directory the run was recorded in: run from there "
                 "(e.g. `cd` there before `pytest --crashlab`), or pass fn="
             )
-        spec = importlib.util.spec_from_file_location(f"{REPLAY_MODULE_PREFIX}{path.stem}", path)
-        if spec is None or spec.loader is None:
-            raise ReplayError(f"cannot import {target!r}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        module = _loaded_script(path)
+        if module is None:
+            spec = importlib.util.spec_from_file_location(
+                f"{REPLAY_MODULE_PREFIX}{path.stem}", path
+            )
+            if spec is None or spec.loader is None:
+                raise ReplayError(f"cannot import {target!r}")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
     elif target.startswith(REPLAY_MODULE_PREFIX) and target not in sys.modules:
         # recorded by crashlab<=0.0.1 inside a replay of a script: the module only existed
         # in that process. Find the script by its file name instead.
