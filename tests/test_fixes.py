@@ -214,7 +214,7 @@ def test_cli_fix_prints_the_report_with_a_diff(fake_fix_model):
         "--patch",
     ):
         assert want in out, want
-    assert fake_fix_model == ["fix-v4"]
+    assert fake_fix_model == ["fix-v5"]
     stored = crashlab.load(run.run_id).diagnosis
     assert stored.fixes[0].file and stored.fixes[0].kind == "system_prompt"
 
@@ -252,7 +252,7 @@ def test_cli_diagnose_with_fix(fake_fix_model, monkeypatch):
     assert res.exit_code == 0, res.output
     assert "proposed fixes" in res.output and "fix-1" in res.output
     again = runner.invoke(app, ["diagnose", run.run_id, "-m", "fake", "--fix"])
-    assert again.exit_code == 0 and fake_fix_model == ["fix-v4"]  # both calls cached
+    assert again.exit_code == 0 and fake_fix_model == ["fix-v5"]  # both calls cached
 
 
 def test_stray_anchor_on_append_is_flagged_and_dropped():
@@ -275,7 +275,7 @@ def test_fix_prompt_treats_passing_checks_as_requirements():
     system = F.fix_messages(run, d)[0]["content"]
     assert "Every check marked PASS" in system and "keep it passing" in system
     assert "runs unattended" in system and '"op": "insert_line"' in system
-    assert F.FIX_PROMPT_VERSION == "fix-v4"
+    assert F.FIX_PROMPT_VERSION == "fix-v5"
 
 
 def test_cli_fix_no_cache_asks_the_fix_model_again_but_keeps_the_diagnosis(
@@ -293,6 +293,6 @@ def test_cli_fix_no_cache_asks_the_fix_model_again_but_keeps_the_diagnosis(
     for _ in range(2):
         res = runner.invoke(app, ["fix", run.run_id, "-m", "fake", "--no-cache", "--json"])
         assert res.exit_code == 0, res.output
-    assert fake_fix_model == ["fix-v4", "fix-v4"] and rediagnosed == []
+    assert fake_fix_model == ["fix-v5", "fix-v5"] and rediagnosed == []
     after = crashlab.load(run.run_id).diagnosis
     assert (after.label, after.method) == (before.label, before.method)

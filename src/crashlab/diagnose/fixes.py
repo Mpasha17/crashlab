@@ -26,9 +26,9 @@ from ..patch import PatchError, PatchSet, as_patchset, preview_patches
 from .compact import compact
 from .diagnoser import DiagnoseError, Messages, _ask, cache_key, parse_json
 from .heuristics import candidates
-from .restore import good_runs, restore_proposals
+from .restore import good_runs, restore_proposals, system_prompts
 
-FIX_PROMPT_VERSION = "fix-v4"
+FIX_PROMPT_VERSION = "fix-v5"
 MAX_FIXES = 3
 #: version of the deterministic part (restore proposals, ask filter, ranking): a
 #: cached proposal list from another version is rebuilt
@@ -334,9 +334,46 @@ def _attempts_text(run: Run) -> str:
     )
 
 
-def fix_messages(run: Run, d: Diagnosis, *, max_field: int = 600, hide_input=()) -> Messages:
+def _prompt_lines_text(run: Run, max_line: int = 160) -> str:
+    """The first system prompt's lines, numbered: the only valid anchors for a
+    system_prompt patch (models took the trace's TOOLS lines for prompt lines)."""
+    prompts = system_prompts(run)
+    if not prompts:
+        return ""
+    lines = [
+        f"{i}: {ln if len(ln) <= max_line else ln[:max_line] + '…'}"
+        for i, ln in enumerate(prompts[0].splitlines(), 1)
+    ]
+    return (
+        '\n\nSYSTEM PROMPT LINES ("after" / "before" / "match" / "old" must be a '
+        "substring of one of these lines; the TOOLS lines are not part of the prompt)\n"
+        + "\n".join(lines[:60])
+    )
+
+
+def _restored_text(restored: list[dict[str, Any]]) -> str:
+    if not restored:
+        return ""
+    lines = [f"- {json.dumps(r['patch'], ensure_ascii=False)[:600]}" for r in restored[:3]]
+    return (
+        "\n\nALREADY PROPOSED (restores text that past passing runs had; do not repeat it, "
+        "propose different fixes in case it does not work)\n" + "\n".join(lines)
+    )
+
+
+def fix_messages(
+    run: Run,
+    d: Diagnosis,
+    *,
+    max_field: int = 600,
+    hide_input=(),
+    restored: list[dict[str, Any]] | None = None,
+) -> Messages:
     trace = compact(run, candidates=candidates(run), max_field=max_field, hide_input=hide_input)
-    user = f"DIAGNOSIS\n{_diagnosis_text(d)}\n\nTRACE\n{trace}{_attempts_text(run)}"
+    user = (
+        f"DIAGNOSIS\n{_diagnosis_text(d)}\n\nTRACE\n{trace}{_prompt_lines_text(run)}"
+        f"{_restored_text(restored or [])}{_attempts_text(run)}"
+    )
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
 
 
@@ -429,7 +466,9 @@ def propose_fixes(
     notes: list[str] = []
     if not model and not restored:
         raise DiagnoseError(f"no fix model: pass model=..., or set ${ENV_MODEL}")
-    msgs = fix_messages(run, d, max_field=max_field, hide_input=tuple(hide_input))
+    msgs = fix_messages(
+        run, d, max_field=max_field, hide_input=tuple(hide_input), restored=restored
+    )
     key = cache_key(f"{FIX_PROMPT_VERSION}:{model}", msgs) if model else None
     if (
         cache

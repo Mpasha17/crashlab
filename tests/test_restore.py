@@ -186,3 +186,12 @@ def test_no_model_and_nothing_to_restore_still_errors(crashlab_dir, monkeypatch)
     crashlab.diagnose(run, fn=lambda m: json.dumps(GOOD))
     with pytest.raises(DiagnoseError, match="no fix model"):
         crashlab.propose_fixes(crashlab.load(run.run_id))
+
+
+def test_fix_prompt_lists_prompt_lines_and_the_restore_already_proposed(crashlab_dir):
+    run, _ = _diagnosed_with_good(1)
+    seen = []
+    crashlab.propose_fixes(run, fn=lambda m: seen.append(m[1]["content"]) or _reply(APPEND)(m))
+    user = seen[0]
+    assert "SYSTEM PROMPT LINES" in user and "\n1: You are the refund assistant" in user
+    assert "ALREADY PROPOSED" in user and "30 days" in user.split("ALREADY PROPOSED")[1]
