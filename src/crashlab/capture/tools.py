@@ -135,7 +135,9 @@ def _serve_replay(
 
 # --- typed results ------------------------------------------------------------------
 # Results are stored as JSON. A tool that returns a pydantic model or a dataclass (or a
-# list of them) gets the same type back on replay, so ``order.total`` still works.
+# list of them) gets the same type back on replay, so ``order.total`` still works; so do
+# tuples, sets, datetimes, Decimals, UUIDs, paths and enums (by the returned value's type,
+# or nested ones by the return annotation, ``-> dict[str, date]``).
 
 RESULT_TYPE = "crashlab.result.type"
 
@@ -150,8 +152,23 @@ def _is_rich(obj: Any) -> bool:
     return isinstance(obj, BaseModel)
 
 
+def _is_typed_scalar(obj: Any) -> bool:
+    """Values stored as JSON that come back as another type unless their type is kept:
+    tuples and sets become lists, datetimes / Decimals / UUIDs / paths become strings,
+    enums their value."""
+    import datetime
+    import decimal
+    import enum
+    import pathlib
+    import uuid
+
+    kinds = (tuple, set, frozenset, datetime.date, datetime.time, datetime.timedelta,
+             decimal.Decimal, uuid.UUID, pathlib.PurePath, enum.Enum)  # fmt: skip
+    return isinstance(obj, kinds) and not hasattr(obj, "_fields")  # not namedtuples
+
+
 def _result_type(result: Any) -> dict[str, Any] | None:
-    if not _is_rich(result):
+    if not (_is_rich(result) or _is_typed_scalar(result)):
         return None
     cls = type(result)
     return {RESULT_TYPE: f"{cls.__module__}:{cls.__qualname__}"}
@@ -168,17 +185,38 @@ def _import_type(ref: str) -> Any:
 
 
 def _mentions_rich_type(ann: Any) -> bool:
+    """Whether a return annotation names a type JSON does not round-trip (a model, a
+    dataclass, a tuple / set, a datetime ...), so the recorded JSON is validated into it."""
     import typing
 
-    if typing.get_origin(ann) is not None:  # list[Model], Model | None ...
+    origin = typing.get_origin(ann)
+    if origin is not None:  # list[Model], dict[str, date], Model | None ...
+        if origin in (tuple, set, frozenset):
+            return True
         return any(_mentions_rich_type(a) for a in typing.get_args(ann))
     if isinstance(ann, type):
         try:
             from pydantic import BaseModel
         except ImportError:  # pragma: no cover
             return False
-        return dataclasses.is_dataclass(ann) or issubclass(ann, BaseModel)
+        if ann in (tuple, set, frozenset) or (
+            issubclass(ann, tuple) and not hasattr(ann, "_fields")
+        ):
+            return True
+        return (dataclasses.is_dataclass(ann) or issubclass(ann, BaseModel)
+                or _is_typed_type(ann))  # fmt: skip
     return any(_mentions_rich_type(a) for a in typing.get_args(ann))
+
+
+def _is_typed_type(ann: type) -> bool:
+    import datetime
+    import decimal
+    import enum
+    import pathlib
+    import uuid
+
+    return issubclass(ann, (datetime.date, datetime.time, datetime.timedelta, decimal.Decimal,
+                            uuid.UUID, pathlib.PurePath, enum.Enum))  # fmt: skip
 
 
 def _revive(value: Any, src: Any, fn: Callable[..., Any]) -> Any:
@@ -192,7 +230,7 @@ def _revive(value: Any, src: Any, fn: Callable[..., Any]) -> Any:
             target = _import_type(ref)
         except Exception:
             target = None
-    if target is None:
+    if target is None or target in (tuple, set, frozenset):  # -> tuple[Order, ...] is finer
         try:
             import typing
 
@@ -203,6 +241,13 @@ def _revive(value: Any, src: Any, fn: Callable[..., Any]) -> Any:
             target = ann
     if target is None:
         return value
+    import datetime
+
+    if target in (datetime.datetime, datetime.date, datetime.time) and isinstance(value, str):
+        try:  # exact inverse of isoformat() (pydantic would swap timezone.utc for its TzInfo)
+            return target.fromisoformat(value)
+        except ValueError:
+            return value
     try:
         from pydantic import TypeAdapter
 

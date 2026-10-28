@@ -37,10 +37,14 @@ import base64
 import binascii
 import dataclasses
 import datetime as _dt
+import decimal
 import enum
 import hashlib
 import json
+import os
 import re
+import uuid
+from pathlib import PurePath
 from typing import Any
 
 _SENTINEL_TYPES = {"NotGiven", "Omit", "_NotGiven"}
@@ -90,6 +94,12 @@ def to_jsonable(obj: Any, _depth: int = 0) -> Any:
         return to_jsonable(obj.value, _depth + 1)
     if isinstance(obj, (_dt.datetime, _dt.date, _dt.time)):
         return obj.isoformat()
+    if isinstance(obj, _dt.timedelta):
+        return obj.total_seconds()
+    if isinstance(obj, (decimal.Decimal, uuid.UUID)):
+        return str(obj)
+    if isinstance(obj, PurePath):
+        return os.fspath(obj)
     if isinstance(obj, (bytes, bytearray, memoryview)):
         return binary_placeholder(bytes(obj))
     if isinstance(obj, dict):
