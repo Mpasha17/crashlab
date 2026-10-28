@@ -643,7 +643,9 @@ def _verification_panel(v: Any) -> Panel:
     return Panel(Group(*parts), title="verification", title_align="left")
 
 
-def _run_verify(console, store, run, fix, *, k, control, regress, max_cost, pace=0.0) -> Any:
+def _run_verify(
+    console, store, run, fix, *, k, control, regress, max_cost, pace=0.0, live_side_effects=False
+) -> Any:
     from .verify import VerifyError, verify
 
     def tick(t: Any) -> None:
@@ -665,6 +667,7 @@ def _run_verify(console, store, run, fix, *, k, control, regress, max_cost, pace
             max_cost_usd=max_cost,
             on_trial=tick,
             pace_s=pace,
+            allow_live_side_effects=live_side_effects,
         )
     except VerifyError as exc:
         console.print(f"[red]{_e(exc)}[/]")
@@ -756,6 +759,12 @@ def verify_cmd(
     ),
     max_cost: float | None = typer.Option(None, "--max-cost", help="Stop at this USD spend."),
     pace: float = typer.Option(0.0, "--pace", help="Seconds to wait between trials."),
+    allow_live_side_effects: bool = typer.Option(
+        False,
+        "--allow-live-side-effects",
+        help="Run side_effects=True tools live in the forks (sandboxes only). Without it, "
+        "a trial that needs a side-effect call the recording never made is not counted.",
+    ),
     as_json: bool = typer.Option(False, "--json", help="Print the verification as JSON."),
 ) -> None:
     """Verify a fix: fork the failing run k times with the patch and k times without it
@@ -774,6 +783,7 @@ def verify_cmd(
         regress=regress,
         max_cost=max_cost,
         pace=pace,
+        live_side_effects=allow_live_side_effects,
     )
     if as_json:
         typer.echo(json.dumps(v.model_dump(mode="json"), indent=2, ensure_ascii=False))
@@ -1012,6 +1022,9 @@ def fix_cmd(
     regress: str | None = typer.Option(None, "--regress", help="With --verify: see `verify`."),
     max_cost: float | None = typer.Option(None, "--max-cost", help="With --verify: USD cap."),
     pace: float = typer.Option(0.0, "--pace", help="With --verify: seconds between trials."),
+    allow_live_side_effects: bool = typer.Option(
+        False, "--allow-live-side-effects", help="With --verify: see `verify`."
+    ),
 ) -> None:
     """Propose 1-3 ranked typed patches for a diagnosed run (diagnosing it first if
     needed), validated against the run and saved as patch files for `crashlab fork --patch`."""
@@ -1064,6 +1077,7 @@ def fix_cmd(
             regress=regress,
             max_cost=max_cost,
             pace=pace,
+            live_side_effects=allow_live_side_effects,
         )
     elif verify_it:
         console.print("[yellow]no fix to verify[/]")

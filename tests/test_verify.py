@@ -281,3 +281,54 @@ def test_one_usable_trial_per_arm_is_inconclusive_not_likely():
     full = ArmStats(passes=3, fails=0, rate=1.0, ci95=(0.44, 1.0))
     zero = ArmStats(passes=0, fails=3, rate=0.0, ci95=(0.0, 0.56))
     assert verdict(full, zero, [], k=3)[0] == "VERIFIED"
+
+
+class _CapsAtTen(PolicyModel):
+    """With the fix in the prompt, refunds a *different* amount than the failing run did
+    (a side-effect call the recording never made), so forks hit the side-effect guard."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        inner = self.chat.completions
+
+        class _C:
+            def create(_self, **kw: Any) -> Any:
+                system = " ".join(m["content"] for m in kw["messages"] if m["role"] == "system")
+                tools = [m for m in kw["messages"] if m["role"] == "tool"]
+                if "CAP" in system and len(tools) == 1:
+                    self.n += 1
+                    return tool_call_response(
+                        self.n, "issue_refund", {"order_id": "C03", "amount": 10.0}
+                    )
+                return inner.create(**kw)
+
+        self.chat.completions = _C()
+
+
+def test_blocked_side_effect_trials_are_not_counted_and_can_run_live():
+    cap = {**APPEND, "text": "4. CAP refunds outside the window at 10.00."}
+    run, _ = _setup(cap)
+    v = crashlab.verify(run, 1, k=2, regress="none", client=crashlab.wrap(_CapsAtTen()))
+    patched = [t for t in v.trials if t.role == "patched"]
+    assert all(t.status == "errored" and "SideEffectBlockedError" in t.error for t in patched)
+    assert v.verdict == "INCONCLUSIVE"
+    assert any("--allow-live-side-effects" in r for r in v.reasons)
+    # in a sandbox the side-effect tool runs live and the trials are graded
+    v2 = crashlab.verify(
+        run,
+        1,
+        k=2,
+        regress="none",
+        client=crashlab.wrap(_CapsAtTen()),
+        allow_live_side_effects=True,
+    )
+    assert all(t.status in ("pass", "fail") for t in v2.trials if t.role == "patched")
+    assert not any("--allow-live-side-effects" in r for r in v2.reasons)
+
+
+def test_cli_verify_accepts_allow_live_side_effects(policy_client):
+    run, _ = _setup()
+    res = runner.invoke(
+        app, ["verify", run.run_id, "-k", "1", "--regress", "none", "--allow-live-side-effects"]
+    )
+    assert res.exit_code == 0, res.output

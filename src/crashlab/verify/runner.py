@@ -118,12 +118,35 @@ def resolve_regression(store: Any, run: Run, regress: Any, limit: int) -> list[s
     return [store.resolve_run_id(str(x).strip()) for x in regress]
 
 
-def _trial(role: str, source: Run, at: int, patch: Any, client: Any, root: Any, tag: str) -> Trial:
+BLOCKED = "SideEffectBlockedError"
+
+
+def _blocked_steps(run: Run) -> list[str]:
+    return [f"{s.name} (step {s.idx})" for s in run.steps if s.source == "blocked"]
+
+
+def _trial(
+    role: str,
+    source: Run,
+    at: int,
+    patch: Any,
+    client: Any,
+    root: Any,
+    tag: str,
+    allow_live_side_effects: bool = False,
+) -> Trial:
     from ..replay import fork
     from ..store import Store
 
     try:
-        branch = fork(source, at_step=at, patch=patch, client=client, store_dir=root)
+        branch = fork(
+            source,
+            at_step=at,
+            patch=patch,
+            client=client,
+            store_dir=root,
+            allow_live_side_effects=allow_live_side_effects,
+        )
     except Exception as e:  # noqa: BLE001 - the harness failing says nothing about the fix
         msg = f"{type(e).__name__}: {' '.join(str(e).split())[:200]}"
         return Trial(role=role, source_run=source.run_id, status="errored", error=msg)  # type: ignore[arg-type]
@@ -135,6 +158,13 @@ def _trial(role: str, source: Run, at: int, patch: Any, client: Any, root: Any, 
     err = f"{branch.error.type}: {branch.error.message[:200]}" if branch.error else None
     if branch.status == "error" and is_infra_error(branch.error):
         status = "errored"
+    elif role != "regression" and (blocked := _blocked_steps(branch)):
+        # the agent wanted a side-effect tool call the failing run never made; crashlab
+        # refused to run it live (even if the agent caught the error and carried on), so
+        # the trial says nothing about the fix either way. (In a regression run the same
+        # block still counts as a fail: the patch changed a side effect of a known-good run.)
+        status = "errored"
+        err = f"{BLOCKED}: {', '.join(blocked)} blocked (side_effects=True, not in the recording)"
     else:
         status = "pass" if branch.outcome == "pass" else "fail"
     return Trial(
@@ -164,12 +194,15 @@ def verify(
     on_trial: Callable[[Trial], None] | None = None,
     save: bool = True,
     pace_s: float = 0.0,
+    allow_live_side_effects: bool = False,
 ) -> Verification:
     """Verify ``fix`` on the failing ``run``; returns (and stores) a :class:`Verification`.
 
     See the module docstring for the arms. ``client`` is passed to every fork (the agent's
     own client otherwise). ``regress``: see :func:`resolve_regression`. ``pace_s``: sleep
-    between trials (free-tier rate limits)."""
+    between trials (free-tier rate limits). ``allow_live_side_effects``: run
+    ``side_effects=True`` tools live in the forks (sandboxes only); otherwise a trial that
+    needs a side-effect call the recording never made is blocked and not counted."""
     from ..diagnose.fixes import _fork_step
     from ..patch import as_patchset
     from ..store import Store
@@ -220,7 +253,7 @@ def verify(
         if spent():
             v.budget_exhausted = True
             break
-        record(_trial(role, run, at, p, client, store.root, tag))
+        record(_trial(role, run, at, p, client, store.root, tag, allow_live_side_effects))
 
     reg_ids = resolve_regression(store, run, regress, regression_limit)
     global_patch = patch.scope != "step"
@@ -242,7 +275,16 @@ def verify(
             note = f"patch does not apply: {' '.join(str(e).split())[:150]}"
             v.regression.append(RegressionResult(run_id=rid, status="skipped", note=note))
             continue
-        t = _trial("regression", past, _fork_step(patch, past), patch, client, store.root, tag)
+        t = _trial(
+            "regression",
+            past,
+            _fork_step(patch, past),
+            patch,
+            client,
+            store.root,
+            tag,
+            allow_live_side_effects,
+        )
         record(t)
         v.regression.append(
             RegressionResult(run_id=rid, status=t.status, trial_run=t.run_id, note=t.error)
@@ -258,6 +300,13 @@ def verify(
         original_failed=run.outcome != "pass",
         budget_exhausted=v.budget_exhausted,
     )
+    blocked = [t for t in v.trials if t.status == "errored" and BLOCKED in (t.error or "")]
+    if blocked:
+        reasons.append(
+            f"{len(blocked)} trial(s) stopped at a side_effects=True tool call the recording "
+            "never made (crashlab never runs those live in a fork), not counted; rerun with "
+            "--allow-live-side-effects against a sandbox to count them"
+        )
     v.reasons = reasons + v.reasons
     if save:
         save_verification(store, run, v)

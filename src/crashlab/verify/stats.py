@@ -86,9 +86,9 @@ def verdict(
             + ("; budget exhausted" if budget_exhausted else "")
         ]
     if patched.errored:
-        reasons.append(f"{patched.errored} patched trial(s) errored (provider), not counted")
+        reasons.append(f"{patched.errored} patched trial(s) errored, not counted")
     if control is not None and control.errored:
-        reasons.append(f"{control.errored} control trial(s) errored (provider), not counted")
+        reasons.append(f"{control.errored} control trial(s) errored, not counted")
     if budget_exhausted:
         reasons.append("budget cap reached before every trial ran")
     reg_err = [r for r in regression if r.status in ("errored", "skipped")]
