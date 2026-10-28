@@ -163,7 +163,12 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   line, tool description or schema, model params, a message; tool-result counterfactuals
   are marked test-only), each with a rationale and expected effect. A proposal is kept
   only if it parses, its target exists in the run (dry-run diff), it is small, and it does
-  not hard-code this run's data (order ids, amounts ...). Kept fixes are stored with the
+  not hard-code this run's data (order ids, amounts ...). Proposals that hand the decision
+  to a person ("let me know", "ask the customer to confirm") are dropped: verification
+  forks run unattended. If the agent has past passing runs whose system prompt or tool
+  descriptions differ, a **restore** proposal puts the missing or changed text back where
+  it was (no LLM; only text most good runs agree on) and is ranked first, then in-place
+  edits, tool edits and appended rules. Kept fixes are stored with the
   run and saved as patch files for `crashlab fork --patch`; `--try` forks once with the
   top fix and shows the checks.
 - **`crashlab report RUN`:** one screen with the outcome, checks, findings, diagnosis,

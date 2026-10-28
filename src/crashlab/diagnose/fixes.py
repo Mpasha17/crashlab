@@ -26,9 +26,13 @@ from ..patch import PatchError, PatchSet, as_patchset, preview_patches
 from .compact import compact
 from .diagnoser import DiagnoseError, Messages, _ask, cache_key, parse_json
 from .heuristics import candidates
+from .restore import good_runs, restore_proposals
 
 FIX_PROMPT_VERSION = "fix-v4"
 MAX_FIXES = 3
+#: version of the deterministic part (restore proposals, ask filter, ranking): a
+#: cached proposal list from another version is rebuilt
+RANKER_VERSION = "rank-v1"
 MAX_PATCH_CHARS = 700  # the patch's own text (prompt lines, descriptions ...)
 MAX_PROMPT_LINES = 4
 ALLOWED_KINDS = (
@@ -82,6 +86,21 @@ the task within the limit.
 Reply with only this JSON object:
 {"fixes": [{"patch": {...}, "rationale": "<why this fixes the cause>", \
 "expected_effect": "<one sentence>", "literal_justification": "<optional>"}]}"""
+
+#: wording that hands the decision back to a person: verification forks the run
+#: unattended, so nobody answers and the task is left undone
+_ASK = re.compile(
+    r"\blet (?:me|us) know\b|\bwould you like\b|\bdo you want (?:me|us) to\b|\bshall I\b"
+    r"|\bask (?:the )?(?:user|customer|them)\b[^.\n]{0,40}\b(?:confirm|approv|whether|if\b"
+    r"|before|permission)|\bconfirm with (?:the )?(?:user|customer)\b"
+    r"|\bwait(?:ing)? for (?:the )?(?:user|customer)\b"
+    r"|\b(?:user|customer)'?s? (?:confirmation|approval|permission)\b",
+    re.I,
+)
+#: hedged wording ranks below an imperative rule
+_HEDGE = re.compile(r"\b(?:try to|consider|if possible|should probably|may want to)\b", re.I)
+#: fields that are the patch's new text (not anchors or targets)
+_NEW_TEXT = ("text", "description", "content", "result", "value")
 
 _ID = re.compile(r"\b[A-Z]{1,4}-?\d{2,}\b")
 _NUM = re.compile(r"(?<![\w.])\d{2,}(?:\.\d+)?(?![\w.])")
@@ -207,6 +226,12 @@ def validate_fix(item: Any, run: Run, rank: int) -> tuple[Fix | None, str | None
         return None, f"{label}: the run has no tool {patch.tool!r} (tools: {sorted(tools)})"
     if patch.scope == "step" and patch.step not in {s.idx for s in run.steps}:
         return None, f"{label}: the run has no step {patch.step}"
+    new_text = " ".join(str(getattr(patch, f, "") or "") for f in _NEW_TEXT)
+    if patch.kind != "tool_result" and (m := _ASK.search(new_text)):
+        return None, (
+            f"{label}: asks a person ({m.group(0)!r}); the agent runs unattended, so it "
+            "must act on the rule itself"
+        )
     at = _fork_step(patch, run)
     try:
         preview = preview_patches(PatchSet(patches=[patch]), run, fork_step=at)
@@ -243,6 +268,38 @@ def validate_fix(item: Any, run: Run, rank: int) -> tuple[Fix | None, str | None
         notes=notes,
     )
     return fix, None
+
+
+def _is_restored(fix: Fix) -> bool:
+    return any(n.startswith("restored from") for n in fix.notes)
+
+
+def placement_score(fix: Fix) -> tuple[int, int]:
+    """Sort key, lower first: restored text, then in-place edits (a rule next to the
+    lines it relates to), tool edits, appended text, counterfactuals; imperative wording
+    before hedged wording."""
+    p = fix.as_patch
+    if fix.test_only:
+        place = 5
+    elif _is_restored(fix):
+        place = 0
+    elif fix.kind == "system_prompt":
+        place = 1 if p is not None and p.op in ("insert_line", "replace_line", "substitute") else 3
+    elif fix.kind in ("tool_description", "tool_schema"):
+        place = 2
+    else:
+        place = 4
+    text = " ".join(str(getattr(p, f, "") or "") for f in _NEW_TEXT) if p is not None else ""
+    return place, 1 if _HEDGE.search(text) else 0
+
+
+def rank_fixes(fixes: list[Fix]) -> list[Fix]:
+    """Re-rank kept proposals by :func:`placement_score` (stable: the fix model's own
+    order breaks ties) and renumber ``rank`` / ``fix_id``."""
+    out = sorted(fixes, key=placement_score)
+    for i, f in enumerate(out, 1):
+        f.rank, f.fix_id = i, f"fix-{i}"
+    return out
 
 
 def _diagnosis_text(d: Diagnosis) -> str:
@@ -372,7 +429,12 @@ def propose_fixes(
         raise DiagnoseError(f"no fix model: pass model=..., or set ${ENV_MODEL}")
     msgs = fix_messages(run, d, max_field=max_field, hide_input=tuple(hide_input))
     key = cache_key(f"{FIX_PROMPT_VERSION}:{model}", msgs)
-    if cache and d.fixes and d.fix_method.get("cache_key") == key:
+    if (
+        cache
+        and d.fixes
+        and d.fix_method.get("cache_key") == key
+        and d.fix_method.get("ranker") == RANKER_VERSION
+    ):
         d.fix_method = {**d.fix_method, "cached": True}
         return d.fixes
 
@@ -394,8 +456,10 @@ def propose_fixes(
     if not isinstance(items, list):
         notes.append('the fix model did not return {"fixes": [...]}')
         items = []
+    restored = restore_proposals(run, good_runs(store, run)) if in_store else []
+    tried = {str(a.get("patch")) for a in run.fix_attempts if a.get("patch")}
     fixes: list[Fix] = []
-    for item in items:
+    for item in [*restored, *items]:
         if len(fixes) >= max_fixes:
             notes.append(f"kept the first {max_fixes} valid proposals")
             break
@@ -404,8 +468,13 @@ def propose_fixes(
             notes.append(f"rejected: {why}")
         elif any(f.as_patch == fix.as_patch for f in fixes):
             notes.append(f"rejected: duplicate of an earlier proposal ({fix.after})")
+        elif item.get("source") == "restore" and fix.after in tried:
+            notes.append(f"skipped: already verified ({fix.after})")
         else:
+            if item.get("source") == "restore":
+                fix.notes.insert(0, f"restored from past passing runs {item['support'][:3]}")
             fixes.append(fix)
+    fixes = rank_fixes(fixes)
     _number_after_attempts(run, fixes)
     d.fixes, d.fix_notes = fixes, notes
     d.fix_method = {
@@ -415,6 +484,8 @@ def propose_fixes(
         "cache_key": key,
         "proposed": len(items),
         "kept": len(fixes),
+        "restored": sum(_is_restored(f) for f in fixes),
+        "ranker": RANKER_VERSION,
         "cached": False,
     }
     if raw is None:

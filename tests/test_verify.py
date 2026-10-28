@@ -20,6 +20,17 @@ from tests.test_diagnose import _clean_run
 from tests.test_fixes import RULE, _diagnosed, _reply
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _model_fixes_only(monkeypatch):
+    """These tests verify the fix model's proposals; the clean runs they record would
+    otherwise add a restore proposal (tests/test_restore.py) ranked first."""
+    from crashlab.diagnose import fixes as fixes_mod
+
+    monkeypatch.setattr(fixes_mod, "good_runs", lambda *a, **k: [])
+
+
 APPEND = {"kind": "system_prompt", "op": "append", "text": RULE["text"]}
 
 
