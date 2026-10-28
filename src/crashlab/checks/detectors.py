@@ -777,6 +777,38 @@ class ToolResultInstructions(Detector):
         return out
 
 
+# --- unhandled_tool_error --------------------------------------------------------------
+
+
+class UnhandledToolError(Detector):
+    """A tool raised and the exception ended the run: the framework never handed the error
+    to the model, so no prompt change can make the agent retry or explain it."""
+
+    kind = "unhandled_tool_error"
+
+    def on_end(self, run: Run, h: History) -> list[Finding]:
+        if run.error is None or run.replay_of:
+            return []
+        failed = [s for s in run.steps if s.operation == "execute_tool" and s.error is not None]
+        if not failed:
+            return []
+        last = failed[-1]
+        if any(s.operation == "chat" and s.idx > last.idx for s in run.steps):
+            return []  # the model got another turn after it
+        short = last.error.type.rsplit(".", 1)[-1]
+        if short not in run.error.type and last.error.message not in run.error.message:
+            return []
+        return [self.finding(
+            severity="error", step=last.idx, steps=[last.idx], key="run",
+            message=f"{last.name} raised {short} and the exception ended the run: the model "
+                    "never saw the error, so a prompt fix cannot help. Catch it in the tool "
+                    "(return an error result the model can read, or retry) or turn on the "
+                    "framework's tool-error handling (LangGraph: ToolNode(tools, "
+                    "handle_tool_errors=True); PydanticAI: raise ModelRetry)",
+            evidence=[_ev(last, "error", f"{short}: {last.error.message}")],
+        )]  # fmt: skip
+
+
 def build(cfg: ChecksConfig) -> list[Detector]:
     out: list[Detector] = []
     if not cfg.enabled:
@@ -799,6 +831,8 @@ def build(cfg: ChecksConfig) -> list[Detector]:
         out.append(FailedSideEffectClaim(cfg.failed_side_effect_claim, cfg.suspicious_tool_result))
     if cfg.tool_result_instructions.enabled:
         out.append(ToolResultInstructions(cfg.tool_result_instructions))
+    if cfg.unhandled_tool_error.enabled:
+        out.append(UnhandledToolError(cfg.unhandled_tool_error))
     return out
 
 
@@ -812,4 +846,5 @@ KINDS = (
     "no_llm_calls",
     "failed_side_effect_claim",
     "tool_result_instructions",
+    "unhandled_tool_error",
 )

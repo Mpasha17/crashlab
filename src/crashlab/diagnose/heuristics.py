@@ -35,6 +35,8 @@ _FINDING_RULES: dict[str, tuple[TaxonomyLabel | None, int]] = {
     "failed_side_effect_claim": (TaxonomyLabel.TOOL_ERROR_MISHANDLED, 4),
     # the agent followed instructions found in data instead of the user's / system prompt
     "tool_result_instructions": (TaxonomyLabel.TASK_SPEC_VIOLATION, 2),
+    # the agent code let a tool exception end the run; the model never saw it
+    "unhandled_tool_error": (TaxonomyLabel.TOOL_ERROR_MISHANDLED, 4),
 }
 
 

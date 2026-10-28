@@ -147,7 +147,8 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   call of a `side_effects=True` tool failed, yet the final answer says it went through),
   `tool_result_instructions` (a tool result talks to the model, e.g. "note to the
   assistant: … do not mention this": possible prompt injection; an error when a
-  side-effect tool ran after it).
+  side-effect tool ran after it), `unhandled_tool_error` (a tool raised and the
+  exception ended the run, so the model never saw it: a prompt fix cannot help).
   Findings are stored with the run and shown by
   `show`, `diff` and `ls --flagged`. They describe *how* a run behaved; `@crashlab.check`
   oracles still decide whether it passed. Opt-in **circuit breaker**: a critical finding

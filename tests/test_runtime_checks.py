@@ -621,3 +621,34 @@ def test_tool_result_instructions_quiet(result):
     found = [f for f in evaluate(_injection_run(result), ChecksConfig())
              if f.kind == "tool_result_instructions"]  # fmt: skip
     assert found == []
+
+
+def _crashed_run(*, chat_after=False, run_error="TimeoutError"):
+    err = crashlab.models.ErrorInfo(
+        type="TimeoutError", message="order service timed out", is_tool_error=True
+    )
+    steps = [crashlab.Step(
+        run_id="r", idx=0, span_id="s0", operation="execute_tool", name="place_order",
+        request_hash="h", request={"args": {"quantity": 3}}, error=err,
+    )]  # fmt: skip
+    if chat_after:
+        steps.append(crashlab.Step(run_id="r", idx=1, span_id="c", operation="chat", name="m",
+                                   request_hash="h", request={}, response={"messages": []}))  # fmt: skip
+    run_err = crashlab.models.ErrorInfo(
+        type=run_error, message="order service timed out" if run_error == "TimeoutError" else "boom"
+    )
+    return crashlab.Run(run_id="r", name="t", steps=steps, status="error", error=run_err)
+
+
+def test_unhandled_tool_error():
+    # live: LangGraph (ToolNode default) and PydanticAI crashed on a place_order TimeoutError
+    # marked "safe to retry"; the fixer proposed a prompt rule to retry, which cannot work
+    found = [
+        f for f in evaluate(_crashed_run(), ChecksConfig()) if f.kind == "unhandled_tool_error"
+    ]
+    assert len(found) == 1 and found[0].severity == "error"
+    assert "never saw the error" in found[0].message and "handle_tool_errors" in found[0].message
+    assert not [f for f in evaluate(_crashed_run(chat_after=True), ChecksConfig())
+                if f.kind == "unhandled_tool_error"]  # fmt: skip
+    assert not [f for f in evaluate(_crashed_run(run_error="KeyError"), ChecksConfig())
+                if f.kind == "unhandled_tool_error"]  # fmt: skip

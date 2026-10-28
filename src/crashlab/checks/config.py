@@ -106,6 +106,10 @@ class ToolResultInstructionsConfig(_Cfg):
     assistant", "do not tell the user"): possible prompt injection. Heuristic (English)."""
 
 
+class UnhandledToolErrorConfig(_Cfg):
+    """A tool raised and the exception ended the run (the model never saw it)."""
+
+
 class ChecksConfig(BaseModel):
     """Which built-in runtime checks run, with what thresholds."""
 
@@ -128,6 +132,7 @@ class ChecksConfig(BaseModel):
     tool_result_instructions: ToolResultInstructionsConfig = Field(
         default_factory=ToolResultInstructionsConfig
     )
+    unhandled_tool_error: UnhandledToolErrorConfig = Field(default_factory=UnhandledToolErrorConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -153,6 +158,7 @@ _SECTIONS = (
     "no_llm_calls",
     "failed_side_effect_claim",
     "tool_result_instructions",
+    "unhandled_tool_error",
 )
 
 
