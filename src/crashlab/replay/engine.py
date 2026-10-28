@@ -32,6 +32,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Literal
 
+from ..capture._util import REPLAY_MODULE_PREFIX
 from ..context import pending_replay, run_in_thread
 from ..models import Finding, Run, Step
 from ..patch import PatchError, PatchSet, as_patchset, preview_patches
@@ -461,7 +462,7 @@ def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
         path = Path(target).resolve()
         if not path.exists():
             raise ReplayError(f"entry point file {target!r} not found (cwd: {os.getcwd()})")
-        spec = importlib.util.spec_from_file_location(f"crashlab_replay_{path.stem}", path)
+        spec = importlib.util.spec_from_file_location(f"{REPLAY_MODULE_PREFIX}{path.stem}", path)
         if spec is None or spec.loader is None:
             raise ReplayError(f"cannot import {target!r}")
         module = importlib.util.module_from_spec(spec)

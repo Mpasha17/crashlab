@@ -33,12 +33,18 @@ def bind_arguments(
     return out
 
 
+REPLAY_MODULE_PREFIX = "crashlab_replay_"
+
+
 def entrypoint_of(fn: Callable[..., Any]) -> str:
     """``module:qualname``; for scripts run as __main__ use the file path relative to cwd."""
     module = getattr(fn, "__module__", None) or "?"
     qualname = getattr(fn, "__qualname__", getattr(fn, "__name__", "?"))
-    if module == "__main__":
-        main_file = getattr(sys.modules.get("__main__"), "__file__", None)
+    # a script (``__main__``) or a script file that replay imported by path
+    # (``crashlab_replay_<stem>``, see ``resolve_entrypoint``): record the file path, so
+    # a replay of a replay resolves too
+    if module == "__main__" or module.startswith(REPLAY_MODULE_PREFIX):
+        main_file = getattr(sys.modules.get(module), "__file__", None)
         if main_file:
             path = os.path.abspath(main_file)
             try:
