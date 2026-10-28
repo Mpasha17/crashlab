@@ -153,3 +153,18 @@ def test_show_fits_80_columns_with_a_narrow_layout(crashlab_dir, monkeypatch):
     assert any("tool " in ln and "get_order" in ln for ln in lines)
     wide = show(160)
     assert "result / output" in wide and "args → result" not in wide
+
+
+def test_a_tool_culprit_names_the_llm_call_that_made_it(crashlab_dir):
+    # live: diagnoses blame the tool step (where the damage shows, e.g. place_order with
+    # quantity 10) and users read it as "the tool is broken"; name the deciding LLM call
+    refund.run_agent("Refund my order A17", client=crashlab.wrap(FakeOpenAI(refund_script())),
+                     model="fake-model", faults=[])  # fmt: skip
+    run = crashlab.load("last")
+    tool = next(s for s in run.steps if s.operation == "execute_tool")
+    chat = max(s.idx for s in run.steps if s.operation == "chat" and s.idx < tool.idx)
+    assert run.describe_step(tool.idx) == (
+        f"step {tool.idx} (tool {tool.name}, called by chat step {chat})"
+    )
+    assert run.describe_step(0) == f"step 0 (chat {run.steps[0].name})"
+    assert run.describe_step(99) == "step 99"

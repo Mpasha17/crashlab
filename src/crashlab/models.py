@@ -240,6 +240,25 @@ class Run(_Model):
     # Populated by crashlab.load(); not stored in the run row (steps live in the cassette).
     steps: list[Step] = Field(default_factory=list)
 
+    def describe_step(self, idx: int | None) -> str:
+        """``"step 3 (tool place_order, called by chat step 2)"``: a tool step names the
+        LLM call that decided to make it, since a diagnosis often points at the tool call
+        (where the damage shows) while the decision was the model's."""
+        if idx is None:
+            return "step ?"
+        step = next((s for s in self.steps if s.idx == idx), None)
+        if step is None:
+            return f"step {idx}"
+        if step.operation != "execute_tool":
+            return f"step {idx} ({step.operation} {step.name})"
+        caller = next(
+            (s for s in sorted(self.steps, key=lambda s: -s.idx)
+             if s.idx < idx and s.operation == "chat"),
+            None,
+        )  # fmt: skip
+        by = f", called by chat step {caller.idx}" if caller is not None else ""
+        return f"step {idx} (tool {step.name}{by})"
+
     @model_validator(mode="before")
     @classmethod
     def _legacy_fields(cls, data: Any) -> Any:

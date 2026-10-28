@@ -354,7 +354,7 @@ def show(
     if run.findings:
         console.print(_findings_table(run.findings))
     if run.diagnosis is not None:
-        console.print(_diagnosis_panel(run.diagnosis))
+        console.print(_diagnosis_panel(run.diagnosis, run))
     marks: dict[int, Finding] = {}
     for f in run.findings:
         for i in f.steps or ([f.step] if f.step is not None else []):
@@ -432,12 +432,16 @@ def _checks_table(results: list[CheckResult]) -> Table:
 _LABEL_STYLE = {"NO_FAILURE": "green", "UNKNOWN": "yellow"}
 
 
-def _diagnosis_panel(d: Diagnosis) -> Panel:
+def _diagnosis_panel(d: Diagnosis, run: Run | None = None) -> Panel:
     grid = Table.grid(padding=(0, 2))
     grid.add_column(style="bold", no_wrap=True)
     grid.add_column(overflow="fold")
     label = Text(d.label.value, style=_LABEL_STYLE.get(d.label.value, "bold red"))
-    head = (Text(f"step {d.failing_step} · ") if d.failing_step is not None else Text()) + label
+    where = (
+        run.describe_step(d.failing_step) if run is not None and run.steps
+        else f"step {d.failing_step}"
+    )  # fmt: skip
+    head = (Text(f"{where} · ") if d.failing_step is not None else Text()) + label
     if d.step_window and d.step_window[0] != d.step_window[1]:
         head += Text(f"  (steps {d.step_window[0]}-{d.step_window[1]})", style="dim")
     grid.add_row("verdict", head)
@@ -581,7 +585,7 @@ def _print_report(console: Console, run: Run) -> None:
     if run.findings:
         console.print(_findings_table(run.findings))
     if run.diagnosis is not None:
-        console.print(_diagnosis_panel(run.diagnosis))
+        console.print(_diagnosis_panel(run.diagnosis, run))
         if run.diagnosis.is_failure or run.diagnosis.fixes or run.diagnosis.fix_notes:
             console.print(_fixes_panel(run.diagnosis, run))
     attempts = _attempts_table(run)
@@ -1043,7 +1047,7 @@ def diagnose_cmd(
             _print_report(console, run)
         else:
             console.print(f"[bold]{_e(run.run_id)}[/] {_e(run.name)} · outcome {_e(run.outcome)}")
-            console.print(_diagnosis_panel(d))
+            console.print(_diagnosis_panel(d, run))
     if as_json:
         typer.echo(json.dumps(out[0] if len(out) == 1 else out, indent=2, ensure_ascii=False))
 

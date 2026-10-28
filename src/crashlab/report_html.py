@@ -131,7 +131,7 @@ def render_html(run: Run, verifications: list[Any] | None = None) -> str:
     if d is not None:
         p.append("<h2>Diagnosis</h2>")
         rows = [
-            ["verdict", _e(f"step {d.failing_step} · {d.label.value}")],
+            ["verdict", _e(f"{run.describe_step(d.failing_step)} · {d.label.value}")],
             ["confidence", _e(f"{d.confidence:.2f}")],
             ["root cause", _e(d.root_cause)],
             ["diagnoser", _e(d.model or "heuristic")],
