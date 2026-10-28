@@ -155,8 +155,9 @@ def nondeterminism_hint(diff: str) -> str | None:
 
 MODEL_HINT = (
     "hint: the agent called a different model than when recorded. If the model (or "
-    "provider) comes from an env var or config file, set it the same way when replaying, "
-    "or make it an argument of the @crashlab.agent function so the recording carries it."
+    'provider) comes from an env var, list it in @crashlab.agent(env=["MY_MODEL_VAR"]) '
+    "and record again: replays then set it as recorded. From a config file: set it the "
+    "same way when replaying, or make it an argument of the @crashlab.agent function."
 )
 
 

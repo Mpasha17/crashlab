@@ -394,9 +394,10 @@ env -u OPENAI_API_KEY -u GEMINI_API_KEY pytest --crashlab tests/crashlab
 unshare -rn pytest --crashlab tests/crashlab    # Linux: no network namespace at all
 ```
 
-Pin anything your agent reads from the environment (model name, `stream=`, feature
-flags) into the recorded input or the code. A replay re-runs your code, so a different
-model or streaming setting is a divergence, not a pass.
+A replay re-runs your code, so if your agent reads its model name or streaming flag from
+the environment, list those variables and crashlab records their values and sets them
+again on replay, whatever the shell has: `@crashlab.agent(name="bot", env=["MODEL",
+"STREAM"])`. Names that look like secrets are refused, and replays never need keys.
 
 The exported test replays the failing run and asserts its `@check` results, and (with
 `--fix`) replays a passing patched run from `crashlab verify` with the fix re-applied,
