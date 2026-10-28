@@ -214,7 +214,7 @@ def test_cli_fix_prints_the_report_with_a_diff(fake_fix_model):
         "--patch",
     ):
         assert want in out, want
-    assert fake_fix_model == ["fix-v2"]
+    assert fake_fix_model == ["fix-v3"]
     stored = crashlab.load(run.run_id).diagnosis
     assert stored.fixes[0].file and stored.fixes[0].kind == "system_prompt"
 
@@ -252,7 +252,7 @@ def test_cli_diagnose_with_fix(fake_fix_model, monkeypatch):
     assert res.exit_code == 0, res.output
     assert "proposed fixes" in res.output and "fix-1" in res.output
     again = runner.invoke(app, ["diagnose", run.run_id, "-m", "fake", "--fix"])
-    assert again.exit_code == 0 and fake_fix_model == ["fix-v2"]  # both calls cached
+    assert again.exit_code == 0 and fake_fix_model == ["fix-v3"]  # both calls cached
 
 
 def test_stray_anchor_on_append_is_flagged_and_dropped():
@@ -263,3 +263,15 @@ def test_stray_anchor_on_append_is_flagged_and_dropped():
     assert any("['after']" in n and "'append'" in n for n in fix.notes)
     clean, _ = validate_fix({"patch": RULE}, run, 1)
     assert not any("ignored field" in n for n in clean.notes)
+
+
+def test_fix_prompt_treats_passing_checks_as_requirements():
+    # live finding (AutoGen, LangChain): the fixer proposed "refuse the order", which broke
+    # a check that passed on the failing run; the prompt now says passing checks must hold.
+    from crashlab.diagnose import fixes as F
+
+    run = _policy_run()
+    d = crashlab.diagnose(run, heuristic=True)
+    system = F.fix_messages(run, d)[0]["content"]
+    assert "Every check marked PASS" in system and "keep it passing" in system
+    assert F.FIX_PROMPT_VERSION == "fix-v3"

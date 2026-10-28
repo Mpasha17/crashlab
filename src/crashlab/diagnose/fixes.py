@@ -27,7 +27,7 @@ from .compact import compact
 from .diagnoser import DiagnoseError, Messages, _ask, cache_key, parse_json
 from .heuristics import candidates
 
-FIX_PROMPT_VERSION = "fix-v2"
+FIX_PROMPT_VERSION = "fix-v3"
 MAX_FIXES = 3
 MAX_PATCH_CHARS = 700  # the patch's own text (prompt lines, descriptions ...)
 MAX_PROMPT_LINES = 4
@@ -68,7 +68,11 @@ rule in the system prompt or a tool description. No wholesale prompt rewrites.
 answer): the fix must generalise. If a literal is truly part of a general rule, explain \
 it in "literal_justification".
 3. Targets must exist: the tools listed in the trace, lines of the system prompt shown.
-4. expected_effect: what the agent will do differently, in one sentence.
+4. Every check marked PASS in the trace is a requirement too: the fix must keep it \
+passing. Do not make the agent refuse or skip a step a passing check expects (e.g. \
+"do not place the order" when a check requires an order); prefer a rule that does \
+the task within the limit.
+5. expected_effect: what the agent will do differently, in one sentence.
 
 Reply with only this JSON object:
 {"fixes": [{"patch": {...}, "rationale": "<why this fixes the cause>", \
