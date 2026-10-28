@@ -392,6 +392,7 @@ def save_verification(store: Any, run: Run, v: Verification) -> Path:
             "patched": f"{v.patched.passes}/{v.patched.n}",
             "control": f"{v.control.passes}/{v.control.n}" if v.control else None,
             "regressions": len(v.regressions),
+            "errored": v.patched.errored + (v.control.errored if v.control else 0),
             "cost_usd": round(v.cost_usd, 6),
             "created_at": v.created_at.isoformat(),
             "file": str(path),

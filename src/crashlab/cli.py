@@ -629,18 +629,24 @@ def _attempts_table(run: Run) -> Table | None:
     if not run.fix_attempts:
         return None
     t = Table(title="Fix attempts (crashlab verify)", title_justify="left")
-    for col in ("when", "fix", "verdict", "patched", "control", "regressions", "cost"):
-        t.add_column(col)
+    # "errored": trials lost to 429s / blocked side effects, so "0/0" is not read as a result
+    errored = any(a.get("errored") for a in run.fix_attempts)
+    cols = ["when", "fix", "verdict", "patched", "control", "regr."]
+    cols += ["errored"] if errored else []
+    for col in [*cols, "cost"]:
+        t.add_column(col, no_wrap=col in ("fix", "verdict", "patched", "control"))
     for a in run.fix_attempts:
-        t.add_row(
+        row = [
             _local_minute(a.get("created_at")),
             f"{a.get('fix_id')}",
             Text(str(a.get("verdict")), style=_VERDICT_STYLE.get(a.get("verdict"), "")),
             str(a.get("patched")),
             str(a.get("control") or "-"),
             str(a.get("regressions")),
-            _cost_text(a.get("cost_usd") or 0),
-        )
+        ]
+        if errored:
+            row.append(str(a.get("errored") or 0))
+        t.add_row(*row, _cost_text(a.get("cost_usd") or 0))
     return t
 
 

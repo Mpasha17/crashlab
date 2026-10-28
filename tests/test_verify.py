@@ -540,9 +540,12 @@ def test_daily_limit_trials_say_so(monkeypatch):
         return Trial(role=role, source_run="s", status="errored", error=err)
 
     monkeypatch.setattr(r, "_trial", errored)
-    v = crashlab.verify(run, 1, k=2, regress="none", save=False)
+    v = crashlab.verify(run, 1, k=2, regress="none")
     assert v.verdict == "INCONCLUSIVE"
     assert any("4 trial(s) hit the provider's daily limit" in x for x in v.reasons), v.reasons
+    # the attempts table says the 0/0 came from errored trials
+    out = runner.invoke(app, ["report", run.run_id], env={"COLUMNS": "80"}).output
+    assert "errored" in out and "INCONCLUSIVE" in out
 
 
 def test_cli_fork_takes_a_fix_id():
