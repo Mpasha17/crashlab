@@ -1053,9 +1053,19 @@ def fix_cmd(
     allow_live_side_effects: bool = typer.Option(
         False, "--allow-live-side-effects", help="With --verify: see `verify`."
     ),
+    attempts: int = typer.Option(
+        2,
+        "--attempts",
+        help="With --verify: fixes to try in turn while the verdict is REJECTED (the next "
+        "proposal, else a new one that is told what was rejected). 1: only the top fix.",
+    ),
 ) -> None:
     """Propose 1-3 ranked typed patches for a diagnosed run (diagnosing it first if
-    needed), validated against the run and saved as patch files for `crashlab fork --patch`."""
+    needed), validated against the run and saved as patch files for `crashlab fork --patch`.
+
+    Run it again for new proposals: once a fix was verified, the fix model is told which
+    fixes were rejected. With --verify, a REJECTED top fix is followed by the next one
+    (--attempts)."""
     from .diagnose import DiagnoseError, diagnose
 
     console = _console()
@@ -1093,12 +1103,42 @@ def fix_cmd(
         max_chars=max_chars,
     )
     v = None
-    top = next((f for f in fixes if not f.test_only), None)
-    if verify_it and top is not None:
-        if not as_json:
-            console.print(f"[dim]verifying {_e(top.fix_id)} on {_e(run.run_id[:10])} ...[/]")
+    done: list[Any] = []
+    out_console = _console(stderr=True) if as_json else console
+    tried: set[str] = set()
+    for attempt in range(max(1, attempts) if verify_it else 0):
+        top = next((f for f in fixes if not f.test_only and f.fix_id not in tried), None)
+        if top is None and attempt > 0:
+            # every proposal was tried: ask again, the fix model now sees what was rejected
+            out_console.print("[dim]asking the fix model for a new proposal ...[/]")
+            run = store.load_run(run.run_id)
+            fixes = _run_fixes(
+                out_console,
+                store,
+                run,
+                model=model,
+                base_url=base_url,
+                api_key=api_key,
+                cache=True,
+                try_it=False,
+                max_fixes=max(1, min(max_fixes, 3)),
+                hide_input=hide_input,
+                max_chars=max_chars,
+            )
+            top = next((f for f in fixes if not f.test_only and f.fix_id not in tried), None)
+        if top is None:
+            out_console.print("[yellow]no fix to verify[/]" if not done else
+                              "[yellow]no new fix proposed[/]")  # fmt: skip
+            break
+        tried.add(top.fix_id)
+        if done:
+            out_console.print(
+                f"[yellow]{_e(done[-1].fix_id)} was REJECTED; trying {_e(top.fix_id)}: "
+                f"{_e(top.after[:80])} ({attempt + 1}/{attempts})[/]"
+            )
+        out_console.print(f"[dim]verifying {_e(top.fix_id)} on {_e(run.run_id[:10])} ...[/]")
         v = _run_verify(
-            _console(stderr=True) if as_json else console,
+            out_console,
             store,
             run,
             top,
@@ -1109,17 +1149,30 @@ def fix_cmd(
             pace=pace,
             live_side_effects=allow_live_side_effects,
         )
-    elif verify_it:
-        console.print("[yellow]no fix to verify[/]")
+        done.append(v)
+        if v.verdict != "REJECTED":
+            break
+    run = store.load_run(run.run_id)
     if as_json:
         out: Any = [f.model_dump(mode="json") for f in fixes]
         if verify_it:
-            out = {"fixes": out, "verification": v.model_dump(mode="json") if v else None}
+            out = {
+                "fixes": out,
+                "verification": v.model_dump(mode="json") if v else None,
+                "verifications": [x.model_dump(mode="json") for x in done],
+            }
         typer.echo(json.dumps(out, indent=2, ensure_ascii=False))
         return
     _print_report(console, run)
+    for x in done[:-1]:
+        console.print(f"[dim]{_e(x.fix_id)}: {x.verdict} ({_e(x.verification_id)})[/]")
     if v is not None:
         console.print(_verification_panel(v))
+    if v is not None and v.verdict == "REJECTED":
+        console.print(
+            "[yellow]hint: run `crashlab fix` again for a new proposal (it is told which "
+            "fixes were rejected), or raise --attempts[/]"
+        )
 
 
 @app.command("replay")

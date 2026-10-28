@@ -416,3 +416,45 @@ def test_verification_panel_hints_at_fakes_and_live_side_effects():
     assert "hint: 1 trial(s) blocked at side-effect tool issue_refund" in out
     assert 'crashlab.fake_tool("issue_refund", fake_fn)' in out
     assert "--allow-live-side-effects" in out
+
+
+def test_cli_fix_verify_tries_a_new_proposal_after_a_rejection(policy_client, monkeypatch):
+    # live (LlamaIndex, OpenAI Agents, LiteLLM): fix-1 was weak and REJECTED, and the user
+    # had to know to run `fix --no-cache` + `verify` again; now --verify does it, and the
+    # fix model is told what was rejected
+    from crashlab.diagnose import fixes as fixes_mod
+
+    bad = {**APPEND, "text": "4. Be polite."}  # no rule: as bad as the control
+    prompts = []
+
+    def ask(run, msgs, model, **kw):
+        prompts.append(msgs[-1]["content"])
+        return _reply(bad if len(prompts) == 1 else APPEND)(msgs), {"backend": "f"}
+
+    monkeypatch.setattr(fixes_mod, "_ask", ask)
+    _clean_run()
+    run = _diagnosed()
+    res = runner.invoke(app, ["fix", run.run_id, "-m", "fake", "--verify", "-k", "2"])
+    assert res.exit_code == 0, res.output
+    assert "PREVIOUS FIXES" not in prompts[0]
+    assert "fix-1: " in prompts[1] and "-> REJECTED (patched passed 0/2" in prompts[1]
+    assert "fix-1 was REJECTED; trying fix-2" in res.output
+    verdicts = [a["verdict"] for a in crashlab.load(run.run_id).fix_attempts]
+    assert verdicts[0] == "REJECTED" and verdicts[1] in ("VERIFIED", "LIKELY")
+
+
+def test_cli_fix_verify_attempts_1_stops_and_hints(policy_client, monkeypatch):
+    from crashlab.diagnose import fixes as fixes_mod
+
+    bad = {**APPEND, "text": "4. Be polite."}
+    monkeypatch.setattr(
+        fixes_mod, "_ask", lambda run, msgs, model, **kw: (_reply(bad)(msgs), {"backend": "f"})
+    )
+    _clean_run()
+    run = _diagnosed()
+    res = runner.invoke(
+        app, ["fix", run.run_id, "-m", "fake", "--verify", "-k", "1", "--attempts", "1"]
+    )
+    assert res.exit_code == 0, res.output
+    assert len(crashlab.load(run.run_id).fix_attempts) == 1
+    assert "run `crashlab fix` again for a new proposal" in " ".join(res.output.split())

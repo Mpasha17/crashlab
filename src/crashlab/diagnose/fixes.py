@@ -250,9 +250,31 @@ def _diagnosis_text(d: Diagnosis) -> str:
     return "\n".join(lines)
 
 
+def _attempts_text(run: Run) -> str:
+    """Fixes already verified on this run, so a new proposal does not repeat a rejected
+    one. Empty (and the prompt unchanged) when nothing was verified yet."""
+    lines = []
+    for a in run.fix_attempts:
+        if not a.get("patch") or not a.get("verdict"):
+            continue
+        stats = f"patched passed {a.get('patched')}"
+        if a.get("control"):
+            stats += f", control {a['control']}"
+        if a.get("regressions"):
+            stats += f", {a['regressions']} regression(s)"
+        lines.append(f"- {a.get('fix_id')}: {a['patch']} -> {a['verdict']} ({stats})")
+    if not lines:
+        return ""
+    return (
+        "\n\nPREVIOUS FIXES (already verified by forking the run; do not propose them "
+        "again; a REJECTED one did not work, so try a different target or wording)\n"
+        + "\n".join(lines[-6:])
+    )
+
+
 def fix_messages(run: Run, d: Diagnosis, *, max_field: int = 600, hide_input=()) -> Messages:
     trace = compact(run, candidates=candidates(run), max_field=max_field, hide_input=hide_input)
-    user = f"DIAGNOSIS\n{_diagnosis_text(d)}\n\nTRACE\n{trace}"
+    user = f"DIAGNOSIS\n{_diagnosis_text(d)}\n\nTRACE\n{trace}{_attempts_text(run)}"
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
 
 
