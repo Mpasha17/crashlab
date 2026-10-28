@@ -41,12 +41,16 @@ from smolagents.local_python_executor import LocalPythonExecutor
 # ... the example's engine / receipts / sql_engine setup unchanged ...
 ex = LocalPythonExecutor(additional_authorized_imports=[])
 ex.send_tools({"sql_engine": sql_engine, "final_answer": lambda x: x})
-ex('print(sql_engine(query="SELECT * FROM receipts"))')
-# -> OperationalError: no such table: receipts
+result = ex('print(sql_engine(query="SELECT customer_name FROM receipts ORDER BY price DESC LIMIT 1"))')
+print(result.logs)
+# -> smolagents.local_python_executor.InterpreterError: Code execution failed at line
+#    'print(sql_engine(query="SELECT customer_name FROM receipts ORDER BY price DESC LIMIT 1"))'
+#    due to: OperationalError: (sqlite3.OperationalError) no such table: receipts
+#    [SQL: SELECT customer_name FROM receipts ORDER BY price DESC LIMIT 1]
 ```
 
-With the engine change below, the same call returns `('Woodrow Wilson',)` (or the
-receipts rows).
+With the engine change below, the same call prints `('Woodrow Wilson',)` — the answer
+to the example's question.
 
 ### Suggested fix
 
