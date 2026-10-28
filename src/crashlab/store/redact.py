@@ -37,6 +37,7 @@ DEFAULT_VALUE_PATTERNS: list[str] = [
 ]
 
 Hook = Callable[[str], str]
+_CACHE_MAX = 4096
 
 
 class Redactor:
@@ -51,10 +52,12 @@ class Redactor:
                 re.compile(p) for p in DEFAULT_VALUE_PATTERNS
             ]
             self.hooks: list[Hook] = []
+            self._cache: dict[str, str] = {}
 
     def add_pattern(self, pattern: str | re.Pattern[str]) -> None:
         with self._lock:
             self.value_patterns.append(re.compile(pattern) if isinstance(pattern, str) else pattern)
+            self._cache = {}
 
     def add_key(self, pattern: str | re.Pattern[str]) -> None:
         """Redact the whole value of any dict key matching this regex."""
@@ -70,9 +73,19 @@ class Redactor:
         return any(p.search(key) for p in self.key_patterns)
 
     def redact_str(self, value: str) -> str:
-        value = _storable(value)
-        for pat in self.value_patterns:
-            value = pat.sub(REDACTED, value)
+        # An agent loop re-sends the whole conversation on every LLM call, so the same
+        # strings (system prompt, tool schemas, earlier turns) are redacted again and
+        # again: memoize the pattern pass (hooks still run every time).
+        cache = self._cache
+        out = cache.get(value)
+        if out is None:
+            out = _storable(value)
+            for pat in self.value_patterns:
+                out = pat.sub(REDACTED, out)
+            if len(cache) >= _CACHE_MAX:
+                cache.clear()
+            cache[value] = out
+        value = out
         for hook in self.hooks:
             value = hook(value)
         return value

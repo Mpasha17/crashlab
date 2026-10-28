@@ -174,3 +174,16 @@ def test_check_messages_are_redacted():
     run = crashlab.Run(run_id="r", name="x")
     result = run_check(spec, run)
     assert result.status == "fail" and key not in result.message
+
+
+def test_redaction_memo_is_invalidated_by_new_rules():
+    from crashlab.store import redact
+
+    r = redact.get_redactor()
+    text = "order 12345 for internal-host-7"
+    assert r.redact_str(text) == text
+    assert r.redact_str(text) == text  # served from the memo
+    redact.add_pattern(r"internal-host-\d+")
+    assert r.redact_str(text) == "order 12345 for [REDACTED]"
+    redact.add_hook(lambda s: s.replace("12345", "N"))
+    assert r.redact_str(text) == "order N for [REDACTED]"  # hooks always run
