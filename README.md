@@ -184,7 +184,7 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   `crashlab.load("last")`.
 
 Not yet: a live HTML viewer server. Streamed calls replay as a synthetic stream rebuilt from the recorded
-final response; OpenAI-style chat streams keep their recorded chunk boundaries (Anthropic and
+final response, cut at the recorded chunk boundaries (OpenAI-style chat and Anthropic streams;
 Responses streams: same content, different chunk boundaries).
 Also not intercepted yet: OpenAI `with_streaming_response.create` (raw HTTP body; crashlab
 warns once when it is used in a run), Anthropic `messages.batches` / beta `tool_runner`.

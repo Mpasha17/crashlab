@@ -8,6 +8,7 @@ assembled final response is recorded as the step's response.
 from __future__ import annotations
 
 import weakref
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from .normalize import to_jsonable
@@ -184,6 +185,7 @@ class AnthropicAssembler(Assembler):
         self.message: dict[str, Any] = {"type": "message", "role": "assistant", "content": []}
         self.blocks: dict[int, dict[str, Any]] = {}
         self.json_parts: dict[int, list[str]] = {}
+        self.pieces: dict[int, list[int]] = {}  # streamed delta lengths per block
 
     def _add(self, data: dict[str, Any]) -> None:
         t = data.get("type")
@@ -198,6 +200,10 @@ class AnthropicAssembler(Assembler):
             block = self.blocks.setdefault(idx, {"type": "text", "text": ""})
             delta = data.get("delta") or {}
             dt = delta.get("type")
+            field = {"text_delta": "text", "input_json_delta": "partial_json",
+                     "thinking_delta": "thinking"}.get(dt or "")  # fmt: skip
+            if field and isinstance(delta.get(field), str):
+                self.pieces.setdefault(idx, []).append(len(delta[field]))
             if dt == "text_delta":
                 block["text"] = (block.get("text") or "") + delta.get("text", "")
             elif dt == "input_json_delta":
@@ -226,6 +232,13 @@ class AnthropicAssembler(Assembler):
                 block["input"] = "".join(self.json_parts[idx])  # parsed by normalize
             content.append(block)
         return {**self.message, "content": content}
+
+    @property
+    def stream_plan(self) -> dict[str, Any] | None:
+        """Delta lengths per content block, so replay re-chunks text / thinking / tool
+        input as streamed (``text_stream`` consumers see the same pieces)."""
+        blocks = {str(i): n for i, n in self.pieces.items() if len(n) > 1}
+        return {"blocks": blocks} if blocks else None
 
 
 class ResponsesAssembler(Assembler):
@@ -432,12 +445,67 @@ def _snapshot(stream: Any) -> Any:
 class _SnapshotAssembler(Assembler):
     """Uses the SDK's own accumulated snapshot (Anthropic ``messages.stream()``)."""
 
-    def __init__(self, snapshot: Any) -> None:
+    def __init__(self, snapshot: Any, observer: _DeltaObserver | None = None) -> None:
         super().__init__()
         self.snapshot = to_jsonable(snapshot) if snapshot is not None else {}
+        self.observer = observer
 
     def result(self) -> dict[str, Any]:
         return self.snapshot if isinstance(self.snapshot, dict) else {}
+
+    @property
+    def stream_plan(self) -> dict[str, Any] | None:
+        return self.observer.plan() if self.observer is not None else None
+
+
+_DELTA_FIELDS = {"text_delta": "text", "input_json_delta": "partial_json",
+                 "thinking_delta": "thinking"}  # fmt: skip
+
+
+class _DeltaObserver:
+    """Sits between ``MessageStream`` and its raw SSE stream and notes each delta's
+    length per content block (the chunk plan replay re-cuts the text with)."""
+
+    def __init__(self, raw: Any) -> None:
+        self._raw = raw
+        self.pieces: dict[int, list[int]] = {}
+
+    def _note(self, event: Any) -> None:
+        if getattr(event, "type", None) != "content_block_delta":
+            return
+        delta = getattr(event, "delta", None)
+        value = getattr(delta, _DELTA_FIELDS.get(getattr(delta, "type", None) or "", ""), None)
+        if isinstance(value, str):
+            self.pieces.setdefault(getattr(event, "index", 0) or 0, []).append(len(value))
+
+    def __iter__(self) -> Iterator[Any]:
+        for event in self._raw:
+            self._note(event)
+            yield event
+
+    async def __aiter__(self) -> Any:
+        async for event in self._raw:
+            self._note(event)
+            yield event
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._raw, name)
+
+    def plan(self) -> dict[str, Any] | None:
+        blocks = {str(i): n for i, n in self.pieces.items() if len(n) > 1}
+        return {"blocks": blocks} if blocks else None
+
+
+def _observe(stream: Any) -> _DeltaObserver | None:
+    raw = getattr(stream, "_raw_stream", None)
+    if raw is None:
+        return None
+    try:
+        observer = _DeltaObserver(raw)
+        stream._raw_stream = observer
+    except Exception:  # SDK internals moved: record without a plan
+        return None
+    return observer
 
 
 class RecordingMessageStreamManager:
@@ -451,6 +519,7 @@ class RecordingMessageStreamManager:
         self._inner = inner
         self._call = call
         self._stream: Any = None
+        self._observer: _DeltaObserver | None = None
 
     def __enter__(self) -> Any:
         try:
@@ -458,6 +527,7 @@ class RecordingMessageStreamManager:
         except BaseException as exc:
             self._call.fail(exc)
             raise
+        self._observer = _observe(self._stream)
         return self._stream
 
     def __exit__(self, exc_type, exc, tb) -> Any:
@@ -466,7 +536,9 @@ class RecordingMessageStreamManager:
             return self._inner.__exit__(exc_type, exc, tb)
         finally:
             complete = bool(snap is not None and getattr(snap, "stop_reason", None))
-            self._call.finish_stream(_SnapshotAssembler(snap), error=exc, complete=complete)
+            self._call.finish_stream(
+                _SnapshotAssembler(snap, self._observer), error=exc, complete=complete
+            )
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
@@ -479,6 +551,7 @@ class AsyncRecordingMessageStreamManager(RecordingMessageStreamManager):
         except BaseException as exc:
             self._call.fail(exc)
             raise
+        self._observer = _observe(self._stream)
         return self._stream
 
     async def __aexit__(self, exc_type, exc, tb) -> Any:
@@ -487,4 +560,6 @@ class AsyncRecordingMessageStreamManager(RecordingMessageStreamManager):
             return await self._inner.__aexit__(exc_type, exc, tb)
         finally:
             complete = bool(snap is not None and getattr(snap, "stop_reason", None))
-            self._call.finish_stream(_SnapshotAssembler(snap), error=exc, complete=complete)
+            self._call.finish_stream(
+                _SnapshotAssembler(snap, self._observer), error=exc, complete=complete
+            )

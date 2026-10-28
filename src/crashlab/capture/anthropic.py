@@ -173,7 +173,12 @@ def _replay_stream_manager(call: ChatCall, src: Any, is_async: bool) -> Any:
 
     call.pending.finish_from(src)  # type: ignore[union-attr]
     error = R.rebuild_exception(src.error) if src.error is not None else None
-    events = synth.synthesize(MESSAGES.api, src.raw_response, R.DEFAULT_CHUNK_TYPES[MESSAGES.api])
+    events = synth.synthesize(
+        MESSAGES.api,
+        src.raw_response,
+        R.DEFAULT_CHUNK_TYPES[MESSAGES.api],
+        plan=src.attributes.get("crashlab.stream.plan"),
+    )
     cls = synth.AsyncReplayMessageStreamManager if is_async else synth.ReplayMessageStreamManager
     return cls(events, src.raw_response, error)
 

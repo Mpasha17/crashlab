@@ -132,7 +132,22 @@ def _block_delta(i: int, **delta: Any) -> dict[str, Any]:
     return {"type": "content_block_delta", "index": i, "delta": delta}
 
 
-def anthropic_events(raw: dict[str, Any]) -> list[dict[str, Any]]:
+def _cut(text: str, lengths: Any) -> list[str]:
+    """``text`` cut at the recorded delta lengths; whole when they do not add up."""
+    if not isinstance(lengths, list) or not all(isinstance(n, int) for n in lengths):
+        return [text]
+    if sum(lengths) != len(text):
+        return [text]
+    out, at = [], 0
+    for n in lengths:
+        out.append(text[at : at + n])
+        at += n
+    return out
+
+
+def anthropic_events(raw: dict[str, Any], plan: Any = None) -> list[dict[str, Any]]:
+    blocks_plan = plan.get("blocks") if isinstance(plan, dict) else None
+    blocks_plan = blocks_plan if isinstance(blocks_plan, dict) else {}
     usage = dict(raw.get("usage") or {})
     skip = ("content", "stop_reason", "stop_sequence")
     start_msg = {k: v for k, v in raw.items() if k not in skip}
@@ -145,16 +160,18 @@ def anthropic_events(raw: dict[str, Any]) -> list[dict[str, Any]]:
         t = block.get("type")
         if t == "text":
             events.append(_block_start(i, {**block, "text": ""}))
-            events.append(_block_delta(i, type="text_delta", text=block.get("text", "")))
+            for piece in _cut(block.get("text", ""), blocks_plan.get(str(i))):
+                events.append(_block_delta(i, type="text_delta", text=piece))
         elif t in ("tool_use", "server_tool_use"):
             inp = block.get("input")
             partial = inp if isinstance(inp, str) else json.dumps(inp or {})
             events.append(_block_start(i, {**block, "input": {}}))
-            events.append(_block_delta(i, type="input_json_delta", partial_json=partial))
+            for piece in _cut(partial, blocks_plan.get(str(i))):
+                events.append(_block_delta(i, type="input_json_delta", partial_json=piece))
         elif t == "thinking":
             events.append(_block_start(i, {"type": "thinking", "thinking": "", "signature": ""}))
-            thinking = block.get("thinking", "")
-            events.append(_block_delta(i, type="thinking_delta", thinking=thinking))
+            for piece in _cut(block.get("thinking", ""), blocks_plan.get(str(i))):
+                events.append(_block_delta(i, type="thinking_delta", thinking=piece))
             if block.get("signature"):
                 events.append(_block_delta(i, type="signature_delta", signature=block["signature"]))
         else:  # redacted_thinking, web search results ...: sent whole
@@ -192,7 +209,7 @@ def responses_events(raw: dict[str, Any]) -> list[dict[str, Any]]:
     return events
 
 
-SYNTHESIZERS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
+SYNTHESIZERS: dict[str, Callable[..., list[dict[str, Any]]]] = {
     "openai.chat.completions": openai_chat_chunks,
     "litellm.completion": openai_chat_chunks,
     "anthropic.messages": anthropic_events,
@@ -206,14 +223,17 @@ def synthesize(
     chunk_type: str | None,
     *,
     tool_index: bool = True,
-    plan: list[Any] | None = None,
+    plan: Any = None,
 ) -> list[Any]:
     if not raw:
         return []
     make = SYNTHESIZERS.get(api, openai_chat_chunks)
-    chunks = (
-        make(raw, tool_index=tool_index, plan=plan) if make is openai_chat_chunks else make(raw)
-    )
+    if make is openai_chat_chunks:
+        chunks = make(raw, tool_index=tool_index, plan=plan)
+    elif make is anthropic_events:
+        chunks = make(raw, plan=plan)
+    else:
+        chunks = make(raw)
     return [rebuild_chunk(c, chunk_type) for c in chunks]
 
 
