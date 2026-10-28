@@ -65,7 +65,13 @@ def _serve_replay(pending: Any, spec: ToolSpec) -> tuple[bool, Any]:
     kind, payload = rp.tool_decision(pending, spec.side_effects)
     if kind == "cassette":
         src = payload
+        # steps recorded inside this tool (a sub-agent, an LLM call ...) are not re-made
+        skipped = rp.served_from_cassette(src) if pending.idx == src.idx else []
+        if skipped:
+            pending.attributes["crashlab.replay.skipped_steps"] = skipped
         pending.finish_from(src)
+        if skipped:
+            pending.ctx.skip_idx(src.idx, skipped)
         if src.error is not None:
             raise rebuild_exception(src.error)
         return True, (src.response or {}).get("result")

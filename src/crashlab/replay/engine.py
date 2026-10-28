@@ -98,6 +98,27 @@ class Replayer:
     ) -> tuple[dict[str, Any], list[str]]:
         return kwargs, []
 
+    def served_from_cassette(self, src: Step) -> list[int]:
+        """A tool call was served from ``src`` without running: the steps recorded inside
+        it (a sub-agent used as a tool, a tool calling an LLM ...) will not happen again.
+        Mark them consumed and return their indexes, so the caller can skip them."""
+        children: dict[str, list[Step]] = {}
+        for s in self.steps.values():
+            if s.parent_span_id:
+                children.setdefault(s.parent_span_id, []).append(s)
+        out: list[int] = []
+        todo = [src.span_id]
+        while todo:
+            for s in children.get(todo.pop(), []):
+                out.append(s.idx)
+                todo.append(s.span_id)
+        # a replay of a replay: the source's served step lists what it skipped
+        skipped = src.attributes.get("crashlab.replay.skipped_steps") or []
+        out.extend(i for i in skipped if isinstance(i, int) and i not in out)
+        with self._lock:
+            self.consumed.update(out)
+        return sorted(out)
+
     # matching ------------------------------------------------------------------------
     def _diverge(self, kind: str, summary: str, **kw: Any) -> DivergenceError:
         err = DivergenceError(

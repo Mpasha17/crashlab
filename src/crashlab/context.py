@@ -59,6 +59,17 @@ class RunContext:
             self._counter += 1
             return idx
 
+    def skip_idx(self, after: int, idxs: list[int]) -> None:
+        """Replay served step ``after`` whole: the recorded steps ``idxs`` nested inside it
+        are not re-made, so the next step gets the index it had in the recording."""
+        with self._lock:
+            if (
+                idxs
+                and self._counter == after + 1
+                and idxs == list(range(after + 1, after + 1 + len(idxs)))
+            ):
+                self._counter += len(idxs)
+
     @property
     def steps_started(self) -> int:
         return self._counter
