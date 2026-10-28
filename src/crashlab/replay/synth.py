@@ -253,7 +253,126 @@ def anthropic_events(raw: dict[str, Any], plan: Any = None) -> list[dict[str, An
     return events
 
 
+_RESPONSE_EVENTS = frozenset({
+    "created", "in_progress", "completed", "incomplete", "failed",
+    "output_item.added", "output_item.done", "content_part.added", "content_part.done",
+    "output_text.delta", "output_text.done", "refusal.delta", "refusal.done",
+    "function_call_arguments.delta", "function_call_arguments.done",
+    "reasoning_summary_part.added", "reasoning_summary_part.done",
+    "reasoning_summary_text.delta", "reasoning_summary_text.done",
+})  # fmt: skip
+
+
+_DONE_KEYS = {"output_text.done": "text", "refusal.done": "refusal",
+              "reasoning_summary_text.done": "text"}  # fmt: skip
+
+
+def _templated_responses_events(raw: dict[str, Any], template: Any) -> list[dict[str, Any]] | None:
+    """The recorded event sequence rebuilt from the final response; None when it has
+    events this does not rebuild or the delta lengths do not add up (redaction, patch)."""
+    output = raw.get("output") or []
+    try:
+        steps = [(str(t), oi, ci, n) for t, oi, ci, n in template]
+    except (TypeError, ValueError):
+        return None
+    used: dict[tuple[Any, Any, str], int] = {}
+    for t, oi, ci, n in steps:
+        if t not in _RESPONSE_EVENTS:
+            return None
+        per_item = t.endswith((".delta", ".done")) or t.startswith("content_part")
+        if per_item and not (isinstance(oi, int) and 0 <= oi < len(output)):
+            return None
+        if t.endswith(".delta"):
+            used[(oi, ci, t)] = used.get((oi, ci, t), 0) + (n or 0)
+
+    def part_of(oi: int, ci: Any, t: str = "") -> dict[str, Any]:
+        field = "summary" if t.startswith("reasoning_summary") else "content"
+        content = output[oi].get(field) or []
+        return content[ci] if isinstance(ci, int) and 0 <= ci < len(content) else {}
+
+    def full(oi: int, ci: Any, t: str) -> str:
+        if t.startswith("function_call"):
+            args = output[oi].get("arguments")
+            return args if isinstance(args, str) else ""
+        key = "refusal" if t.startswith("refusal") else "text"
+        value = part_of(oi, ci, t).get(key)
+        return value if isinstance(value, str) else ""
+
+    for (oi, ci, t), total in used.items():
+        if total != len(full(oi, ci, t)):
+            return None
+    at: dict[tuple[Any, Any, str], int] = {}
+    events: list[dict[str, Any]] = []
+    status = {"created": "in_progress", "in_progress": "in_progress"}
+    for seq, (t, oi, ci, n) in enumerate(steps):
+        ev: dict[str, Any] = {"type": f"response.{t}", "sequence_number": seq}
+        if t in status:
+            ev["response"] = {**raw, "status": "in_progress", "output": [], "usage": None}
+        elif t in ("completed", "incomplete", "failed"):
+            ev["response"] = raw
+        elif oi is None or not 0 <= oi < len(output):
+            return None
+        else:
+            item = output[oi]
+            ev["output_index"] = oi
+            if t == "output_item.added":
+                ev["item"] = _item_skeleton(item)
+            elif t == "output_item.done":
+                ev["item"] = item
+            else:
+                ev["item_id"] = item.get("id", "")
+                if t.startswith("reasoning_summary"):
+                    ev["summary_index"] = ci
+                elif not t.startswith("function_call"):
+                    ev["content_index"] = ci
+                if t in ("content_part.added", "reasoning_summary_part.added"):
+                    ev["part"] = _part_skeleton(part_of(oi, ci, t))
+                elif t in ("content_part.done", "reasoning_summary_part.done"):
+                    ev["part"] = part_of(oi, ci, t)
+                elif t.endswith(".delta"):
+                    k = (oi, ci, t)
+                    start = at.get(k, 0)
+                    ev["delta"] = full(oi, ci, t)[start : start + (n or 0)]
+                    at[k] = start + (n or 0)
+                    if t == "output_text.delta":
+                        ev["logprobs"] = []
+                else:  # *.done
+                    key = _DONE_KEYS.get(t, "arguments")
+                    ev[key] = full(oi, ci, t)
+                    if t == "output_text.done":
+                        ev["logprobs"] = []
+                    elif key == "arguments" and item.get("name"):
+                        ev["name"] = item["name"]
+        events.append(ev)
+    return events
+
+
+def _item_skeleton(item: dict[str, Any]) -> dict[str, Any]:
+    t = item.get("type")
+    if t == "message":
+        return {**item, "status": "in_progress", "content": []}
+    if t == "function_call":
+        return {**item, "status": "in_progress", "arguments": ""}
+    if t == "reasoning":
+        return {**item, "summary": []}
+    return item
+
+
+def _part_skeleton(part: dict[str, Any]) -> dict[str, Any]:
+    if part.get("type") == "output_text":
+        return {**part, "text": "", "annotations": []}
+    if part.get("type") == "summary_text":
+        return {**part, "text": ""}
+    if part.get("type") == "refusal":
+        return {**part, "refusal": ""}
+    return part
+
+
 def responses_events(raw: dict[str, Any], plan: Any = None) -> list[dict[str, Any]]:
+    if isinstance(plan, dict) and plan.get("events"):
+        templated = _templated_responses_events(raw, plan["events"])
+        if templated is not None:
+            return templated
     parts_plan = plan.get("parts") if isinstance(plan, dict) else None
     parts_plan = parts_plan if isinstance(parts_plan, dict) else {}
     seq = iter(range(1_000_000))

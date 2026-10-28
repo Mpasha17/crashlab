@@ -275,8 +275,22 @@ class ResponsesAssembler(Assembler):
         self.texts: dict[tuple[int, int], str] = {}  # (output_index, content_index) -> text
         self.args: dict[int, str] = {}  # output_index -> function call arguments so far
         self.pieces: dict[str, list[int]] = {}  # "oi:ci" / "oi:args" -> delta lengths
+        # every event as [type, output_index, content_index, delta length]: replay sends
+        # the same event sequence (content_part.added, output_text.done ...)
+        self.events: list[list[Any]] = []
+
+    def _note(self, data: dict[str, Any]) -> None:
+        kind = data.get("type")
+        if not isinstance(kind, str) or len(self.events) > 100_000:
+            return
+        oi, ci = data.get("output_index"), data.get("content_index", data.get("summary_index"))
+        delta = data.get("delta")
+        self.events.append([kind.removeprefix("response."), oi if isinstance(oi, int) else None,
+                            ci if isinstance(ci, int) else None,
+                            len(delta) if isinstance(delta, str) else None])  # fmt: skip
 
     def _add(self, data: dict[str, Any]) -> None:
+        self._note(data)
         kind = data.get("type")
         if isinstance(data.get("response"), dict):  # created / in_progress / completed / ...
             self.response = data["response"]
@@ -330,9 +344,13 @@ class ResponsesAssembler(Assembler):
 
     @property
     def stream_plan(self) -> dict[str, Any] | None:
-        """Delta lengths per text part / function call, for replay re-chunking."""
+        """Delta lengths per text part / function call, for replay re-chunking, and the
+        event sequence (``events``) when the stream completed."""
         parts = {k: n for k, n in self.pieces.items() if len(n) > 1}
-        return {"parts": parts} if parts else None
+        plan: dict[str, Any] = {"parts": parts} if parts else {}
+        if self.events and self.events[-1][0] in ("completed", "incomplete", "failed"):
+            plan["events"] = self.events
+        return plan or None
 
 
 # --- wrappers ------------------------------------------------------------------------
