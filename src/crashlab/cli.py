@@ -232,6 +232,7 @@ def _relation_suffix(row: dict[str, Any]) -> str:
     return ""
 
 
+_SHORT_OP = {"execute_tool": "tool", "invoke_agent": "agent"}
 _SOURCE_MARK = {"cassette": " ↺", "patched": " ✎", "blocked": " ⊘", "fake": " ◇"}
 
 
@@ -360,15 +361,20 @@ def show(
             if i not in marks or f.rank > marks[i].rank:
                 marks[i] = f
 
-    table = Table(show_lines=False)
+    narrow = console.width < 110
+    table = Table(show_lines=narrow)
     table.add_column("idx", justify="right", style="cyan")
-    table.add_column("op")
-    table.add_column("name")
-    table.add_column("args / input", overflow="fold")
-    table.add_column("result / output", overflow="fold")
-    table.add_column("error", style="red", overflow="fold")
-    table.add_column("$", justify="right", no_wrap=True, style="dim")
-    table.add_column("", no_wrap=True)
+    if narrow:  # 80-column terminals: one step cell, one detail cell
+        table.add_column("step", no_wrap=False, max_width=24)
+        table.add_column("args → result / error", overflow="fold")
+    else:
+        table.add_column("op")
+        table.add_column("name")
+        table.add_column("args / input", overflow="fold")
+        table.add_column("result / output", overflow="fold")
+        table.add_column("error", style="red", overflow="fold")
+        table.add_column("$", justify="right", no_wrap=True, style="dim")
+        table.add_column("", no_wrap=True)
     for step in run.steps:
         inp, out = _step_io(step)
         err = f"{step.error.type}: {_short(step.error.detail, 50)}" if step.error else ""
@@ -378,7 +384,25 @@ def show(
         usd = _cost_text(c) if step.operation == "chat" else ""
         mark = marks.get(step.idx)
         flag = Text("⚑ " + mark.kind, style=_SEV_STYLE.get(mark.severity, "")) if mark else Text("")
-        table.add_row(str(step.idx), op, step.name, inp, out, err, usd, flag)
+        if narrow:
+            kind = _SHORT_OP.get(step.operation, step.operation)
+            head = Text(f"{kind}{_SOURCE_MARK.get(step.source, '')} ", style="bold")
+            head.append(step.name)
+            if usd:
+                head.append(f"\n{usd}", style="dim")
+            if mark:
+                head.append("\n").append_text(flag)
+            body = Text()
+            if inp:
+                body.append(_short(inp, 160))
+            if out:
+                out = out.removeprefix("→ ")  # chat tool calls already read "→ name(...)"
+                body.append(("\n→ " if inp else "→ ") + _short(out, 160))
+            if err:
+                body.append(("\n" if body.plain else "") + "✗ " + err, style="red")
+            table.add_row(str(step.idx), head, body)
+        else:
+            table.add_row(str(step.idx), op, step.name, inp, out, err, usd, flag)
     if run.steps:
         console.print(table)
     else:
@@ -1904,6 +1928,39 @@ def import_cmd(
             raise typer.Exit(code=2) from err
         console.print(f"{'imported' if added else 'already there'}: {run_id}  ({_e(path)})")
     console.print(f"store: {_e(store.root)}")
+
+
+def _unwrap(doc: str) -> str:
+    """A docstring as help text: paragraphs kept, hard line breaks inside them joined
+    (rich then wraps to the terminal; the source wrap made ragged lines)."""
+    import inspect as _inspect
+
+    paras = re.split(r"\n\s*\n", _inspect.cleandoc(doc))
+    return "\n\n".join(" ".join(p.split()) for p in paras if p.strip())
+
+
+def _first_sentence(text: str, limit: int = 60) -> str:
+    """The command list's one-liner: the first sentence (not split at "e.g."), cut at a
+    word boundary."""
+    first = text.split("\n\n", 1)[0]
+    m = re.match(r"(.+?(?<!e\.g)(?<!i\.e)\.)(\s+[A-Z(`]|$)", first)
+    out = m.group(1).rstrip(".") if m else first
+    if len(out) > limit:
+        out = out[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+    return out
+
+
+def _tidy_help(typer_app: typer.Typer) -> None:
+    for info in typer_app.registered_commands:
+        doc = info.help or (info.callback.__doc__ if info.callback else None)
+        if not doc:
+            continue
+        info.help = _unwrap(doc)
+        if info.short_help is None:
+            info.short_help = _first_sentence(info.help)
+
+
+_tidy_help(app)
 
 
 def run() -> None:

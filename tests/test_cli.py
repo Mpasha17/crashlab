@@ -112,3 +112,44 @@ def test_show_marks_streamed_steps():
         list(client.chat.completions.create(model="m", messages=[], stream=True))
     out = runner.invoke(app, ["show", "last"], env=ENV).output
     assert "streamed! (stream)" in out
+
+
+def test_command_help_is_unwrapped_and_the_list_fits_80_columns():
+    # live: help kept the docstrings' hard line breaks, so `crashlab --help` and
+    # `crashlab fix --help` wrapped raggedly at 80 columns
+    from crashlab.cli import app
+
+    for info in app.registered_commands:
+        paras = info.help.split("\n\n")
+        assert all("\n" not in p for p in paras), info.name
+        assert len(info.short_help) <= 60, (info.name, info.short_help)
+    res = CliRunner().invoke(app, ["--help"], terminal_width=80)
+    rows = [ln for ln in res.output.splitlines() if ln.startswith("│ ") and "…" in ln]
+    assert rows and all(len(ln) <= 80 for ln in res.output.splitlines())
+
+
+def test_show_fits_80_columns_with_a_narrow_layout(crashlab_dir, monkeypatch):
+    # live: at 80 columns the 8-column step table squeezed args / results to a few
+    # characters per line
+    from rich.console import Console
+
+    import crashlab.cli as cli
+
+    refund.run_agent("Refund my order A17", client=crashlab.wrap(FakeOpenAI(refund_script())),
+                     model="fake-model", faults=[])  # fmt: skip
+    monkeypatch.setenv("TERM", "xterm")  # rich ignores width= on a dumb terminal
+
+    def show(width: int) -> str:
+        monkeypatch.setattr(
+            cli, "_console", lambda stderr=False: Console(width=width, color_system=None)
+        )
+        res = CliRunner().invoke(app, ["show", "last"])
+        assert res.exit_code == 0, res.output
+        return res.output
+
+    lines = show(80).splitlines()
+    assert all(len(ln) <= 80 for ln in lines)
+    assert any("args → result / error" in ln for ln in lines)
+    assert any("tool " in ln and "get_order" in ln for ln in lines)
+    wide = show(160)
+    assert "result / output" in wide and "args → result" not in wide
