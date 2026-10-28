@@ -17,7 +17,72 @@ from .rebuild import rebuild, rebuild_chunk
 # --- chunk synthesis -----------------------------------------------------------------
 
 
-def openai_chat_chunks(raw: dict[str, Any], *, tool_index: bool = True) -> list[dict[str, Any]]:
+def _planned_chunks(
+    raw: dict[str, Any], plan: Any, chunk: Callable[..., dict[str, Any]], tool_index: bool
+) -> list[dict[str, Any]] | None:
+    """Re-chunk a one-choice completion along the recorded chunk plan; None when the plan
+    does not fit the text (e.g. redacted content) and the default chunking is used."""
+    choices = raw.get("choices") or []
+    if not isinstance(plan, list) or len(choices) != 1:
+        return None
+    ch = choices[0]
+    msg = ch.get("message") or {}
+    text = msg.get("content") or ""
+    rkey = next((k for k in ("reasoning_content", "reasoning") if msg.get(k)), "reasoning")
+    reasoning = msg.get(rkey) or ""
+    try:
+        ops = [op for entry in plan for op in entry]
+        if sum(op[1] for op in ops if op[0] == "c") != len(text):
+            return None
+        if sum(op[1] for op in ops if op[0] == "r") != len(reasoning):
+            return None
+    except (TypeError, IndexError):
+        return None
+    out: list[dict[str, Any]] = []
+    at_c = at_r = 0
+    tools_sent = role_sent = False
+    for entry in plan:
+        if entry == [["u"]]:
+            if raw.get("usage"):
+                out.append(chunk(None, usage=raw["usage"]))
+            continue
+        delta: dict[str, Any] = {}
+        if not role_sent:
+            delta["role"] = msg.get("role") or "assistant"
+            role_sent = True
+        finish = None
+        for op in entry:
+            if op[0] == "c":
+                delta["content"] = text[at_c : at_c + op[1]]
+                at_c += op[1]
+            elif op[0] == "r":
+                delta[rkey] = reasoning[at_r : at_r + op[1]]
+                at_r += op[1]
+            elif op[0] == "t" and not tools_sent:
+                tools_sent = True
+                calls = []
+                for i, tc in enumerate(msg.get("tool_calls") or []):
+                    call = {k: v for k, v in tc.items() if k != "function"}
+                    if tool_index:
+                        call["index"] = i
+                    call["function"] = dict(tc.get("function") or {})
+                    calls.append(call)
+                if calls:
+                    delta["tool_calls"] = calls
+            elif op[0] == "f":
+                finish = ch.get("finish_reason")
+        out.append(chunk({"index": ch.get("index") or 0, "delta": delta, "finish_reason": finish}))
+    if msg.get("tool_calls") and not tools_sent:
+        return None
+    return out
+
+
+def openai_chat_chunks(
+    raw: dict[str, Any],
+    *,
+    tool_index: bool = True,
+    plan: list[Any] | None = None,
+) -> list[dict[str, Any]]:
     base = {"object": "chat.completion.chunk"}
     for key in ("id", "created", "model", "system_fingerprint", "service_tier"):
         if raw.get(key) is not None:
@@ -29,6 +94,9 @@ def openai_chat_chunks(raw: dict[str, Any], *, tool_index: bool = True) -> list[
     def chunk(choice: dict[str, Any] | None, **extra: Any) -> dict[str, Any]:
         return {**base, "choices": [choice] if choice else [], **extra}
 
+    planned = _planned_chunks(raw, plan, chunk, tool_index) if plan else None
+    if planned is not None:
+        return planned
     out: list[dict[str, Any]] = []
     for ch in raw.get("choices") or []:
         idx = ch.get("index") or 0
@@ -133,12 +201,19 @@ SYNTHESIZERS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
 
 
 def synthesize(
-    api: str, raw: dict[str, Any] | None, chunk_type: str | None, *, tool_index: bool = True
+    api: str,
+    raw: dict[str, Any] | None,
+    chunk_type: str | None,
+    *,
+    tool_index: bool = True,
+    plan: list[Any] | None = None,
 ) -> list[Any]:
     if not raw:
         return []
     make = SYNTHESIZERS.get(api, openai_chat_chunks)
-    chunks = make(raw, tool_index=tool_index) if make is openai_chat_chunks else make(raw)
+    chunks = (
+        make(raw, tool_index=tool_index, plan=plan) if make is openai_chat_chunks else make(raw)
+    )
     return [rebuild_chunk(c, chunk_type) for c in chunks]
 
 

@@ -54,6 +54,33 @@ class OpenAIChatAssembler(Assembler):
         # index; replay must send them the same way, or a client that chokes on it
         # (smolagents) passes in replay and the recorded failure is not reproduced
         self.tool_index_missing = False
+        self.plan: list[list[list[Any]]] = []
+        self.plan_ok = True
+
+    def _plan(self, data: dict[str, Any]) -> None:
+        choices = data.get("choices") or []
+        if not choices:
+            self.plan.append([["u"]])
+            return
+        if len(choices) > 1 or (choices[0].get("index") or 0) != 0:
+            self.plan_ok = False
+            return
+        ch = choices[0]
+        delta = ch.get("delta") or {}
+        ops: list[list[Any]] = []
+        if isinstance(delta.get("content"), str):
+            ops.append(["c", len(delta["content"])])
+        for rkey in ("reasoning_content", "reasoning"):
+            if isinstance(delta.get(rkey), str) and delta[rkey]:
+                ops.append(["r", len(delta[rkey])])
+                break
+        if delta.get("tool_calls"):
+            ops.append(["t"])
+        if delta.get("refusal"):
+            self.plan_ok = False
+        if ch.get("finish_reason"):
+            ops.append(["f"])
+        self.plan.append(ops)
 
     def _add(self, data: dict[str, Any]) -> None:
         for key in ("id", "model", "created", "system_fingerprint", "service_tier"):
@@ -61,6 +88,8 @@ class OpenAIChatAssembler(Assembler):
                 self.meta[key] = data[key]
         if data.get("usage"):
             self.usage = data["usage"]
+        if self.plan_ok:
+            self._plan(data)
         for ch in data.get("choices") or []:
             idx = ch.get("index") or 0
             st = self.choices.setdefault(
@@ -137,6 +166,14 @@ class OpenAIChatAssembler(Assembler):
         if self.usage:
             out["usage"] = self.usage
         return out
+
+    @property
+    def stream_plan(self) -> list[list[list[Any]]] | None:
+        """The shape of every chunk (``["c", n]`` content piece, ``["r", n]`` reasoning
+        piece, ``["t"]`` tool-call delta, ``["f"]`` finish, ``["u"]`` usage-only chunk), so
+        replay re-chunks the stream as it arrived: a generator agent that yields chunk by
+        chunk reproduces. None for multi-choice streams."""
+        return self.plan if self.plan_ok and len(self.plan) > 1 else None
 
 
 class AnthropicAssembler(Assembler):

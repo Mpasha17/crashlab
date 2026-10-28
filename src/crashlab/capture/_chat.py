@@ -191,6 +191,7 @@ class ChatCall:
                 src.raw_response,
                 chunk_type,
                 tool_index=not src.attributes.get("crashlab.stream.tool_call_index_missing"),
+                plan=src.attributes.get("crashlab.stream.plan"),
             )
             if error is not None and not items:
                 return _raise_later(error) if is_async else _raise(error)
@@ -227,6 +228,9 @@ class ChatCall:
         attrs["crashlab.stream.complete"] = bool(complete and error is None)
         if getattr(asm, "tool_index_missing", False):
             attrs["crashlab.stream.tool_call_index_missing"] = True
+        plan = getattr(asm, "stream_plan", None)
+        if plan:
+            attrs["crashlab.stream.plan"] = plan
         if (
             isinstance(asm, OpenAIChatAssembler)
             and complete
