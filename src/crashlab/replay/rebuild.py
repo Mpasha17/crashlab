@@ -10,6 +10,7 @@ validate, a :class:`ReplayObject` with attribute *and* item access is returned i
 from __future__ import annotations
 
 import builtins
+import contextlib
 import functools
 import importlib
 from typing import Any
@@ -233,7 +234,28 @@ def rebuild_exception(info: ErrorInfo) -> BaseException:
                 setattr(exc, attr, value)
         except (AttributeError, TypeError):
             pass
+    if isinstance(info.status_code, int):
+        _add_http_parts(exc, info)
     return exc
+
+
+def _add_http_parts(exc: BaseException, info: ErrorInfo) -> None:
+    """SDK status errors carry ``response`` / ``request`` / ``body`` (``request_id``,
+    ``code`` ...); callers such as LangChain re-raise them as their own error types from
+    those. Give the replayed error a minimal HTTP response with the recorded status."""
+    try:
+        import httpx
+    except ImportError:  # pragma: no cover - the SDKs depend on httpx
+        return
+    request = httpx.Request("POST", "https://crashlab.replay.invalid/")
+    response = httpx.Response(info.status_code or 500, request=request, text=info.message)
+    parts = {"response": response, "request": request, "body": None, "request_id": None,
+             "code": None, "param": None, "type": None}  # fmt: skip
+    for attr, value in parts.items():
+        if attr in exc.__dict__ or isinstance(getattr(type(exc), attr, None), property):
+            continue
+        with contextlib.suppress(AttributeError, TypeError):
+            setattr(exc, attr, value)
 
 
 class ReplayRawResponse:

@@ -294,3 +294,18 @@ def test_anthropic_synthetic_events_reassemble_to_the_same_message():
     for ev in synth.anthropic_events(msg):
         asm.add(ev)
     assert N.normalize_anthropic_response(asm.result())[0] == N.normalize_anthropic_response(msg)[0]
+
+
+def test_rebuilt_sdk_status_error_can_be_rewrapped_like_langchain_does():
+    # langchain_openai re-raises openai.BadRequestError as its own subclass built from
+    # e.message / e.response / e.body; the replayed error must carry those
+    openai = pytest.importorskip("openai")
+    from crashlab.models import ErrorInfo
+
+    exc = R.rebuild_exception(
+        ErrorInfo(type="openai.BadRequestError", message="Error code: 400", status_code=400)
+    )
+    assert isinstance(exc, openai.BadRequestError)
+    assert exc.response.status_code == 400 and exc.body is None
+    again = openai.BadRequestError(message=exc.message, response=exc.response, body=exc.body)
+    assert again.status_code == 400
