@@ -387,6 +387,12 @@ def show(
         console.print(
             "[dim]↺ served from the cassette  ✎ patched by the fork  ⊘ blocked  ◇ fake tool[/]"
         )
+    no_usage = sum(1 for s in run.steps if s.attributes.get("crashlab.usage.missing"))
+    if no_usage:
+        console.print(
+            f"[dim]cost unknown for {no_usage} streamed call(s): the stream reported no "
+            'usage; pass stream_options={"include_usage": True}[/]'
+        )
 
 
 def _checks_table(results: list[CheckResult]) -> Table:

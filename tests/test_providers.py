@@ -327,3 +327,28 @@ def test_openai_responses_stream():
     step = crashlab.load("last").steps[0]
     assert step.response["messages"][0]["parts"][0]["content"] == "streamed via responses"
     assert step.attributes["crashlab.stream.complete"] is True
+
+
+def test_stream_without_usage_is_flagged_and_explained(monkeypatch):
+    # live (LiteLLM, streamed): cost was blank with no hint why; the stream only reports
+    # usage with stream_options={"include_usage": True}
+    from typer.testing import CliRunner
+
+    from crashlab.capture import _chat
+    from crashlab.cli import app
+
+    monkeypatch.setattr(_chat, "_warned_stream_usage", False)
+    client = crashlab.wrap(FakeOpenAI([chunks_for_text("hi", usage=False)]))
+    with pytest.warns(UserWarning, match="include_usage"):
+        with crashlab.record("o-stream"):
+            list(client.chat.completions.create(model="m", messages=[], stream=True))
+    step = crashlab.load("last").steps[0]
+    assert step.attributes["crashlab.usage.missing"] == "stream_options"
+    out = " ".join(CliRunner().invoke(app, ["show", "last"]).output.split())
+    assert "cost unknown for 1 streamed call(s)" in out and '"include_usage": True' in out
+    # asked for usage: nothing flagged
+    client = crashlab.wrap(FakeOpenAI([chunks_for_text("hi")]))
+    with crashlab.record("o-stream"):
+        list(client.chat.completions.create(model="m", messages=[], stream=True,
+                                            stream_options={"include_usage": True}))  # fmt: skip
+    assert "crashlab.usage.missing" not in crashlab.load("last").steps[0].attributes

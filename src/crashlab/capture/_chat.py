@@ -21,6 +21,7 @@ from ._steps import begin_step
 from .streams import (
     Assembler,
     AsyncRecordingStream,
+    OpenAIChatAssembler,
     RecordingStream,
 )
 
@@ -96,6 +97,22 @@ def _response_attributes(norm: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in attrs.items() if v is not None}
 
 
+USAGE_MISSING = "crashlab.usage.missing"
+_warned_stream_usage = False
+
+
+def _warn_no_stream_usage() -> None:
+    global _warned_stream_usage
+    if _warned_stream_usage:
+        return
+    _warned_stream_usage = True
+    warnings.warn(
+        "crashlab: a streamed chat call reported no token usage, so its cost is unknown; "
+        'pass stream_options={"include_usage": True} to record tokens and cost',
+        stacklevel=4,
+    )
+
+
 class ChatCall:
     """One recorded LLM call."""
 
@@ -111,6 +128,8 @@ class ChatCall:
     ) -> None:
         self.adapter = adapter
         self.stream = bool(kwargs.get("stream") is True) if stream is None else stream
+        opts = kwargs.get("stream_options")
+        self.include_usage = bool(isinstance(opts, dict) and opts.get("include_usage"))
         normalized = adapter.normalize_request(kwargs)
         model = (normalized.get("params") or {}).get("model")
         self.pending = begin_step(
@@ -208,6 +227,18 @@ class ChatCall:
         attrs["crashlab.stream.complete"] = bool(complete and error is None)
         if getattr(asm, "tool_index_missing", False):
             attrs["crashlab.stream.tool_call_index_missing"] = True
+        if (
+            isinstance(asm, OpenAIChatAssembler)
+            and complete
+            and error is None
+            and "gen_ai.usage.input_tokens" not in attrs
+            and not self.include_usage
+        ):
+            # OpenAI-style streams (OpenAI, LiteLLM, compatible servers) only send usage
+            # when asked; without it the step's cost is unknown (blank in ls / show)
+            attrs[USAGE_MISSING] = "stream_options"
+            if getattr(self.pending.ctx, "mode", "record") == "record":  # type: ignore[union-attr]
+                _warn_no_stream_usage()
         raw = N.strip_binary(raw) if raw else None
         if error is not None and not isinstance(error, GeneratorExit):
             self.pending.fail(  # type: ignore[union-attr]
