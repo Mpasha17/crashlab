@@ -256,6 +256,7 @@ class ResponsesAssembler(Assembler):
         self.partial: dict[int, dict[str, Any]] = {}  # output_index -> item in progress
         self.texts: dict[tuple[int, int], str] = {}  # (output_index, content_index) -> text
         self.args: dict[int, str] = {}  # output_index -> function call arguments so far
+        self.pieces: dict[str, list[int]] = {}  # "oi:ci" / "oi:args" -> delta lengths
 
     def _add(self, data: dict[str, Any]) -> None:
         kind = data.get("type")
@@ -271,6 +272,7 @@ class ResponsesAssembler(Assembler):
         elif kind == "response.output_text.delta" and isinstance(data.get("delta"), str):
             ci = data.get("content_index", 0) if isinstance(data.get("content_index"), int) else 0
             self.texts[(oi, ci)] = self.texts.get((oi, ci), "") + data["delta"]
+            self.pieces.setdefault(f"{oi}:{ci}", []).append(len(data["delta"]))
             if oi not in self.partial:
                 self.partial[oi] = {"type": "message", "id": data.get("item_id") or "",
                                     "role": "assistant", "content": []}  # fmt: skip
@@ -278,6 +280,7 @@ class ResponsesAssembler(Assembler):
             data.get("delta"), str
         ):
             self.args[oi] = self.args.get(oi, "") + data["delta"]
+            self.pieces.setdefault(f"{oi}:args", []).append(len(data["delta"]))
 
     def _partial_items(self) -> dict[int, dict[str, Any]]:
         out: dict[int, dict[str, Any]] = {}
@@ -306,6 +309,12 @@ class ResponsesAssembler(Assembler):
             if items:
                 out["output"] = [items[i] for i in sorted(items)]
         return out
+
+    @property
+    def stream_plan(self) -> dict[str, Any] | None:
+        """Delta lengths per text part / function call, for replay re-chunking."""
+        parts = {k: n for k, n in self.pieces.items() if len(n) > 1}
+        return {"parts": parts} if parts else None
 
 
 # --- wrappers ------------------------------------------------------------------------

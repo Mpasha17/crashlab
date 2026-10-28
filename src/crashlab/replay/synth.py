@@ -185,7 +185,9 @@ def anthropic_events(raw: dict[str, Any], plan: Any = None) -> list[dict[str, An
     return events
 
 
-def responses_events(raw: dict[str, Any]) -> list[dict[str, Any]]:
+def responses_events(raw: dict[str, Any], plan: Any = None) -> list[dict[str, Any]]:
+    parts_plan = plan.get("parts") if isinstance(plan, dict) else None
+    parts_plan = parts_plan if isinstance(parts_plan, dict) else {}
     seq = iter(range(1_000_000))
     created = {**raw, "status": "in_progress", "output": []}
     events: list[dict[str, Any]] = [
@@ -197,11 +199,20 @@ def responses_events(raw: dict[str, Any]) -> list[dict[str, Any]]:
         if item.get("type") == "message":
             for ci, part in enumerate(item.get("content") or []):
                 if part.get("type") == "output_text":
-                    events.append({
-                        "type": "response.output_text.delta", "sequence_number": next(seq),
-                        "item_id": item.get("id", ""), "output_index": oi, "content_index": ci,
-                        "delta": part.get("text", ""), "logprobs": [],
-                    })  # fmt: skip
+                    for piece in _cut(part.get("text", ""), parts_plan.get(f"{oi}:{ci}")):
+                        events.append({
+                            "type": "response.output_text.delta", "sequence_number": next(seq),
+                            "item_id": item.get("id", ""), "output_index": oi,
+                            "content_index": ci, "delta": piece, "logprobs": [],
+                        })  # fmt: skip
+        elif item.get("type") == "function_call" and f"{oi}:args" in parts_plan:
+            args = item.get("arguments") if isinstance(item.get("arguments"), str) else ""
+            for piece in _cut(args, parts_plan[f"{oi}:args"]):
+                events.append({
+                    "type": "response.function_call_arguments.delta",
+                    "sequence_number": next(seq), "item_id": item.get("id", ""),
+                    "output_index": oi, "delta": piece,
+                })  # fmt: skip
         events.append({"type": "response.output_item.done", "sequence_number": next(seq),
                        "output_index": oi, "item": item})  # fmt: skip
     done = "response.incomplete" if raw.get("status") == "incomplete" else "response.completed"
@@ -230,7 +241,7 @@ def synthesize(
     make = SYNTHESIZERS.get(api, openai_chat_chunks)
     if make is openai_chat_chunks:
         chunks = make(raw, tool_index=tool_index, plan=plan)
-    elif make is anthropic_events:
+    elif make in (anthropic_events, responses_events):
         chunks = make(raw, plan=plan)
     else:
         chunks = make(raw)
