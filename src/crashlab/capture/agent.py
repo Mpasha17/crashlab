@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import inspect
 import os
@@ -216,7 +217,12 @@ class record:
             else:
                 run.status = "ok"
             self._run_checks(run, keep_outcome=user_outcome)
-            self.ctx.store.end_run(run)
+            if self.ctx.store_failed:  # still try to close the run, marked incomplete
+                run.tags.append("recording-incomplete")
+                with contextlib.suppress(OSError, sqlite3.Error):
+                    self.ctx.store.end_run(run)
+            else:
+                self.ctx.write(self.ctx.store.end_run, run)
         finally:
             unregister_live(self.ctx)
             reset_current(self._token)

@@ -14,6 +14,7 @@ import contextvars
 import functools
 import json
 import os
+import sqlite3
 import threading
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -53,6 +54,7 @@ class RunContext:
     breaker_replay: tuple[int, Finding] | None = None
     tripped: Finding | None = None
     _cost_unknown: bool = False
+    store_failed: bool = False  # a write failed: the rest of the run is not stored
     # weakrefs to LLM streams opened in this run; any still unfinished at run end (the
     # consumer raised mid-stream and its traceback keeps the stream alive) are recorded
     # as partial then, not lost after the run is saved
@@ -65,6 +67,25 @@ class RunContext:
             if stream is not None:
                 with contextlib.suppress(Exception):  # best effort, like __del__
                     stream._finish(complete=False)
+
+    def write(self, fn: Callable[..., Any], *args: Any) -> None:
+        """Write to the store; a failing disk (full, read-only, removed) stops recording
+        this run with one warning instead of crashing the agent mid-run."""
+        if self.store_failed:
+            return
+        try:
+            fn(*args)
+        except (OSError, sqlite3.Error) as err:
+            self.store_failed = True
+            import warnings
+
+            warnings.warn(
+                f"crashlab: stopped recording run {self.run.run_id} ({self.run.name!r}): "
+                f"cannot write to {self.store.root}: {type(err).__name__}: {err}; "
+                "the agent keeps running",
+                RuntimeWarning,
+                stacklevel=3,
+            )
 
     def next_idx(self) -> int:
         with self._lock:
@@ -120,7 +141,7 @@ class RunContext:
             if step.error is not None:
                 u.errors += 1
             self.steps.append(step)
-        self.store.add_step(step)
+        self.write(self.store.add_step, step)
         if self.checks is not None:
             self.add_findings(self.checks.on_step(step))
         if self.breaker_replay is not None and step.idx == self.breaker_replay[0]:
@@ -143,7 +164,7 @@ class RunContext:
         for f in findings:
             if not any(f is g for g in self.run.findings):
                 self.run.findings.append(f)
-                self.store.add_flag(self.run.run_id, f)
+                self.write(self.store.add_flag, self.run.run_id, f)
             if self.circuit_breaker and f.severity == "critical" and self.tripped is None:
                 f.stopped_run = True
                 self._trip(f)

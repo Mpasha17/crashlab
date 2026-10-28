@@ -79,3 +79,28 @@ def test_damaged_cassette_lines_are_skipped(crashlab_dir):
     with pytest.warns(RuntimeWarning, match="skipped 2 damaged line"):
         again = crashlab.load(run.run_id)
     assert len(again.steps) == 1
+
+
+@crashlab.tool()
+def step_tool(x: int) -> int:
+    return x
+
+
+@crashlab.agent(name="disk-fails")
+def disk_fails_agent(n: int) -> int:
+    step_tool(1)
+    run_id = crashlab.Store().list_runs(limit=1)[0]["run_id"]
+    crashlab.Store().cassette_path(run_id).chmod(0o444)  # the disk "fails" mid-run
+    return step_tool(2) + step_tool(3)
+
+
+def test_write_failure_mid_run_does_not_crash_the_agent(crashlab_dir):
+    import os
+
+    if os.geteuid() == 0:
+        pytest.skip("root ignores file permissions")
+    with pytest.warns(RuntimeWarning, match="stopped recording run"):
+        assert disk_fails_agent(1) == 5
+    run = crashlab.load("last")
+    assert "recording-incomplete" in run.tags and run.status == "ok"
+    assert len(run.steps) == 1
