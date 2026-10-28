@@ -322,7 +322,10 @@ Verdicts: **VERIFIED** (patched Wilson 95% lower bound above the control's upper
 or controls all fail and patched all pass; no regression), **LIKELY** (better, but not
 significant or incomplete), **INCONCLUSIVE** (too few usable trials), **REJECTED** (a
 past good run now fails, or no better than control). Provider errors (429/5xx) are
-counted as `errored`, never as fails. `--no-control`, `--regress none|tag:X|ID,ID`,
+counted as `errored`, never as fails. So are trials where the agent makes a
+`side_effects=True` call the source run never made (crashlab blocks it, so the outcome is
+unknown); if the fix is *supposed* to change such a call (e.g. order 5 instead of 10), pass
+`--allow-live-side-effects` with sandboxed tools to grade those trials. `--no-control`, `--regress none|tag:X|ID,ID`,
 `--json`, `--pace SECONDS` (free-tier rate limits). Child runs are tagged `verify:<id>`; `crashlab report` lists fix attempts.
 On Groq gpt-oss-120b: policy_drop fix-1 went 5/5 vs control 0/5, 2/2 good runs still
 pass (VERIFIED, $0.002).

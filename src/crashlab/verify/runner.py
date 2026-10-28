@@ -158,11 +158,12 @@ def _trial(
     err = f"{branch.error.type}: {branch.error.message[:200]}" if branch.error else None
     if branch.status == "error" and is_infra_error(branch.error):
         status = "errored"
-    elif role != "regression" and (blocked := _blocked_steps(branch)):
-        # the agent wanted a side-effect tool call the failing run never made; crashlab
-        # refused to run it live (even if the agent caught the error and carried on), so
-        # the trial says nothing about the fix either way. (In a regression run the same
-        # block still counts as a fail: the patch changed a side effect of a known-good run.)
+    elif blocked := _blocked_steps(branch):
+        # the agent made a side-effect tool call the source run never made (often just a
+        # different argument, e.g. "widgets" for "widget"); crashlab refused to run it live
+        # (even if the agent caught the error and carried on), so the trial cannot say
+        # whether the run passes. Not counted, in any arm: --allow-live-side-effects
+        # against a sandbox grades it.
         status = "errored"
         err = f"{BLOCKED}: {', '.join(blocked)} blocked (side_effects=True, not in the recording)"
     else:

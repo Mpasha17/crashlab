@@ -147,10 +147,25 @@ def test_regression_run_the_patch_cannot_apply_to_is_skipped_not_passed():
 def test_patch_that_breaks_a_good_run_is_rejected():
     bad = {**APPEND, "text": "4. Only refund within 30 days of delivery. BREAK"}
     run, clean = _setup(bad)
-    v = crashlab.verify(run, 1, k=2, client=crashlab.wrap(PolicyModel()))
+    v = crashlab.verify(
+        run, 1, k=2, client=crashlab.wrap(PolicyModel()), allow_live_side_effects=True
+    )
     assert v.patched.passes == 2 and v.control.passes == 0
     assert v.verdict == "REJECTED" and v.regressions[0].run_id == clean.run_id
     assert "regression" in v.reasons[0]
+
+
+def test_regression_blocked_at_a_side_effect_is_not_checked_not_failed():
+    # the patched good run refunds a different amount: crashlab will not run that refund
+    # live in a fork, so the regression run is unknown (not a fail, never a pass)
+    bad = {**APPEND, "text": "4. Only refund within 30 days of delivery. BREAK"}
+    run, clean = _setup(bad)
+    v = crashlab.verify(run, 1, k=2, client=crashlab.wrap(PolicyModel()))
+    [r] = v.regression
+    assert r.run_id == clean.run_id and r.status == "errored"
+    assert "SideEffectBlockedError" in r.note
+    assert v.verdict == "LIKELY"
+    assert any("--allow-live-side-effects" in x for x in v.reasons)
 
 
 def test_errored_trials_are_not_fails():
