@@ -257,6 +257,20 @@ def near_identical_key(request: dict[str, Any]) -> str:
 class StepRepetition(Detector):
     kind = "step_repetition"
 
+    def __init__(self, cfg: Any) -> None:
+        super().__init__(cfg)
+        # per-step memo: every new step is compared with all earlier ones, and
+        # re-canonicalizing each earlier request (the whole conversation so far) made a
+        # long run quadratic in hashing (a 250-step run spent ~10 s here)
+        self._memo: dict[tuple[str, int, int], str] = {}
+
+    def _cached(self, kind: str, s: Step, fn: Any, value: Any) -> str:
+        key = (kind, s.idx, id(value))
+        got = self._memo.get(key)
+        if got is None:
+            got = self._memo[key] = fn(value)
+        return got
+
     def on_step(self, step: Step, h: History) -> list[Finding]:
         if step.operation == "execute_tool":
             return self._tool(step, h)
@@ -268,10 +282,10 @@ class StepRepetition(Detector):
         cfg = self.cfg
         if step.name in cfg.ignore_tools or step.source == "blocked":
             return []
-        key = canonical(step.args)
+        key = self._cached("args", step, canonical, step.args)
         same = [s for s in h.tool_steps(step.name)
-                if canonical(s.args) == key and s.idx > step.idx - cfg.window
-                and s.source != "blocked"]  # fmt: skip
+                if self._cached("args", s, canonical, s.args) == key
+                and s.idx > step.idx - cfg.window and s.source != "blocked"]  # fmt: skip
         if len(same) < cfg.threshold:
             return []
         outcomes = {canonical(s.error.message if s.error else s.result) for s in same}
@@ -295,8 +309,9 @@ class StepRepetition(Detector):
         )]  # fmt: skip
 
     def _requests(self, step: Step, h: History) -> list[Finding]:
-        key = near_identical_key(step.request)
-        chats = [s for s in h.chat_steps() if near_identical_key(s.request) == key]
+        key = self._cached("req", step, near_identical_key, step.request)
+        chats = [s for s in h.chat_steps()
+                 if self._cached("req", s, near_identical_key, s.request) == key]  # fmt: skip
         if len(chats) < self.cfg.request_threshold:
             return []
         prev = chats[-2]
