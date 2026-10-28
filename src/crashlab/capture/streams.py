@@ -76,7 +76,17 @@ class OpenAIChatAssembler(Assembler):
                 ops.append(["r", len(delta[rkey])])
                 break
         if delta.get("tool_calls"):
-            ops.append(["t"])
+            # per call piece: [index, has id, has type, name length, arguments length]
+            # (None when the key was absent), so argument fragments replay as streamed
+            pieces = []
+            for tc in delta["tool_calls"]:
+                fn = tc.get("function") or {}
+                name, args = fn.get("name"), fn.get("arguments")
+                pieces.append([tc.get("index") or 0, int(bool(tc.get("id"))),
+                               int(bool(tc.get("type"))),
+                               len(name) if isinstance(name, str) else None,
+                               len(args) if isinstance(args, str) else None])  # fmt: skip
+            ops.append(["t", pieces])
         if delta.get("refusal"):
             self.plan_ok = False
         if ch.get("finish_reason"):
@@ -171,7 +181,7 @@ class OpenAIChatAssembler(Assembler):
     @property
     def stream_plan(self) -> list[list[list[Any]]] | None:
         """The shape of every chunk (``["c", n]`` content piece, ``["r", n]`` reasoning
-        piece, ``["t"]`` tool-call delta, ``["f"]`` finish, ``["u"]`` usage-only chunk), so
+        piece, ``["t", pieces]`` tool-call delta, ``["f"]`` finish, ``["u"]`` usage-only chunk), so
         replay re-chunks the stream as it arrived: a generator agent that yields chunk by
         chunk reproduces. None for multi-choice streams."""
         return self.plan if self.plan_ok and len(self.plan) > 1 else None

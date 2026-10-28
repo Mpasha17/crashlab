@@ -38,6 +38,10 @@ def _planned_chunks(
             return None
     except (TypeError, IndexError):
         return None
+    calls_raw = msg.get("tool_calls") or []
+    pieces_ok = _tool_pieces_fit(ops, calls_raw)
+    at_name = [0] * len(calls_raw)
+    at_args = [0] * len(calls_raw)
     out: list[dict[str, Any]] = []
     at_c = at_r = 0
     tools_sent = role_sent = False
@@ -58,6 +62,30 @@ def _planned_chunks(
             elif op[0] == "r":
                 delta[rkey] = reasoning[at_r : at_r + op[1]]
                 at_r += op[1]
+            elif op[0] == "t" and pieces_ok:
+                tools_sent = True
+                calls = []
+                for tidx, has_id, has_type, nlen, alen in op[1]:
+                    tc = calls_raw[tidx]
+                    fn = tc.get("function") or {}
+                    call: dict[str, Any] = {"index": tidx} if tool_index else {}
+                    if has_id:
+                        call["id"] = tc.get("id")
+                        call.update({k: v for k, v in tc.items()
+                                     if k not in ("id", "type", "function")})  # fmt: skip
+                    if has_type:
+                        call["type"] = tc.get("type") or "function"
+                    piece: dict[str, Any] = {}
+                    if nlen is not None:
+                        piece["name"] = (fn.get("name") or "")[at_name[tidx] : at_name[tidx] + nlen]
+                        at_name[tidx] += nlen
+                    if alen is not None:
+                        args = fn.get("arguments") or ""
+                        piece["arguments"] = args[at_args[tidx] : at_args[tidx] + alen]
+                        at_args[tidx] += alen
+                    call["function"] = piece
+                    calls.append(call)
+                delta["tool_calls"] = calls
             elif op[0] == "t" and not tools_sent:
                 tools_sent = True
                 calls = []
@@ -75,6 +103,30 @@ def _planned_chunks(
     if msg.get("tool_calls") and not tools_sent:
         return None
     return out
+
+
+def _tool_pieces_fit(ops: list[Any], calls: list[dict[str, Any]]) -> bool:
+    """Whether the recorded tool-call pieces add up to the recorded calls' names and
+    arguments (older cassettes have a bare ``["t"]``; redaction can change lengths)."""
+    names = [0] * len(calls)
+    args = [0] * len(calls)
+    try:
+        tops = [op for op in ops if op[0] == "t"]
+        if not tops or any(len(op) < 2 for op in tops):
+            return False
+        for op in tops:
+            for tidx, _id, _type, nlen, alen in op[1]:
+                if not 0 <= tidx < len(calls):
+                    return False
+                names[tidx] += nlen or 0
+                args[tidx] += alen or 0
+    except (TypeError, ValueError, IndexError):
+        return False
+    for i, tc in enumerate(calls):
+        fn = tc.get("function") or {}
+        if names[i] != len(fn.get("name") or "") or args[i] != len(fn.get("arguments") or ""):
+            return False
+    return True
 
 
 def openai_chat_chunks(
