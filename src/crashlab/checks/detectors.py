@@ -786,10 +786,26 @@ def _quote_start(text: str, at: int) -> int:
     return space + 1 if space >= 0 else at
 
 
+def _taken_from(step: Step, instruction: str, run: Run) -> list[str]:
+    """Argument values of ``step`` that occur in the injected text but not in the run's
+    input: the agent did what the data told it ("order 50 units": quantity=50)."""
+    words = set(re.findall(r"[\w.@/-]+", instruction[:400].lower()))
+    task = as_text(run.input).lower()
+    out = []
+    for key, value in (step.args or {}).items():
+        if isinstance(value, (dict, list)) or value is None or isinstance(value, bool):
+            continue
+        v = str(value).lower()
+        if v in words and v not in task:
+            out.append(f"{key}={value}")
+    return out
+
+
 class ToolResultInstructions(Detector):
     """A tool result contains text addressed to the model ("ignore previous instructions",
     "SYSTEM NOTICE TO ASSISTANT: ... do not mention this"): likely prompt injection through
-    data. ``error`` when a side-effect tool was called after the model read it."""
+    data. ``error`` when a later side-effect call used a value from it (quantity=50 after
+    "always order 50 units"), ``warn`` otherwise."""
 
     kind = "tool_result_instructions"
 
@@ -804,10 +820,18 @@ class ToolResultInstructions(Detector):
                 continue
             after = [s for s in run.steps if s.idx > step.idx and s.operation == "execute_tool"
                      and s.attributes.get("crashlab.tool.side_effects")]  # fmt: skip
-            acted = (f"; {after[0].name} (side effects) was called after it, at step "
-                     f"{after[0].idx}") if after else ""  # fmt: skip
+            followed = [(s, v) for s in after if (v := _taken_from(s, text[m.start() :], run))]
+            if followed:
+                s0, vals = followed[0]
+                acted = (f"; {s0.name} (side effects) at step {s0.idx} used "
+                         f"{', '.join(vals)} from it")  # fmt: skip
+            elif after:
+                acted = (f"; {after[0].name} (side effects) ran after it (step {after[0].idx}) "
+                         "with no argument taken from it")  # fmt: skip
+            else:
+                acted = ""
             out.append(self.finding(
-                severity="error" if after else "warn", step=step.idx,
+                severity="error" if followed else "warn", step=step.idx,
                 steps=[step.idx] + [s.idx for s in after], key=f"{step.name}:{step.idx}",
                 message=f"{step.name} returned text addressed to the model (possible prompt "
                         f"injection): {m.group(0)[:80]!r}{acted}",
