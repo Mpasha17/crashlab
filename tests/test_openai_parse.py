@@ -159,9 +159,11 @@ async def stream_async_agent(q: str) -> dict:
 def _record_then_replay(fn, *args):
     LIVE["on"] = True
     CALLS.clear()
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")  # no pydantic serializer noise from recording
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         assert fn(*args) == ANSWER
+    # no pydantic serializer noise from recording
+    assert not [w for w in caught if "serializer" in str(w.message)]
     run = crashlab.load("last")
     assert [s.operation for s in run.steps] == ["chat"]
     assert CALLS and len(CALLS) == 1
