@@ -45,6 +45,7 @@ class ChatAdapter:
     normalize_request: Callable[[dict[str, Any]], dict[str, Any]]
     normalize_response: Callable[[Any], tuple[dict[str, Any], dict[str, Any]]]
     new_assembler: Callable[[], Assembler]
+    operation: str = "chat"  # gen_ai.operation.name; "embeddings" for embeddings.create
 
 
 _PARAM_ATTRS = (
@@ -113,7 +114,7 @@ class ChatCall:
         normalized = adapter.normalize_request(kwargs)
         model = (normalized.get("params") or {}).get("model")
         self.pending = begin_step(
-            "chat",
+            adapter.operation,  # type: ignore[arg-type]
             str(model) if model else "unknown-model",
             normalized,
             attributes=_request_attributes(adapter, normalized, server, self.stream),
@@ -289,7 +290,9 @@ def invoke(
             call_kwargs.update(call_kwargs.pop("kwargs", {}) or {})
         except (TypeError, ValueError):
             pass
-    call_kwargs, idx, applied = prepare_request(adapter, call_kwargs)
+    idx, applied = None, []
+    if adapter.operation == "chat":  # fork patches edit prompts, not embedding inputs
+        call_kwargs, idx, applied = prepare_request(adapter, call_kwargs)
     if applied:  # call the SDK with the patched request
         args, kwargs = (), call_kwargs
     call = ChatCall(adapter, call_kwargs, server=server, idx=idx, patches=applied)

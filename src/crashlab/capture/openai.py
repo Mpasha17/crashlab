@@ -25,6 +25,14 @@ CHAT = ChatAdapter(
     normalize_response=N.normalize_openai_chat_response,
     new_assembler=OpenAIChatAssembler,
 )
+EMBEDDINGS = ChatAdapter(
+    provider="openai",
+    api="openai.embeddings",
+    normalize_request=N.normalize_openai_embeddings_request,
+    normalize_response=N.normalize_openai_embeddings_response,
+    new_assembler=OpenAIChatAssembler,  # never streamed
+    operation="embeddings",
+)
 RESPONSES = ChatAdapter(
     provider="openai",
     api="openai.responses",
@@ -38,7 +46,12 @@ def _adapter(base: ChatAdapter, provider: str) -> ChatAdapter:
     if provider == base.provider:
         return base
     return ChatAdapter(
-        provider, base.api, base.normalize_request, base.normalize_response, base.new_assembler
+        provider,
+        base.api,
+        base.normalize_request,
+        base.normalize_response,
+        base.new_assembler,
+        base.operation,
     )
 
 
@@ -202,6 +215,12 @@ class WrappedOpenAI(WrappedClient):
         if responses is not None and callable(getattr(responses, "create", None)):
             resp_adapter = _adapter(RESPONSES, provider)
             overrides["responses"] = _wrap_resource(responses, resp_adapter, server)
+        embeddings = getattr(client, "embeddings", None)
+        if embeddings is not None and callable(getattr(embeddings, "create", None)):
+            emb_kw: dict[str, Any] = {
+                "create": _create(embeddings, _adapter(EMBEDDINGS, provider), server)
+            }
+            overrides["embeddings"] = Proxy(embeddings, **emb_kw)
         super().__init__(client, **overrides)
 
     def _rewrap(self, client: Any) -> WrappedOpenAI:

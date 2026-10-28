@@ -136,6 +136,11 @@ class RunContext:
                 u.total_tokens += int(total) if total is not None else inp + out
                 if step.response:
                     self.pending_tool_calls = list(step.response.get("tool_calls") or [])
+            elif step.operation == "embeddings":
+                # tokens count toward the run; cost stays chat-only (no embedding prices)
+                inp = int(step.attributes.get("gen_ai.usage.input_tokens") or 0)
+                u.input_tokens += inp
+                u.total_tokens += int(step.attributes.get("crashlab.usage.total_tokens") or inp)
             elif step.operation == "execute_tool":
                 u.tool_calls += 1
             if step.error is not None:

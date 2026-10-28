@@ -202,8 +202,9 @@ class Replayer:
     def network_attempt(self, address: Any) -> ReplayNetworkError:
         self._diverge(
             "network",
-            f"replay tried to open a network connection to {address!r}; calls that are not "
-            "made through a crashlab-wrapped client cannot be replayed offline",
+            f"replay tried to open a network connection to {address!r}; only calls crashlab "
+            "recorded can be replayed offline (an unwrapped client, or a client method "
+            "crashlab does not intercept, e.g. with_streaming_response)",
         )
         return ReplayNetworkError(f"crashlab replay is offline: connection to {address!r} blocked")
 

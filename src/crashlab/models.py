@@ -34,7 +34,7 @@ class TaxonomyLabel(str, Enum):
     NO_FAILURE = "NO_FAILURE"
 
 
-Operation = Literal["chat", "execute_tool", "invoke_agent", "custom"]
+Operation = Literal["chat", "embeddings", "execute_tool", "invoke_agent", "custom"]
 RunStatus = Literal["running", "ok", "error"]
 Outcome = Literal["pass", "fail", "unknown"]
 # live: really executed; cassette: served from a recording; patched: changed by a fork

@@ -590,6 +590,37 @@ def normalize_openai_chat_request(kwargs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def normalize_openai_embeddings_request(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """``embeddings.create`` kwargs -> common request (the inputs stay as given)."""
+    data = _kwargs_jsonable(kwargs)
+    inputs = data.pop("input", None)
+    return {"input": inputs, "params": normalize_params(data, {})}
+
+
+def normalize_openai_embeddings_response(resp: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The vectors live only in the raw response (replay rebuilds from it); the normalized
+    response keeps a summary that is readable in ``crashlab show`` and the report."""
+    raw = to_jsonable(resp)
+    raw = raw if isinstance(raw, dict) else {"data": raw}
+    data = [d for d in raw.get("data") or [] if isinstance(d, dict)]
+    usage = raw.get("usage") or {}
+    norm = {
+        "model": raw.get("model"),
+        "embeddings": [
+            {
+                "index": d.get("index"),
+                "dimensions": len(d["embedding"]) if isinstance(d.get("embedding"), list) else None,
+            }
+            for d in data
+        ],  # fmt: skip
+        "usage": {
+            "input_tokens": usage.get("prompt_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+        },
+    }
+    return norm, raw
+
+
 def normalize_anthropic_request(kwargs: dict[str, Any]) -> dict[str, Any]:
     data = _kwargs_jsonable(kwargs)
     system = system_text(data.pop("system", None))
