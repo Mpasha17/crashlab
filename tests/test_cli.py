@@ -169,3 +169,25 @@ def test_a_tool_culprit_names_the_llm_call_that_made_it(crashlab_dir):
     )
     assert run.describe_step(0) == f"step 0 (chat {run.steps[0].name})"
     assert run.describe_step(99) == "step 99"
+
+
+def test_show_names_the_unpriced_model():
+    # live: runs on qwen/qwen3.8-27b showed "est. ?" with no hint why or how to fix it
+    from tests.fakes import text_response
+
+    @crashlab.agent(name="unpriced")
+    def go() -> str:
+        fake = FakeOpenAI([text_response(1, "hi", model="acme/unpriced-1")])
+        fake.base_url = "https://api.acme.example/v1"  # not a local server ($0)
+        client = crashlab.wrap(fake)
+        r = client.chat.completions.create(
+            model="acme/unpriced-1", messages=[{"role": "user", "content": "hi"}]
+        )
+        return r.choices[0].message.content
+
+    go()
+    out = runner.invoke(app, ["show", "last"], env=ENV).output
+    assert "est. ?" in out and "no price for acme/unpriced-1" in out
+    assert "[tool.crashlab.prices]" in out
+    _record_one()  # a priced model: no hint
+    assert "no price for" not in runner.invoke(app, ["show", "last"], env=ENV).output

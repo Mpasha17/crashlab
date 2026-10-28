@@ -347,6 +347,15 @@ def show(
         + (f" · {u.wall_time_ms / 1000:.2f}s" if u.wall_time_ms is not None else "")
         + (f" · est. {_cost_text(cost)}" if u.llm_calls else ""),
     )
+    if cost is None and u.llm_calls:
+        unpriced = sorted({s.name for s in run.steps if s.operation == "chat"
+                           and s.error is None and step_cost(s) is None})  # fmt: skip
+        if unpriced:
+            meta.add_row("", Text(
+                f"no price for {', '.join(unpriced[:3])}: add "
+                f'"{unpriced[0]}" = {{input = ..., output = ...}} (USD per 1M tokens) '
+                "under [tool.crashlab.prices] in pyproject.toml", style="dim",
+            ))  # fmt: skip
     meta.add_row("code", run.code_version or "-")
     console.print(Panel(meta, title="crashlab run", title_align="left"))
     if run.checks:
