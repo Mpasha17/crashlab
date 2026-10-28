@@ -177,8 +177,9 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
 Not yet: a live HTML viewer server. Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response (same content, different chunk boundaries).
 Also not intercepted yet: Anthropic `client.beta.messages`, OpenAI
-`chat.completions.stream()` / `responses.stream()` helpers. OpenAI
-`chat.completions.with_raw_response.create` **is** recorded (CrewAI path).
+`with_streaming_response.create` (raw HTTP body; crashlab warns once when it is used in a
+run). OpenAI `chat.completions.parse()` / `responses.parse()` (structured outputs), the
+`.stream()` helpers and `with_raw_response.create` (CrewAI path) **are** recorded.
 OpenAI streams only report token usage if you pass `stream_options={"include_usage": True}`.
 
 ## Quickstart

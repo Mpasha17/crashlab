@@ -145,6 +145,23 @@ def synthesize(
 # --- stream objects ------------------------------------------------------------------
 
 
+class _ReplayHTTPResponse:
+    """Stand-in for the stream's ``httpx.Response``: the SDK stream helpers
+    (``chat.completions.stream()``, ``responses.stream()``) close it on exit."""
+
+    status_code = 200
+    is_closed = False
+
+    def __init__(self) -> None:
+        self.headers: dict[str, str] = {}
+
+    def close(self) -> None:
+        self.is_closed = True
+
+    async def aclose(self) -> None:
+        self.is_closed = True
+
+
 class ReplayStream:
     """A finished stream served from a cassette (sync). Raises ``error`` at the end, if any."""
 
@@ -152,7 +169,7 @@ class ReplayStream:
         self._items = list(items)
         self._error = error
         self._it: Iterator[Any] = iter(self._items)
-        self.response = None  # no HTTP response in replay
+        self.response = _ReplayHTTPResponse()  # no real HTTP response in replay
 
     def __iter__(self) -> ReplayStream:
         return self

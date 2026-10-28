@@ -1,5 +1,6 @@
-"""``chat.completions.parse`` / ``responses.parse`` (structured outputs) must record and
-replay offline with ``.parsed`` rebuilt; a pydantic class as a request value must not crash."""
+"""``chat.completions.parse`` / ``responses.parse`` (structured outputs) and the
+``.stream()`` helpers must record and replay offline with ``.parsed`` rebuilt; a pydantic
+class as a request value must not crash; ``with_streaming_response`` warns it is unrecorded."""
 
 from __future__ import annotations
 
@@ -46,11 +47,47 @@ CALLS: list[str] = []
 LIVE = {"on": True}
 
 
+def _sse(events: list[dict]) -> bytes:
+    body = "".join(f"event: {e.get('type', 'message')}\ndata: {json.dumps(e)}\n\n" for e in events)
+    return body.encode()
+
+
+_TEXT = json.dumps(ANSWER)
+CHAT_CHUNKS = [
+    {"id": "c1", "object": "chat.completion.chunk", "created": 1, "model": "m",
+     "choices": [{"index": 0, "delta": {"role": "assistant", "content": _TEXT[:9]},
+                  "finish_reason": None}]},
+    {"id": "c1", "object": "chat.completion.chunk", "created": 1, "model": "m",
+     "choices": [{"index": 0, "delta": {"content": _TEXT[9:]}, "finish_reason": "stop"}]},
+]  # fmt: skip
+_PART = {"output_index": 0, "content_index": 0, "item_id": "msg-1"}
+_MSG = RESP["output"][0]
+RESP_EVENTS = [
+    {"type": "response.created", "response": {**RESP, "status": "in_progress", "output": []}},
+    {"type": "response.output_item.added", "output_index": 0,
+     "item": {**_MSG, "status": "in_progress", "content": []}},
+    {"type": "response.content_part.added", **_PART,
+     "part": {"type": "output_text", "text": "", "annotations": []}},
+    {"type": "response.output_text.delta", **_PART, "delta": _TEXT, "logprobs": []},
+    {"type": "response.output_text.done", **_PART, "text": _TEXT, "logprobs": []},
+    {"type": "response.content_part.done", **_PART,
+     "part": {"type": "output_text", "text": _TEXT, "annotations": []}},
+    {"type": "response.output_item.done", "output_index": 0, "item": _MSG},
+    {"type": "response.completed", "response": RESP},
+]  # fmt: skip
+for _n, _e in enumerate(RESP_EVENTS):
+    _e["sequence_number"] = _n
+
+
 def _handle(request):
     CALLS.append(request.url.path)
     if not LIVE["on"]:
         raise AssertionError("replay hit the network")
-    return httpx.Response(200, json=RESP if request.url.path.endswith("/responses") else CHAT)
+    is_resp = request.url.path.endswith("/responses")
+    if json.loads(request.content).get("stream"):
+        body = _sse(RESP_EVENTS) if is_resp else _sse(CHAT_CHUNKS) + b"data: [DONE]\n\n"
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body)
+    return httpx.Response(200, json=RESP if is_resp else CHAT)
 
 
 def _client(is_async: bool = False):
@@ -85,6 +122,37 @@ async def async_agent(q: str) -> dict:
         model="m", messages=[{"role": "user", "content": q}], response_format=Weather
     )
     return out.choices[0].message.parsed.model_dump()
+
+
+@crashlab.agent(name="stream-chat")
+def stream_chat_agent(q: str) -> dict:
+    with _client().chat.completions.stream(
+        model="m", messages=[{"role": "user", "content": q}], response_format=Weather
+    ) as stream:
+        deltas = [e.delta for e in stream if e.type == "content.delta"]
+        final = stream.get_final_completion()
+    assert "".join(deltas) == _TEXT
+    return final.choices[0].message.parsed.model_dump()
+
+
+@crashlab.agent(name="stream-responses")
+def stream_responses_agent(q: str) -> dict:
+    with _client().responses.stream(model="m", input=q, text_format=Weather) as stream:
+        for _ in stream:
+            pass
+        final = stream.get_final_response()
+    return final.output_parsed.model_dump()
+
+
+@crashlab.agent(name="stream-async")
+async def stream_async_agent(q: str) -> dict:
+    async with _client(True).chat.completions.stream(
+        model="m", messages=[{"role": "user", "content": q}], response_format=Weather
+    ) as stream:
+        async for _ in stream:
+            pass
+        final = await stream.get_final_completion()
+    return final.choices[0].message.parsed.model_dump()
 
 
 def _record_then_replay(fn, *args):
@@ -133,3 +201,43 @@ def test_async_chat_completions_parse_records_and_replays(crashlab_dir):
 def test_class_values_serialize_as_schema_not_crash():
     assert to_jsonable(Weather)["class"] == "Weather"
     assert to_jsonable(int) == {"class": "builtins.int"}
+
+
+def test_chat_stream_helper_records_and_replays(crashlab_dir):
+    run = _record_then_replay(stream_chat_agent, "weather?")
+    assert run.steps[0].response["messages"][0]["parts"][0]["content"] == _TEXT
+
+
+def test_responses_stream_helper_records_and_replays(crashlab_dir):
+    _record_then_replay(stream_responses_agent, "weather?")
+
+
+def test_async_chat_stream_helper_records_and_replays(crashlab_dir):
+    import asyncio
+
+    LIVE["on"] = True
+    assert asyncio.run(stream_async_agent("weather?")) == ANSWER
+    run = crashlab.load("last")
+    assert [s.operation for s in run.steps] == ["chat"]
+    LIVE["on"] = False
+    try:
+        assert crashlab.replay(run).output == ANSWER
+    finally:
+        LIVE["on"] = True
+
+
+def test_with_streaming_response_warns_it_is_not_recorded(crashlab_dir):
+    from crashlab.capture import openai as cap
+
+    cap._WARNED_STREAMING_RESPONSE.clear()
+    client = _client()
+
+    @crashlab.agent(name="raw-stream")
+    def agent() -> str:
+        with client.chat.completions.with_streaming_response.create(
+            model="m", messages=[{"role": "user", "content": "hi"}]
+        ) as r:
+            return json.loads(r.read())["choices"][0]["message"]["content"]
+
+    with pytest.warns(RuntimeWarning, match="with_streaming_response.create is not recorded"):
+        assert agent() == _TEXT

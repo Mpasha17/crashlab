@@ -1,7 +1,7 @@
 """Recording proxy for OpenAI (and OpenAI-compatible) clients.
 
 Intercepts ``client.chat.completions.create`` / ``.parse`` and ``client.responses.create`` /
-``.parse`` on sync and async clients, including ``stream=True`` (chunks pass through
+``.parse`` / ``.stream`` on sync and async clients, including ``stream=True`` (chunks pass through
 unchanged; the assembled response is recorded when the stream ends). Everything else is
 delegated untouched. ``openai`` is imported only lazily to re-run the SDK's parser over a
 replayed ``parse()`` result, so any object with the same shape works.
@@ -10,6 +10,7 @@ replayed ``parse()`` result, so any object with the same shape works.
 from __future__ import annotations
 
 import inspect
+import warnings
 from typing import Any
 
 from . import normalize as N
@@ -104,6 +105,44 @@ def _parse(inner: Any, adapter: ChatAdapter, server: str | None):
     return parse
 
 
+def _bind_stream_helper(proxy: Proxy, inner: Any) -> None:
+    """``.stream(...)`` (``ChatCompletionStreamManager``) calls ``self.create(stream=True)``:
+    run the SDK's own method with the recording proxy as ``self`` so the stream records."""
+    helper = getattr(type(inner), "stream", None)
+    if not callable(helper):
+        return
+
+    def stream(*args: Any, **kwargs: Any) -> Any:
+        return helper(proxy, *args, **kwargs)
+
+    stream.__doc__ = getattr(helper, "__doc__", None)
+    object.__setattr__(proxy, "stream", stream)
+
+
+def _warn_streaming_response(inner: Any, api: str) -> Any:
+    """``with_streaming_response.create`` hands back raw HTTP bytes: not recorded. Say so
+    once instead of silently leaving a gap in the run."""
+    resource = inner.with_streaming_response
+
+    def create(*args: Any, **kwargs: Any) -> Any:
+        from ..context import current
+
+        if current() is not None and api not in _WARNED_STREAMING_RESPONSE:
+            _WARNED_STREAMING_RESPONSE.add(api)
+            warnings.warn(
+                f"crashlab: {api}.with_streaming_response.create is not recorded (raw HTTP "
+                "body); use create(stream=True) or .stream() to record this call",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        return resource.create(*args, **kwargs)
+
+    return Proxy(resource, create=create)
+
+
+_WARNED_STREAMING_RESPONSE: set[str] = set()
+
+
 def _raw_create(inner_completions: Any, adapter: ChatAdapter, server: str | None) -> Any:
     """Record ``with_raw_response.create`` (CrewAI) without losing the raw return value."""
     raw_resource = inner_completions.with_raw_response
@@ -138,7 +177,12 @@ class WrappedOpenAI(WrappedClient):
                     chat.completions.with_raw_response,
                     create=_raw_create(chat.completions, adapter, server),
                 )
+            if getattr(chat.completions, "with_streaming_response", None) is not None:
+                completions_kw["with_streaming_response"] = _warn_streaming_response(
+                    chat.completions, adapter.api
+                )
             completions = Proxy(chat.completions, **completions_kw)
+            _bind_stream_helper(completions, chat.completions)
             overrides["chat"] = Proxy(chat, completions=completions)
         responses = getattr(client, "responses", None)
         if responses is not None and callable(getattr(responses, "create", None)):
@@ -151,7 +195,12 @@ class WrappedOpenAI(WrappedClient):
                     responses.with_raw_response,
                     create=_raw_create(responses, resp_adapter, server),
                 )
+            if getattr(responses, "with_streaming_response", None) is not None:
+                resp_kw["with_streaming_response"] = _warn_streaming_response(
+                    responses, resp_adapter.api
+                )
             overrides["responses"] = Proxy(responses, **resp_kw)
+            _bind_stream_helper(overrides["responses"], responses)
         super().__init__(client, **overrides)
 
     def _rewrap(self, client: Any) -> WrappedOpenAI:
