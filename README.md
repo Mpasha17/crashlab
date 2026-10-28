@@ -140,7 +140,8 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   `tool_error_streak`, `bad_tool_args` (validated against the tool's JSON schema),
   `suspicious_tool_result` (HTML / error pages, empty or truncated results, a result whose
   shape drifted from earlier results of the same tool), `budget` (steps, LLM / tool calls,
-  tokens, USD, seconds) and `length_cutoff`. Findings are stored with the run and shown by
+  tokens, USD, seconds), `length_cutoff` and `no_llm_calls` (tools ran but no model call
+  was recorded: the framework's client is not wrapped). Findings are stored with the run and shown by
   `show`, `diff` and `ls --flagged`. They describe *how* a run behaved; `@crashlab.check`
   oracles still decide whether it passed. Opt-in **circuit breaker**: a critical finding
   stops the agent (`CircuitBreakerError`), and strict replay stops at the same step.

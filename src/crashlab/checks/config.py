@@ -92,6 +92,10 @@ class LengthCutoffConfig(_Cfg):
     """The model stopped because it hit max_tokens / the context limit."""
 
 
+class NoLlmCallsConfig(_Cfg):
+    """Tool calls were recorded but no LLM call: the model client is probably not wrapped."""
+
+
 class ChecksConfig(BaseModel):
     """Which built-in runtime checks run, with what thresholds."""
 
@@ -107,6 +111,7 @@ class ChecksConfig(BaseModel):
     )
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     length_cutoff: LengthCutoffConfig = Field(default_factory=LengthCutoffConfig)
+    no_llm_calls: NoLlmCallsConfig = Field(default_factory=NoLlmCallsConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -129,6 +134,7 @@ _SECTIONS = (
     "suspicious_tool_result",
     "budget",
     "length_cutoff",
+    "no_llm_calls",
 )
 
 

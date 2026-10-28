@@ -605,6 +605,30 @@ class LengthCutoff(Detector):
         )]  # fmt: skip
 
 
+# --- no_llm_calls -----------------------------------------------------------------------
+
+
+class NoLlmCalls(Detector):
+    """Tools ran but no LLM call was recorded: the framework talks to the model through a
+    client crashlab does not see (not wrapped, a private copy, or a native engine, e.g.
+    DSPy's default ``lm15`` engine). Replay / fork / diagnose then miss the model."""
+
+    kind = "no_llm_calls"
+
+    def on_end(self, run: Run, h: History) -> list[Finding]:
+        ops = [s.operation for s in run.steps]
+        tools = [s for s in run.steps if s.operation == "execute_tool"]
+        if not tools or "chat" in ops or run.replay_of:
+            return []
+        first = tools[0]
+        return [self.finding(
+            severity="warn", step=first.idx, steps=[s.idx for s in tools], key="run",
+            message=f"{len(tools)} tool call(s) but no LLM call was recorded: wrap the "
+                    "client the framework uses (crashlab.wrap / "
+                    "crashlab.integrations.litellm.patch()); see examples/integrations/",
+        )]  # fmt: skip
+
+
 def build(cfg: ChecksConfig) -> list[Detector]:
     out: list[Detector] = []
     if not cfg.enabled:
@@ -621,6 +645,8 @@ def build(cfg: ChecksConfig) -> list[Detector]:
         out.append(Budget(cfg.budget))
     if cfg.length_cutoff.enabled:
         out.append(LengthCutoff(cfg.length_cutoff))
+    if cfg.no_llm_calls.enabled:
+        out.append(NoLlmCalls(cfg.no_llm_calls))
     return out
 
 
@@ -631,4 +657,5 @@ KINDS = (
     "suspicious_tool_result",
     "budget",
     "length_cutoff",
+    "no_llm_calls",
 )

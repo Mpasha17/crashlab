@@ -434,3 +434,30 @@ def test_findings_stored_indexed_and_legacy_flags():
 def test_checks_disabled():
     RESULTS.extend([HTML_502] * 3)
     assert _run([*_calls(3), text_response(9, "x")], checks=False).findings == []
+
+
+def _tool_step(idx: int, name: str = "get_price") -> crashlab.Step:
+    return crashlab.Step(
+        run_id="r", idx=idx, span_id=f"s{idx}", operation="execute_tool", name=name,
+        request_hash="h", request={"args": {"item": "widget"}}, response={"result": "4.5"},
+    )  # fmt: skip
+
+
+def test_no_llm_calls_flags_tools_without_a_recorded_model_call():
+    # live finding: DSPy 3.4's default lm15 engine bypasses LiteLLM, so only the tool
+    # calls were recorded and nothing said so
+    run = crashlab.Run(run_id="r", name="t", steps=[_tool_step(0), _tool_step(1, "place_order")])
+    (f,) = evaluate(run, ChecksConfig())
+    assert f.kind == "no_llm_calls" and f.severity == "warn" and f.steps == [0, 1]
+    assert "no LLM call was recorded" in f.message
+
+
+def test_no_llm_calls_is_quiet_with_a_chat_step_or_when_disabled():
+    chat = crashlab.Step(
+        run_id="r", idx=0, span_id="c", operation="chat", name="m", request_hash="h",
+        response={"messages": [{"role": "assistant", "content": "hi"}]},
+    )  # fmt: skip
+    run = crashlab.Run(run_id="r", name="t", steps=[chat, _tool_step(1)])
+    assert [f for f in evaluate(run, ChecksConfig()) if f.kind == "no_llm_calls"] == []
+    lone = crashlab.Run(run_id="r", name="t", steps=[_tool_step(0)])
+    assert evaluate(lone, resolve_config({"no_llm_calls": False})) == []
