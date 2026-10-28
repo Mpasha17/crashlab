@@ -402,3 +402,28 @@ def test_secret_looking_env_names_are_refused():
     with pytest.raises(ValueError, match="looks like a secret"):
         with crashlab.record("x", env=["OPENAI_API_KEY"]):
             pass
+
+
+def test_recorded_env_is_set_before_the_entry_module_is_imported(crashlab_dir, tmp_path,
+                                                                 monkeypatch):  # fmt: skip
+    # live (raw LiteLLM app): MODEL = os.environ.get("LL_MODEL") at module level was read
+    # when replay imported the entry module, before the recorded env was restored
+    import importlib
+    import sys
+
+    mod = tmp_path / "w1_env_mod.py"
+    mod.write_text(
+        "import os\nimport crashlab\nMODEL = os.environ.get('W1_LL_MODEL')\n\n"
+        "@crashlab.tool()\ndef which(model):\n    return model\n\n"
+        "@crashlab.agent(name='env-mod', env=['W1_LL_MODEL'])\n"
+        "def run():\n    return which(MODEL)\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("W1_LL_MODEL", "groq/openai/gpt-oss-120b")
+    importlib.import_module("w1_env_mod").run()
+    src = crashlab.load("last")
+    sys.modules.pop("w1_env_mod")
+    monkeypatch.setenv("W1_LL_MODEL", "gemini/gemini-flash-lite-latest")
+    rep = crashlab.replay(src)
+    assert rep.steps[0].args == {"model": "groq/openai/gpt-oss-120b"}
+    sys.modules.pop("w1_env_mod", None)

@@ -685,7 +685,8 @@ def replay(
     """
     store = Store(store_dir)
     source = _load_source(store, run)
-    target, args, kwargs = _target(source, fn, overrides, store)
+    with recorded_env(source):  # a module-level os.environ read sees the recorded value
+        target, args, kwargs = _target(source, fn, overrides, store)
     patched = source.forked_from is not None and source.patch is not None
     replayer = (PatchedReplayer if patched and source.patch.edits_requests else Replayer)(
         source, store_dir=store.root
@@ -851,7 +852,8 @@ def fork(
     data = dict(overrides or {})
     if client is not None:
         data["client"] = client
-    target, args, kwargs = _target(source, fn, data, store)
+    with recorded_env(source):
+        target, args, kwargs = _target(source, fn, data, store)
     forker = Forker(
         source,
         at_step=at_step,
