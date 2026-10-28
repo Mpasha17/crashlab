@@ -425,3 +425,19 @@ def test_a_quote_from_the_runs_own_error_is_evidence():
     assert d.label is crashlab.TaxonomyLabel.EXTERNAL_FAILURE
     assert [(e.step_idx, e.field) for e in d.evidence] == [(4, "run.error")]
     assert len(d.notes) == 1 and "the provider said no" in d.notes[0]
+
+
+def test_a_failed_diagnoser_call_shows_the_providers_message(crashlab_dir):
+    # live (Gemini's OpenAI endpoint): "the diagnoser call failed: RateLimitError: Error
+    # code: 429" and nothing else; the reason (quota) was only in the list-shaped body
+    openai = pytest.importorskip("openai")
+    import httpx
+
+    run = _policy_run()
+    body = [{"error": {"code": 429, "message": "Quota exceeded for metric: generate_content "
+                       "requests per minute", "status": "RESOURCE_EXHAUSTED"}}]  # fmt: skip
+    req = httpx.Request("POST", "https://example.invalid/")
+    err = openai.RateLimitError("Error code: 429", response=httpx.Response(429, request=req),
+                                body=body)  # fmt: skip
+    with pytest.raises(crashlab.DiagnoseError, match="Quota exceeded for metric"):
+        crashlab.diagnose(run, "m", client=FakeOpenAI([err]), cache=False)

@@ -239,7 +239,11 @@ def _ask(
     except DiagnoseError:
         raise
     except Exception as e:
-        text = str(e)
+        from ..capture._steps import error_info
+
+        # the provider's text, also when the SDK message is only "Error code: 429" (Gemini's
+        # OpenAI endpoint sends a JSON list body the OpenAI SDK does not read)
+        text = error_info(e).detail
         hint = " (daily quota exhausted)" if "PerDay" in text or "per day" in text.lower() else ""
         raise DiagnoseError(
             f"the diagnoser call failed{hint}: {type(e).__name__}: {text[:300]}"
