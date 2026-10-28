@@ -500,3 +500,27 @@ def test_cli_verify_takes_patch_like_fork(policy_client):
     )
     assert res.exit_code == 0, res.output
     assert json.loads(res.stdout)["patched"]["passes"] == 1
+
+
+def test_a_rate_limited_trial_is_rerun_once(monkeypatch):
+    # live: a Groq org shared by several agents; 5 of 6 OpenAI Agents trials errored with
+    # "... tokens per minute (TPM) ... Please try again in 7.1s" and verify was INCONCLUSIVE
+    from crashlab.models import Trial
+    from crashlab.verify import runner as r
+
+    groq = ("Rate limit reached for model `qwen/qwen3.8-27b` in organization `org_x` service "
+            "tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 7000, Requested "
+            "1548. Please try again in 7.1s. Need more tokens?")  # fmt: skip
+    text = r._err_text("openai.RateLimitError", "Error code: 429 - " + groq)
+    assert "try again in 7.1s" in text and len(text) < 260
+    results = [Trial(role="patched", source_run="s", status="errored", error=text),
+               Trial(role="patched", source_run="s", status="pass")]  # fmt: skip
+    slept: list[float] = []
+    monkeypatch.setattr(r, "_trial", lambda *a: results.pop(0))
+    monkeypatch.setattr(r.time, "sleep", slept.append)
+    assert r._trial_retrying().status == "pass" and 8 <= slept[0] < 9
+    # a blocked side-effect trial or a daily limit is not rerun
+    for err in (f"{r.BLOCKED}: place_order (step 3) blocked", "429 per day. Try again in 5s"):
+        results[:] = [Trial(role="patched", source_run="s", status="errored", error=err)]
+        slept.clear()
+        assert r._trial_retrying().status == "errored" and slept == []

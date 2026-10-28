@@ -204,6 +204,8 @@ def _retry_after(text: str) -> float | None:
     short enough to wait once; None for anything else."""
     if "429" not in text and "rate" not in text.lower() and "quota" not in text.lower():
         return None
+    if "PerDay" in text or "per day" in text.lower():  # waits for tomorrow, not a minute
+        return None
     m = _RETRY_AFTER.search(text)
     if m is None:
         return None

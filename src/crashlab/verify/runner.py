@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -147,6 +148,34 @@ def _blocked_steps(run: Run) -> list[str]:
     return [f"{s.name} (step {s.idx})" for s in run.steps if s.source == "blocked"]
 
 
+def _err_text(kind: str, detail: str) -> str:
+    """``kind: detail`` cut to 200 characters, keeping a rate limit's "try again in Ns"
+    (Groq puts it after ~230 characters) so the trial can be rerun after that wait."""
+    from ..diagnose.diagnoser import _RETRY_AFTER
+
+    text = f"{kind}: {detail[:200]}"
+    m = _RETRY_AFTER.search(detail)
+    if m is not None and m.end() > 200:
+        text += f" … ({m.group(0)})"
+    return text
+
+
+def _trial_retrying(*args: Any) -> Trial:
+    """A trial; one that hit a short per-minute rate limit ("try again in 7s") is run again
+    once after that wait instead of being lost (shared free-tier quotas)."""
+    from ..diagnose.diagnoser import _retry_after
+
+    t = _trial(*args)
+    if t.status != "errored" or not t.error or BLOCKED in t.error:
+        return t
+    wait = _retry_after(t.error)
+    if wait is None:
+        return t
+    print(f"crashlab: trial rate-limited; rerunning it in {wait:.0f}s", file=sys.stderr)
+    time.sleep(wait)
+    return _trial(*args)
+
+
 def _trial(
     role: str,
     source: Run,
@@ -170,14 +199,14 @@ def _trial(
             allow_live_side_effects=allow_live_side_effects,
         )
     except Exception as e:  # noqa: BLE001 - the harness failing says nothing about the fix
-        msg = f"{type(e).__name__}: {' '.join(str(e).split())[:200]}"
+        msg = _err_text(type(e).__name__, " ".join(str(e).split()))
         return Trial(role=role, source_run=source.run_id, status="errored", error=msg)  # type: ignore[arg-type]
     cost, tokens = _live_usage(branch)
     branch.tags.append(tag)
     branch.tags.append(f"verify-{role}")
     Store(root).update_run(branch)
     failed = [c.name for c in branch.checks if c.status != "pass"]
-    err = f"{branch.error.type}: {branch.error.detail[:200]}" if branch.error else None
+    err = _err_text(branch.error.type, branch.error.detail) if branch.error else None
     if branch.status == "error" and is_infra_error(branch.error):
         status = "errored"
     elif blocked := _blocked_steps(branch):
@@ -276,7 +305,7 @@ def verify(
         if spent():
             v.budget_exhausted = True
             break
-        record(_trial(role, run, at, p, client, store.root, tag, allow_live_side_effects))
+        record(_trial_retrying(role, run, at, p, client, store.root, tag, allow_live_side_effects))
 
     reg_ids = resolve_regression(store, run, regress, regression_limit)
     global_patch = patch.scope != "step"
@@ -298,7 +327,7 @@ def verify(
             note = f"patch does not apply: {' '.join(str(e).split())[:150]}"
             v.regression.append(RegressionResult(run_id=rid, status="skipped", note=note))
             continue
-        t = _trial(
+        t = _trial_retrying(
             "regression",
             past,
             _fork_step(patch, past),
