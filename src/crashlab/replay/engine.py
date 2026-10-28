@@ -505,7 +505,11 @@ def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
     if target.endswith(".py") or os.sep in target:
         path = Path(target).resolve()
         if not path.exists():
-            raise ReplayError(f"entry point file {target!r} not found (cwd: {os.getcwd()})")
+            raise ReplayError(
+                f"entry point file {target!r} not found (cwd: {os.getcwd()}); script paths "
+                "are relative to the directory the run was recorded in: run from there "
+                "(e.g. `cd` there before `pytest --crashlab`), or pass fn="
+            )
         spec = importlib.util.spec_from_file_location(f"{REPLAY_MODULE_PREFIX}{path.stem}", path)
         if spec is None or spec.loader is None:
             raise ReplayError(f"cannot import {target!r}")

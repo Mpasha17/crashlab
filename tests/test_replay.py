@@ -343,3 +343,13 @@ def test_index_schema_v1_is_migrated(tmp_path):
     assert {"cost_usd", "max_severity"} <= cols  # v3
     assert {"cache_key", "model"} <= {r[1] for r in conn.execute("PRAGMA table_info(diagnoses)")}
     assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("4",)
+
+
+def test_missing_script_entry_point_says_to_run_from_the_recording_directory(tmp_path, monkeypatch):
+    # live: an exported test run with pytest from a parent directory of the recorded one
+    from crashlab.replay.divergence import ReplayError
+    from crashlab.replay.engine import resolve_entrypoint
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ReplayError, match="relative to the directory the run was recorded in"):
+        resolve_entrypoint("agent_app.py:run_agent")
