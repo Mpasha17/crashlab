@@ -70,6 +70,7 @@ class Redactor:
         return any(p.search(key) for p in self.key_patterns)
 
     def redact_str(self, value: str) -> str:
+        value = _storable(value)
         for pat in self.value_patterns:
             value = pat.sub(REDACTED, value)
         for hook in self.hooks:
@@ -83,6 +84,8 @@ class Redactor:
         if isinstance(obj, dict):
             out = {}
             for k, v in obj.items():
+                if isinstance(k, str):
+                    k = _storable(k)
                 if isinstance(k, str) and self._sensitive_key(k) and v not in (None, ""):
                     out[k] = REDACTED
                 else:
@@ -100,6 +103,16 @@ class Redactor:
                 return [obj[0], REDACTED]
             return [self.redact(v) for v in obj]
         return obj
+
+
+def _storable(value: str) -> str:
+    """Lone surrogates (e.g. an emoji cut in half) cannot be written as UTF-8: keep them
+    as a visible ``\\udXXX`` escape instead of crashing the agent that is recorded."""
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return value.encode("utf-8", "backslashreplace").decode("utf-8")
+    return value
 
 
 _default = Redactor()

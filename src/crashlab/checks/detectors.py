@@ -38,7 +38,7 @@ def canonical(value: Any) -> str:
 
 
 def _digest(value: Any) -> str:
-    return hashlib.sha256(canonical(value).encode()).hexdigest()[:12]
+    return hashlib.sha256(canonical(value).encode("utf-8", "surrogatepass")).hexdigest()[:12]
 
 
 def as_text(value: Any) -> str:

@@ -59,7 +59,7 @@ class DiagnoseError(RuntimeError):
 
 def cache_key(model: str, msgs: Messages) -> str:
     blob = json.dumps({"v": PROMPT_VERSION, "model": model, "messages": msgs}, sort_keys=True)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    return hashlib.sha256(blob.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)

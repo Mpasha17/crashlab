@@ -130,7 +130,7 @@ def canonical_json(obj: Any) -> str:
 
 
 def request_hash(obj: Any) -> str:
-    return hashlib.sha256(canonical_json(obj).encode("utf-8")).hexdigest()
+    return hashlib.sha256(canonical_json(obj).encode("utf-8", "surrogatepass")).hexdigest()
 
 
 # --- binary payloads -----------------------------------------------------------------
