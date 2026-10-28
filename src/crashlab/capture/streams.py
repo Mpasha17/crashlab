@@ -7,6 +7,7 @@ assembled final response is recorded as the step's response.
 
 from __future__ import annotations
 
+import weakref
 from typing import TYPE_CHECKING, Any
 
 from .normalize import to_jsonable
@@ -260,6 +261,9 @@ class _StreamBase:
         object.__setattr__(self, "_call", call)
         object.__setattr__(self, "_asm", assembler)
         object.__setattr__(self, "_finished", False)
+        ctx = getattr(getattr(call, "pending", None), "ctx", None)
+        if ctx is not None:
+            ctx.open_streams.append(weakref.ref(self))
 
     def _finish(self, *, error: BaseException | None = None, complete: bool = False) -> None:
         if self._finished:

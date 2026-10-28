@@ -180,6 +180,7 @@ class record:
         assert self.ctx is not None and self._token is not None
         run = self.ctx.run
         try:
+            self.ctx.finish_open_streams()
             run.ended_at = utcnow()
             run.usage.wall_time_ms = round((time.perf_counter() - self._t0) * 1000, 3)
             user_outcome = run.outcome != "unknown"

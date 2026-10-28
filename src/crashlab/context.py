@@ -9,6 +9,7 @@ asyncio tasks and ``asyncio.to_thread`` inherit the context automatically. Plain
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import functools
 import json
@@ -52,6 +53,18 @@ class RunContext:
     breaker_replay: tuple[int, Finding] | None = None
     tripped: Finding | None = None
     _cost_unknown: bool = False
+    # weakrefs to LLM streams opened in this run; any still unfinished at run end (the
+    # consumer raised mid-stream and its traceback keeps the stream alive) are recorded
+    # as partial then, not lost after the run is saved
+    open_streams: list[Any] = field(default_factory=list)
+
+    def finish_open_streams(self) -> None:
+        streams, self.open_streams = self.open_streams, []
+        for ref in streams:
+            stream = ref()
+            if stream is not None:
+                with contextlib.suppress(Exception):  # best effort, like __del__
+                    stream._finish(complete=False)
 
     def next_idx(self) -> int:
         with self._lock:
