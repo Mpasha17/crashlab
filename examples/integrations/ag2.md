@@ -34,3 +34,5 @@ Notes
 - With crashlab 0.0.1 from PyPI, replay failed with
   `UnsupportedToolError: Unsupported tool type 'function' for provider 'openai-completions'`
   (the replayed response was not a real SDK model). Fixed on main.
+- Gemini's OpenAI-compatible endpoint returns `400` on the second model call (after a tool
+  call) with this framework; reproduced without crashlab. Groq works.

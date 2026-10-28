@@ -33,3 +33,5 @@ Notes
   `isinstance(..., ChatCompletion)`; Groq's extra `service_tier` made the rebuild fall
   back to a generic object). Fixed on main (51c603b).
 - Streaming (`streaming_callback=...`) records and replays offline (tested on Groq gpt-oss-120b).
+- Gemini's OpenAI-compatible endpoint returns `400` on the second model call (after a tool
+  call) with this framework; reproduced without crashlab. Groq works.
