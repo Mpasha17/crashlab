@@ -20,6 +20,7 @@ The replay is stored as a new run with ``replay_of`` set to the source run id.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import contextlib
 import importlib
 import importlib.util
@@ -646,7 +647,7 @@ def _run_callable(
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(_await(out))
+        return _run_on_loop(_await(out))
     # called from async code (Jupyter, async tests): use a private loop in a worker thread
     # that carries this context (the pending replay)
     return run_in_thread(asyncio.run, _await(out))
@@ -654,6 +655,41 @@ def _run_callable(
 
 async def _await(aw: Any) -> Any:
     return await aw
+
+
+_LOOPS = threading.local()
+
+
+def _run_on_loop(coro: Any) -> Any:
+    """Run ``coro`` on one event loop per thread that lives across replays and forks.
+
+    ``asyncio.run`` would close the loop after every run, but agent frameworks cache async
+    HTTP clients (PydanticAI, OpenAI SDK): the next fork reuses a pool bound to a closed loop
+    and the old one's cleanup prints "Task exception was never retrieved ... Event loop is
+    closed". A real app has one loop for its whole life, so replays get one too. Tasks the
+    run leaves behind are cancelled, as ``asyncio.run`` does.
+    """
+    loop = getattr(_LOOPS, "loop", None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        _LOOPS.loop = loop
+        atexit.register(_close_loop, loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+
+def _close_loop(loop: asyncio.AbstractEventLoop) -> None:
+    if loop.is_closed():
+        return
+    with contextlib.suppress(Exception):  # best effort at interpreter exit
+        loop.run_until_complete(loop.shutdown_asyncgens())
+    loop.close()
 
 
 # --- public API ----------------------------------------------------------------------
