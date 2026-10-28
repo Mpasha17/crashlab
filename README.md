@@ -270,6 +270,7 @@ crashlab check last    # re-run the oracles and the runtime checks (--save to st
 crashlab check --all --findings-only --max-cost 0.05 --fail-on error   # e.g. in CI
 crashlab fork last --at 0 --system-append "Never refund more than the order total."
 crashlab fork last --at 2 --patch fix.yaml --dry-run   # show the patch diff, run nothing
+crashlab fork last --at 0 --patch fix-1   # a fix proposed by `crashlab fix` (by id)
 crashlab diff last     # the fork vs its parent: checks, usage, steps, first divergence
 ```
 
