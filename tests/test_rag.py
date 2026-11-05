@@ -311,3 +311,23 @@ def test_live_paraphrase_of_stale_doc_is_not_an_unsupported_claim():
     )
     assert rag.claims_supported(run, answer) is None
     assert rag.answer_grounded(run, answer) is None
+
+
+@pytest.mark.parametrize(
+    ("answer", "faults", "failing"),
+    [
+        ("Sorry, I could not find that.", ["wrong_retrieval"], "retrieved_gold_doc"),
+        (GOOD, ["missing_context"], "abstains_without_context"),
+        ("You have 14 days [refund-policy-v1].", ["stale_docs"], "no_stale_docs"),
+        ("Refunds are paid only as store credit vouchers [refund-policy-v2].", [],
+         "claims_supported"),
+    ],
+)  # fmt: skip
+def test_exported_rag_failures_pass_in_fresh_process(tmp_path, answer, faults, failing):
+    run = _run(answer, faults=faults)
+    assert _status(run)[failing] == "fail"
+    out = tmp_path / "exported"
+    paths = export_test(run.run_id, out_dir=out)
+    assert f'"{failing}": "fail"' in next(p for p in paths if p.suffix == ".py").read_text()
+    res = _pytest(out)
+    assert res.returncode == 0 and "passed" in res.stdout, res.stdout + res.stderr

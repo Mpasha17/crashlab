@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections.abc import Iterable
 from typing import Any
 
@@ -39,9 +40,9 @@ __all__ = [
     "retrieved_ids",
 ]
 
-CITATION = r"\[([^\[\]\s]+)\]"
+CITATION = r"\[([^\[\]]+)\](?!\()"
 _WRAPPERS = ("documents", "results", "docs", "hits", "matches")
-_NUM = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)*(?![\w])")
+_NUM = re.compile(r"(?<![A-Za-z0-9.])\d+(?:[.,]\d+)*(?![A-Za-z0-9])")
 ABSTAIN = (
     "i don't know",
     "i do not know",
@@ -136,22 +137,43 @@ def _answer_step(run: Run) -> str:
 
 
 def cited_ids(text: str | None, pattern: str = CITATION) -> list[str]:
-    """Unique citation ids in ``text`` (default ``[doc-id]``), in order."""
+    """Unique citation ids in ``text``, in order. Default form ``[doc-id]``; ``[a, b]`` /
+    ``[a; b]`` cite several; bracketed text with spaces and ``[text](url)`` links are not
+    citations."""
     out: list[str] = []
-    for m in re.finditer(pattern, text or ""):
-        if m.group(1) not in out:
-            out.append(m.group(1))
+    for m in re.finditer(pattern, text if isinstance(text, str) else ""):
+        for part in re.split(r"[,;]", m.group(1)):
+            part = part.strip()
+            if part and not re.search(r"\s", part) and part not in out:
+                out.append(part)
     return out
 
 
 def retrieved_ids(
-    run: Run, expected: Iterable[str], *, tool: str = "search_docs", id_key: str = "id"
+    run: Run,
+    expected: Iterable[str],
+    *,
+    tool: str = "search_docs",
+    id_key: str = "id",
+    top_k: int | None = None,
 ) -> str | None:
-    """Wrong retrieval: every id in ``expected`` (your gold documents) was retrieved."""
-    got = _ids(retrieved(run, tool, id_key=id_key), id_key)
-    missing = [e for e in expected if e not in got]
+    """Wrong retrieval: every id in ``expected`` (your gold documents) was retrieved; with
+    ``top_k``, within the first ``top_k`` documents of some ``tool`` call (the recorded
+    order is the ranking; score fields are not read)."""
+    docs = retrieved(run, tool, id_key=id_key)
+    if top_k is not None:
+        rank: dict[int, int] = {}
+        kept = []
+        for s, d in docs:
+            rank[id(s)] = rank.get(id(s), 0) + 1
+            if rank[id(s)] <= top_k:
+                kept.append((s, d))
+        docs = kept
+    got = _ids(docs, id_key)
+    missing = [str(e) for e in expected if str(e) not in got]
     if missing:
-        return f"{_where(run, tool)}: {tool} returned {got}, expected {missing}"
+        top = f" (top {top_k})" if top_k is not None else ""
+        return f"{_where(run, tool)}: {tool} returned {got}{top}, expected {missing}"
     return None
 
 
@@ -177,7 +199,8 @@ def citations_were_retrieved(
 
 
 def _numbers(text: str) -> set[str]:
-    return {n.replace(",", "") for n in _NUM.findall(text or "")}
+    text = unicodedata.normalize("NFKC", text) if isinstance(text, str) else ""
+    return {n.replace(",", "") for n in _NUM.findall(text)}
 
 
 def answer_grounded(
@@ -386,8 +409,10 @@ NEGATIONS = frozenset(
         "nowhere",
     ]
 )
-_WORD = re.compile(r"[a-z][a-z']*")
-_SENT = re.compile(r"(?<=[.!?])\s+|\n+")
+_WORD = re.compile(r"[^\W\d_](?:[^\W\d_]|')*")
+_SENT = re.compile(r"(?<=[.!?])\s+|(?<=[。！？])|\n+")
+_CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]")
+_INTERJECTION = re.compile(r"^\s*(?:no|yes|nope|yeah|yep)\s*[,!.:;-]\s*", re.IGNORECASE)
 
 
 def _stem(w: str) -> str:
@@ -443,34 +468,47 @@ def claims_supported(
     if not docs:
         return None
     all_cites = cited_ids(answer, pattern)
-    for sentence in _SENT.split(answer or ""):
+    content_of: dict[str, tuple[set[str], bool]] = {}
+
+    def doc_info(ds: str) -> tuple[set[str], bool]:
+        if ds not in content_of:
+            content_of[ds] = (set(_content(ds, stopwords)), _negated(ds))
+        return content_of[ds]
+
+    for sentence in _SENT.split(answer if isinstance(answer, str) else ""):
         cites = cited_ids(sentence, pattern) or all_cites
-        words = _content(re.sub(pattern, " ", sentence), stopwords)
+        claim = _INTERJECTION.sub("", re.sub(pattern, " ", sentence)).strip()
+        if _CJK.search(claim):  # no spaces between words: overlap would be meaningless
+            continue
+        words = _content(claim, stopwords)
         if len(words) < min_words:
             continue
         used = [d for _, d in docs if str(d.get(id_key)) in cites] or [d for _, d in docs]
         doc_sents = [ds for d in used for ds in _SENT.split(str(d.get(text_key, ""))) if ds]
         vocab: set[str] = set()
         for ds in doc_sents:
-            vocab |= set(_content(ds, stopwords))
+            vocab |= doc_info(ds)[0]
         where = f"[{'], ['.join(cites)}]" if cites else "the retrieved documents"
-        claim = re.sub(pattern, "", sentence).strip()
         missing = [surface for st, surface in words.items() if st not in vocab]
         if (len(words) - len(missing)) / len(words) < min_overlap:
             return (
                 f"{_answer_step(run)}: claim {claim!r} is not supported by {where} "
                 f"({_where(run, tool)}): words {missing} not found"
             )
+        # negation: the best-matching document sentence must not have the opposite
+        # polarity (ties favour the same polarity, so mixed documents do not flag)
         neg = _negated(claim)
-
-        def overlap(ds: str, w: dict[str, str] = words) -> float:
-            return len(set(w) & set(_content(ds, stopwords))) / len(w)
-
-        same = [ds for ds in doc_sents if _negated(ds) == neg and overlap(ds) >= min_overlap]
-        flipped = [ds for ds in doc_sents if _negated(ds) != neg and overlap(ds) >= min_overlap]
-        if flipped and not same:
+        best: dict[bool, tuple[float, str]] = {}
+        for ds in doc_sents:
+            vocab_ds, ds_neg = doc_info(ds)
+            score = len(set(words) & vocab_ds) / len(words)
+            if score > best.get(ds_neg, (-1.0, ""))[0]:
+                best[ds_neg] = (score, ds)
+        flip_score, flip_ds = best.get(not neg, (0.0, ""))
+        same_score = best.get(neg, (0.0, ""))[0]
+        if flip_score >= min_overlap and flip_score > same_score:
             return (
                 f"{_answer_step(run)}: claim {claim!r} contradicts {where} "
-                f"({_where(run, tool)}): negation mismatch with {flipped[0].strip()!r}"
+                f"({_where(run, tool)}): negation mismatch with {flip_ds.strip()!r}"
             )
     return None
