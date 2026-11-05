@@ -258,7 +258,12 @@ def export_test(
     from .verify import verifications
 
     store = Store(store_dir)
+    ref = run
     run = store.load_run(run.run_id if isinstance(run, Run) else run)
+    # "last" right after `crashlab replay last` is the replay: export what it replayed
+    # (a strict replay is the same run; a fork is an experiment, still refused)
+    while ref == "last" and run.replay_of and not run.forked_from:
+        run = store.load_run(run.replay_of)
     if run.forked_from or run.replay_of:
         raise ExportError(f"{run.run_id} is a fork/replay; export the original run")
     vs = verifications(store, run.run_id)

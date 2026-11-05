@@ -277,9 +277,17 @@ async def recancel(exc: BaseException) -> None:
     import asyncio
 
     state = getattr(getattr(exc, "recorded", None), "state", None) or {}
+    if not isinstance(exc, asyncio.CancelledError):
+        return
     ms = state.get("cancelled_outside_ms")
-    if isinstance(exc, asyncio.CancelledError) and isinstance(ms, (int, float)):
+    if isinstance(ms, (int, float)):
         await asyncio.sleep(max(1.0, 5 * ms / 1000))
+        return
+    ms = state.get("cancelled_unknown_ms")  # recorded on Python 3.10
+    if isinstance(ms, (int, float)):
+        # maybe the caller's timeout, maybe the call itself: give an outer timeout the
+        # chance to fire again, then raise the recorded CancelledError (never masked)
+        await asyncio.sleep(max(0.5, 3 * ms / 1000))
 
 
 def _http_lib(owner: type) -> Any:

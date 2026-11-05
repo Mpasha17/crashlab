@@ -86,3 +86,26 @@ def test_token_text_already_in_the_recording_is_not_expanded(tmp_path, monkeypat
     run_id, _ = import_run(fresh, cassette, replace=True)
     step = fresh.load_run(run_id).steps[0]
     assert step.request["args"]["cmd"] == "ls $PWD"
+
+
+def test_export_test_last_after_a_replay_exports_the_original(tmp_path, monkeypatch):
+    """`crashlab replay last` then `crashlab export-test last` failed: 'is a fork/replay'."""
+    monkeypatch.chdir(tmp_path)
+    pathbot()
+    original = crashlab.load("last")
+    crashlab.replay(original)
+    assert crashlab.load("last").replay_of == original.run_id
+    written = export_test("last", out_dir=tmp_path / "t")
+    assert any(original.run_id[:10].lower() in p.name for p in written)
+
+
+def test_export_test_of_a_fork_by_id_still_refused(tmp_path, monkeypatch):
+    import pytest
+
+    from crashlab.export import ExportError
+
+    monkeypatch.chdir(tmp_path)
+    pathbot()
+    replayed = crashlab.replay(crashlab.load("last"))
+    with pytest.raises(ExportError, match="fork/replay"):
+        export_test(replayed.run_id, out_dir=tmp_path / "t")

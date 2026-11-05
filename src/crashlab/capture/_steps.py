@@ -74,17 +74,23 @@ def _exc_state(exc: BaseException) -> dict[str, Any] | None:
     return state or None
 
 
-def _cancelled_from_outside(exc: BaseException) -> bool:
+def _cancel_origin(exc: BaseException) -> str | None:
+    """``"outside"`` (the task is being cancelled), ``"unknown"`` (Python 3.10: no
+    ``Task.cancelling()``), or None (not an asyncio cancel / raised by the call itself)."""
     import asyncio
 
     if not isinstance(exc, asyncio.CancelledError):
-        return False
+        return None
     try:
         task = asyncio.current_task()
     except RuntimeError:  # not under asyncio (trio ...)
-        return False
+        return None
+    if task is None:
+        return None
     cancelling = getattr(task, "cancelling", None)  # Python 3.11+
-    return bool(task is not None and cancelling is not None and cancelling())
+    if cancelling is None:
+        return "unknown"
+    return "outside" if cancelling() else None
 
 
 @dataclass
@@ -190,11 +196,13 @@ class PendingStep:
         attrs = {"error.type": type(exc).__qualname__}
         attrs.update(attributes or {})
         err = error_info(exc, is_tool_error=is_tool_error)
-        if _cancelled_from_outside(exc):
+        origin = _cancel_origin(exc)
+        if origin is not None:
             # the caller cancelled this call (wait_for timeout, a failing TaskGroup
-            # sibling): replay waits to be cancelled again (rebuild.recancel)
+            # sibling): replay waits to be cancelled again (rebuild.recancel). Python
+            # 3.10 cannot tell who cancelled: "unknown" waits briefly, then raises
             ms = round((time.perf_counter() - self.t0) * 1000, 1)
-            err.state = {**(err.state or {}), "cancelled_outside_ms": ms}
+            err.state = {**(err.state or {}), f"cancelled_{origin}_ms": ms}
         return self._emit(response, raw_response, err, attrs, source)
 
 

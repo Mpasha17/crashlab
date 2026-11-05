@@ -6,7 +6,6 @@ instead of raising ``CancelledError`` into the agent."""
 from __future__ import annotations
 
 import asyncio
-import sys
 
 import pytest
 
@@ -90,7 +89,6 @@ async def wait_for_agent() -> str:
     return "finished"
 
 
-@pytest.mark.skipif(sys.version_info < (3, 11), reason="Task.cancelling() is 3.11+")
 def test_externally_cancelled_async_tool_replays_as_timeout():
     assert asyncio.run(wait_for_agent()) == "timed out"
     run = crashlab.load("last")
@@ -132,7 +130,6 @@ def test_args_round_trip_only_when_small(args):
     assert isinstance(exc, ValueError)
 
 
-@pytest.mark.skipif(sys.version_info < (3, 11), reason="Task.cancelling() is 3.11+")
 def test_llm_call_cancelled_by_wait_for_replays_as_timeout():
     """A wrapped AsyncOpenAI call under ``asyncio.wait_for`` that timed out (agent step
     timeouts) replayed as a bare CancelledError: 'replay raised CancelledError'."""
@@ -161,7 +158,8 @@ def test_llm_call_cancelled_by_wait_for_replays_as_timeout():
 
     assert asyncio.run(agent()) == "timed out"
     run = crashlab.load("last")
-    assert run.steps[0].error.state["cancelled_outside_ms"] >= 0
+    state = run.steps[0].error.state
+    assert (state.get("cancelled_outside_ms") or state.get("cancelled_unknown_ms")) is not None
     assert crashlab.replay(run, fn=agent).output == "timed out"
 
 
@@ -176,7 +174,6 @@ def test_state_left_out_when_empty_so_older_readers_load_the_step():
     assert ErrorInfo.model_validate(full.model_dump(mode="json")) == full
 
 
-@pytest.mark.skipif(sys.version_info < (3, 11), reason="Task.cancelling() is 3.11+")
 def test_stream_cancelled_mid_way_by_wait_for_replays_as_timeout():
     """The agent's timeout fired while it was reading an AsyncOpenAI stream: replay
     served the 4 chunks and raised CancelledError at once instead of timing out."""
