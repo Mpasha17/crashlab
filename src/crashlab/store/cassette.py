@@ -131,7 +131,6 @@ def read_cassette(path: Path) -> list[Step]:
             stacklevel=2,
         )
     if bad:
-
         shown = ", ".join(map(str, bad[:5])) + (" ..." if len(bad) > 5 else "")
         warnings.warn(
             f"crashlab: skipped {len(bad)} damaged line(s) in {path} (line {shown})",
