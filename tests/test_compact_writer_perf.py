@@ -6,11 +6,9 @@ backstop only."""
 from __future__ import annotations
 
 import json
-import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
@@ -91,30 +89,28 @@ def test_optimized_writer_matches_full_and_old_compact_digests(monkeypatch, tmp_
             assert ref["check"] == compact.digest(full)
 
 
-def test_only_new_messages_are_serialized(monkeypatch, tmp_path):
-    """CI-safe linear bound: for an append-only N-step chat, json.dumps of message
-    bodies is called O(N) times (once per message), not O(N^2)."""
+def test_content_path_preserves_mutations_and_stays_readable(monkeypatch, tmp_path):
+    """Caching must not hide in-place mutations: a deep-copied full baseline matches
+    the compact recording. (Identity reuse was removed for this reason.)"""
+    monkeypatch.delenv(compact.ENV, raising=False)
+    full_w = CassetteWriter(tmp_path / "full.jsonl")
     monkeypatch.setenv(compact.ENV, "1")
-    n = 200
-    real_dumps = json.dumps
-    msg_dumps = {"n": 0}
+    comp_w = CassetteWriter(tmp_path / "comp.jsonl")
+    msgs: list = []
+    for i in range(40):
+        if msgs and i % 5 == 0:
+            msgs[0]["content"] = f"mutated-{i}"
+        msgs = msgs + [{"role": "user", "content": f"q{i}"}]
+        full_w.append(_line(i, __import__("copy").deepcopy(msgs)))
+        comp_w.append(_line(i, msgs))
+    dump = lambda p: [s.model_dump(exclude={"started_at"}) for s in read_cassette(p)]  # noqa: E731
+    assert dump(tmp_path / "comp.jsonl") == dump(tmp_path / "full.jsonl")
 
-    def counting_dumps(obj, *a, **k):
-        # count only serialisations of individual chat messages (dicts with role)
-        if isinstance(obj, dict) and "role" in obj:
-            msg_dumps["n"] += 1
-        return real_dumps(obj, *a, **k)
 
-    with mock.patch("crashlab.store.compact.json.dumps", side_effect=counting_dumps):
-        _record(tmp_path / "c.jsonl", n)
-    # one dumps per message ever added (1+2+... would be n*(n+1)/2 ≈ 20100)
-    assert msg_dumps["n"] == n, f"expected {n} message dumps, got {msg_dumps['n']}"
-    # soft wall-clock backstop: well under the previous ~2s / 1500 ≈ 0.27s / 200
-    # (only checked when the count assertion already passed; generous for CI)
-    t0 = time.perf_counter()
-    _record(tmp_path / "c2.jsonl", 1500)
-    elapsed = time.perf_counter() - t0
-    assert elapsed < 0.8, f"1500-step compact write took {elapsed:.2f}s (budget 0.8s)"
+def test_inplace_append_recording_is_complete(monkeypatch, tmp_path):
+    monkeypatch.setenv(compact.ENV, "1")
+    _record(tmp_path / "c.jsonl", 200, mutate="inplace")
+    assert len(read_cassette(tmp_path / "c.jsonl")) == 200
 
 
 def test_rewrite_and_edit_prefix_still_correct(monkeypatch, tmp_path):
@@ -135,22 +131,22 @@ def test_rewrite_and_edit_prefix_still_correct(monkeypatch, tmp_path):
             assert [len(s.request["messages"]) for s in steps] == list(range(1, 41))
 
 
-def test_huge_messages_stay_linear(monkeypatch, tmp_path):
+def test_huge_messages_roundtrip(monkeypatch, tmp_path):
+    """Large message bodies still expand to a deep-copied full baseline."""
+    import copy
+
+    monkeypatch.delenv(compact.ENV, raising=False)
+    full_w = CassetteWriter(tmp_path / "full.jsonl")
     monkeypatch.setenv(compact.ENV, "1")
-    real_dumps = json.dumps
-    msg_dumps = {"n": 0}
-
-    def counting_dumps(obj, *a, **k):
-        if isinstance(obj, dict) and "role" in obj:
-            msg_dumps["n"] += 1
-        return real_dumps(obj, *a, **k)
-
-    n = 60
-    with mock.patch("crashlab.store.compact.json.dumps", side_effect=counting_dumps):
-        _record(tmp_path / "huge.jsonl", n, msg_size=50_000)
-    assert msg_dumps["n"] == n
-    steps = read_cassette(tmp_path / "huge.jsonl")
-    assert len(steps[-1].request["messages"][-1]["content"]) >= 50_000
+    comp_w = CassetteWriter(tmp_path / "comp.jsonl")
+    msgs: list = []
+    for i in range(20):
+        msgs = msgs + [{"role": "user", "content": ("x" * 50_000) + f" {i}"}]
+        full_w.append(_line(i, copy.deepcopy(msgs)))
+        comp_w.append(_line(i, msgs))
+    dump = lambda p: [s.model_dump(exclude={"started_at"}) for s in read_cassette(p)]  # noqa: E731
+    assert dump(tmp_path / "comp.jsonl") == dump(tmp_path / "full.jsonl")
+    assert len(dump(tmp_path / "comp.jsonl")[-1]["request"]["messages"][-1]["content"]) >= 50_000
 
 
 def test_concurrent_independent_writers(monkeypatch, tmp_path):

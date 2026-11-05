@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Mapping
 from typing import Any
 
 VERSION = 1
@@ -63,9 +64,40 @@ def safe_text(text: str, limit: int = 300) -> str:
     return text if len(text) <= limit else text[:limit] + "..."
 
 
+def _normalize_msg(m: Any) -> Any:
+    """Dict-ify ``Mapping`` subclasses so a cassette line stores real JSON objects,
+    not ``default=str`` object addresses, and so encodings are content-stable."""
+    if isinstance(m, Mapping) and not isinstance(m, dict):
+        return {k: _normalize_msg(v) if isinstance(v, Mapping) and not isinstance(v, dict) else v
+                for k, v in m.items()}  # fmt: skip
+    return m
+
+
+def normalize_line_messages(line: dict[str, Any]) -> dict[str, Any]:
+    """Coerce message-list entries that are ``Mapping`` (but not ``dict``) to dicts.
+
+    Applied on every append (compact on or off) so a cassette never stores
+    ``repr`` of a user Mapping subclass via ``default=str``.
+    """
+    out = line
+    for top, key in FIELDS:
+        obj = out.get(top)
+        if not isinstance(obj, dict):
+            continue
+        msgs = obj.get(key)
+        if not isinstance(msgs, list) or not any(
+            isinstance(m, Mapping) and not isinstance(m, dict) for m in msgs
+        ):
+            continue
+        if out is line:
+            out = dict(line)
+        out[top] = {**obj, key: [_normalize_msg(m) for m in msgs]}
+    return out
+
+
 def _dumps_msg(m: Any) -> str:
     # ensure_ascii=False matches :func:`digest`, so a check can be built from the cache.
-    return json.dumps(m, sort_keys=True, ensure_ascii=False, default=str)
+    return json.dumps(_normalize_msg(m), sort_keys=True, ensure_ascii=False, default=str)
 
 
 def digest_from_enc(enc: list[str]) -> str:
@@ -74,29 +106,28 @@ def digest_from_enc(enc: list[str]) -> str:
     return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
 
 
-def _encode_list(full: list[Any], prev: tuple[int, list[Any], list[str]] | None) -> list[str]:
-    """Encode ``full``, reusing the previous encodings for a shared object prefix.
+def _encode_list(
+    full: list[Any], _prev: tuple[int, list[Any], list[str]] | None
+) -> tuple[list[Any], list[str]]:
+    """Encode ``full`` by content. Identity-based reuse is unsafe: a later step may
+    mutate nested fields of a message still referenced from an earlier step, and a
+    stale encoding would silently drop that mutation from the recording.
 
-    Chat agents almost always append: the new list shares message objects with the
-    previous one (``msgs = msgs + [new]`` or ``msgs.append(new)``). Re-encoding the
-    whole conversation every step was O(n^2); this is O(new messages).
+    ``prev`` is accepted for API symmetry with the cache; encodings are always
+    rebuilt so ``keep`` / ``check`` reflect the messages passed to this append.
+    Returns ``(normalized_messages, encodings)``.
     """
-    if prev is not None:
-        _, prev_full, prev_enc = prev
-        n = min(len(prev_full), len(full), len(prev_enc))
-        shared = 0
-        while shared < n and full[shared] is prev_full[shared]:
-            shared += 1
-        if shared:
-            return prev_enc[:shared] + [_dumps_msg(m) for m in full[shared:]]
-    return [_dumps_msg(m) for m in full]
+    norm = [_normalize_msg(m) for m in full]
+    return norm, [_dumps_msg(m) for m in norm]
 
 
 class Compactor:
     """Writer side; holds the last full list seen for each field of one cassette.
 
-    Cached per field: ``(seq, messages, encodings)``. ``encodings`` is never mutated
-    in place, so :meth:`snapshot` / :meth:`restore` stay correct after a failed write.
+    Cached per field: ``(seq, messages_ref, encodings)``. Encodings are content-based
+    (identity reuse is not trusted: nested mutations must be visible). ``encodings`` is
+    never mutated in place, so :meth:`snapshot` / :meth:`restore` stay exact after a
+    failed write.
     """
 
     def __init__(self) -> None:
@@ -120,8 +151,11 @@ class Compactor:
                 continue
             name = f"{top}.{key}"
             prev = self._last.get(name)
-            enc = _encode_list(full, prev)
+            norm, enc = _encode_list(full, prev)
+            # cache the normalized list (stable content); keep caller's list identity
+            # only for the in-place-append fast path (full is prev_full).
             self._last[name] = (seq, full, enc)
+            out[top] = {**out[top], key: norm}
             if prev is None or prev[0] == seq:
                 continue
             base_seq, _, base_enc = prev
@@ -132,7 +166,7 @@ class Compactor:
                 keep += 1
             if keep == 0:
                 continue
-            out[top] = {**out[top], key: full[keep:]}
+            out[top] = {**out[top], key: norm[keep:]}
             meta[name] = {"base": base_seq, "keep": keep, "check": digest_from_enc(enc)}
         if meta:
             out["compact"] = {"v": VERSION, **meta}

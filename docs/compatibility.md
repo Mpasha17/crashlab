@@ -64,3 +64,8 @@ The experimental writer caches JSON encodings of the shared message-object prefi
 append-only chat is serialised once per message (not once per step). Digests are taken
 from that cache and match ``digest(full_messages)``. A failed write still rolls the cache
 back. Default format writing is unchanged.
+
+Cache encodings are content-based. Reusing an encoding because a message object is
+identical (``is``) is unsafe when callers mutate nested fields; compact recordings always
+encode the messages passed to each append so a deep-copied full baseline matches. Mapping
+subclasses in message lists are coerced to dicts on every append (compact on or off).

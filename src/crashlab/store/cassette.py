@@ -91,6 +91,7 @@ class CassetteWriter:
         truncated away so the next append starts a clean line, and compact state is
         rolled back so no later line refers to a step that was never written."""
         with self._lock:
+            line = compact.normalize_line_messages(line)
             saved = self._compactor.snapshot() if self._compactor is not None else None
             if self._compactor is not None:
                 line = self._compactor.compact(line)
