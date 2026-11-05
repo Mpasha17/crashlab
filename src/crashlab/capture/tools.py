@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import inspect
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
@@ -113,6 +114,13 @@ def _serve_replay(
         pending.finish_from(src)
         if skipped:
             pending.ctx.skip_idx(src.idx, skipped)
+        kind = src.attributes.get(RESULT_TYPE)
+        if kind in (GEN_TYPE, AGEN_TYPE):
+            items = _restore_numbers((src.response or {}).get("result") or [],
+                                     src.attributes.get(RESULT_NUMBERS))  # fmt: skip
+            error = rebuild_exception(src.error) if src.error is not None else None
+            make = _replay_agen if kind == AGEN_TYPE else _replay_gen
+            return True, make(list(items), error), None
         if src.error is not None:
             raise rebuild_exception(src.error)
         return True, _revive((src.response or {}).get("result"), src, fn), None
@@ -352,6 +360,94 @@ def _done(pending: Any, result: Any, faked: bool) -> None:
     )
 
 
+# A tool that yields is recorded as the items its caller took, when the generator ends
+# (exhausted, closed early, or raising); replay hands back a generator of those items.
+GEN_TYPE = "crashlab:generator"
+AGEN_TYPE = "crashlab:async_generator"
+
+
+def _gen_done(pending: Any, items: list[Any], kind: str, faked: bool, exc: Any = None) -> None:
+    if pending.done:
+        return
+    attrs = {RESULT_TYPE: kind, **(FAKE_ATTR if faked else {})}
+    special = _special_numbers(items)
+    if special:
+        attrs[RESULT_NUMBERS] = special
+    if exc is None:
+        pending.finish({"result": to_jsonable(items)}, attributes=attrs,
+                       source="fake" if faked else None)  # fmt: skip
+    else:
+        pending.fail(exc, is_tool_error=True, response={"result": to_jsonable(items)},
+                     attributes=attrs, source="fake" if faked else None)  # fmt: skip
+
+
+class _OpenGen:
+    """A recording generator still open at run end (kept, never exhausted) is stored
+    with the items taken so far (``RunContext.finish_open_streams``)."""
+
+    def __init__(self, pending: Any, kind: str, faked: bool) -> None:
+        self.pending, self.kind, self.faked = pending, kind, faked
+        self.items: list[Any] = []
+        pending.ctx.open_streams.append(weakref.ref(self))
+
+    def _finish(self, complete: bool = False) -> None:
+        _gen_done(self.pending, self.items, self.kind, self.faked)
+
+
+def _record_gen(pending: Any, gen: Any, faked: bool) -> Any:
+    # the generator's frame holds the _OpenGen, so its weakref lives as long as it does
+    return _gen_body(pending, gen, faked, _OpenGen(pending, GEN_TYPE, faked))
+
+
+def _gen_body(pending: Any, gen: Any, faked: bool, holder: _OpenGen) -> Any:
+    items = holder.items
+    try:
+        for item in gen:
+            items.append(item)
+            yield item
+    except GeneratorExit:
+        gen.close()
+        _gen_done(pending, items, GEN_TYPE, faked)
+        raise
+    except BaseException as exc:
+        _gen_done(pending, items, GEN_TYPE, faked, exc)
+        raise
+    _gen_done(pending, items, GEN_TYPE, faked)
+
+
+def _record_agen(pending: Any, agen: Any, faked: bool) -> Any:
+    return _agen_body(pending, agen, faked, _OpenGen(pending, AGEN_TYPE, faked))
+
+
+async def _agen_body(pending: Any, agen: Any, faked: bool, holder: _OpenGen) -> Any:
+    items = holder.items
+    try:
+        async for item in agen:
+            items.append(item)
+            yield item
+    except GeneratorExit:
+        await agen.aclose()
+        _gen_done(pending, items, AGEN_TYPE, faked)
+        raise
+    except BaseException as exc:
+        _gen_done(pending, items, AGEN_TYPE, faked, exc)
+        raise
+    _gen_done(pending, items, AGEN_TYPE, faked)
+
+
+def _replay_gen(items: list[Any], error: BaseException | None) -> Any:
+    yield from items
+    if error is not None:
+        raise error
+
+
+async def _replay_agen(items: list[Any], error: BaseException | None) -> Any:
+    for item in items:
+        yield item
+    if error is not None:
+        raise error
+
+
 def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
     if inspect.iscoroutinefunction(fn):
 
@@ -399,6 +495,10 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
                 pending.fail(exc, is_tool_error=True, attributes=FAKE_ATTR if faked else None,
                              source="fake" if faked else None)  # fmt: skip
                 raise
+            if inspect.isgenerator(result):
+                return _record_gen(pending, result, faked)
+            if inspect.isasyncgen(result):
+                return _record_agen(pending, result, faked)
             _done(pending, result, faked)
             return result
 
