@@ -34,7 +34,8 @@ instead of an `error.state` key. crashlab 0.0.2 therefore loads every step of a 
 recording. It cannot rebuild the exception's args, so it may report a final-output
 divergence (for example `missing 'b'` vs `missing b`), but it never drops a step. Main
 still reads inline `error.state` lines written by earlier main builds. Keys from a newer
-crashlab are ignored with a "written by a newer crashlab" warning rather than skipping the step.
+crashlab are ignored with a "written by a newer crashlab" warning rather than skipping
+the step.
 
 ## Compact cassette lines (experimental, off by default)
 
@@ -45,34 +46,38 @@ required digest of the full list.
 
 - **Reading is always on.** Old and compact lines can be mixed in one file. They load
   identically in store reads, `import`, replay, checks and `export`.
-- **Writing is opt-in:** `CRASHLAB_EXPERIMENTAL_COMPACT=1`. The default writer is unchanged.
-- crashlab 0.0.2 **cannot** read compact lines. It skips them, and older main builds ignore
-  the `compact` key with a warning. Only enable compact writing for recordings that are
-  replayed by this version or newer. `crashlab export` always writes the full format, so
-  exported files stay readable by 0.0.2.
+- **Writing is opt-in only:** `CRASHLAB_EXPERIMENTAL_COMPACT=1`. With the env unset, the
+  writer is the unchanged full format. Do not enable compact writing for recordings that
+  must be replayed by crashlab 0.0.2 (it skips compact lines).
+- **`crashlab export` / `export_run` always write the full format**, so exported files stay
+  readable by 0.0.2 even when the on-disk cassette used compact lines.
 - If a step cannot be expanded (damaged or missing base, cycle, bad digest, unknown
-  version), it is **kept**, not dropped. Its stored tail is all that survives, it is
+  version), it is **kept**, not dropped. Its stored tail is all that survives; it is
   marked with the attribute `crashlab.compact.unresolved`, and a RuntimeWarning names it.
   The recorded response is still served on replay.
+- Write failures (for example a full disk) raise as before. The partial line is truncated
+  away and compact state rolls back, so the next step starts a clean line and never refers
+  to a step that was not written. This applies to the default format too. Warnings and the
+  unresolved attribute redact secrets and shorten names taken from the file.
+- Mapping subclasses in message lists are coerced to dicts on every append (compact on or
+  off) so a cassette never stores a `repr` address via `default=str`.
 
-Write failures (for example a full disk) raise as before. The partial line is truncated
-away, and compact state rolls back, so the next step starts a clean line and never refers
-to a step that was not written. This applies to the default format too. Warnings and the
-`crashlab.compact.unresolved` flag redact secrets and shorten names taken from the file.
+### Measured write tradeoff (main, Nov 2026)
 
-The experimental writer caches JSON encodings of the shared message-object prefix, so an
-append-only chat is serialised once per message (not once per step). Digests are taken
-from that cache and match ``digest(full_messages)``. A failed write still rolls the cache
-back. Default format writing is unchanged.
+Encodings are **content-based**, never keyed by object identity. An earlier identity-based
+cache made 1500 short-message appends look ~14× faster; that path silently dropped nested
+mutations and was removed. Measured on this tree:
 
-Cache encodings are content-based. Reusing an encoding because a message object is
-identical (``is``) is unsafe when callers mutate nested fields; compact recordings always
-encode the messages passed to each append so a deep-copied full baseline matches. Mapping
-subclasses in message lists are coerced to dicts on every append (compact on or off).
+| Workload | Compact write | Full write | Compact size | Full size |
+|---|---|---|---|---|
+| 1500 short messages (~40 B each) | ~2.4 s | ~0.4 s | ~0.4 MB | ~54 MB |
+| 200 messages × ~50 KB content | ~2.9 s | ~3.1 s | ~10 MB | ~1006 MB |
 
-Append-only reuse (experimental writer): cached encodings are immutable strings keyed by a
-content fingerprint of each message, never by object identity. A nested mutation changes
-the fingerprint and forces a fresh serialize. Fingerprint reuse applies only to large
-messages (long cached encodings); small messages re-serialize and compare, which is
-cheaper than hashing them. Typical short-chat runs therefore stay O(n²) in serialize cost;
-large-attachment prefixes are the win. Correctness always beats the old identity fast path.
+So for typical short chats, compact writing is **slower** than full (still O(n²) JSON work
+on the growing prefix) but **much smaller on disk**. For large unchanged prefixes, a
+content fingerprint lets the writer reuse an immutable cached encoding when the fingerprint
+still matches (`FP_THRESHOLD` characters); a nested mutation changes the fingerprint and
+forces a fresh serialize. Small messages re-serialize and compare (cheaper than hashing
+them). Compact's practical win is size (and large-attachment prefixes), not short-chat
+wall-clock. Prefer the default full writer unless disk growth is the problem, and only
+enable the experimental writer for recordings replayed by this version or newer.

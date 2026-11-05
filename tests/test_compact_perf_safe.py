@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from crashlab.store import compact
 from crashlab.store.cassette import CassetteWriter, read_cassette
 
@@ -199,3 +201,31 @@ def test_redaction_then_compact_reuse_safe(monkeypatch, tmp_path):
         again = crashlab.load(run.run_id)
     assert len(again.steps) == len(run.steps)
     assert not any("could not be expanded" in str(w.message) for w in rec)
+
+
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        (True, 1),
+        (False, 0),
+        ({"a": True}, {"a": 1}),
+        ([True], [1]),
+        (0.0, -0.0),
+        (float("nan"), float("nan")),
+        (float("inf"), float("-inf")),
+        ({"x": float("nan")}, {"x": float("inf")}),
+        ([1, 2], (1, 2)),
+        ({"a": [1, 2]}, {"a": (1, 2)}),
+        ({"a": 1, "b": 2}, __import__("collections").OrderedDict([("b", 2), ("a", 1)])),
+        ({"a": 1}, __import__("collections").UserDict({"a": 1})),
+        ({"b": b"hi"}, {"b": "b'hi'"}),
+        ({"s": {1, 2}}, {"s": str({1, 2})}),
+    ],
+)
+def test_fingerprint_match_implies_dumps_match(a, b):
+    """Safety direction only: equal fingerprints must mean equal dumps (reuse is safe).
+    The converse may fail (bytes/set vs their str forms) — that only skips reuse."""
+    fp_eq = compact._content_fp(a) == compact._content_fp(b)
+    dump_eq = compact._dumps_msg(a) == compact._dumps_msg(b)
+    if fp_eq:
+        assert dump_eq
