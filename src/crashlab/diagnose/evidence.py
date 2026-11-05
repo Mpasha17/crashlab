@@ -16,6 +16,41 @@ from .taxonomy import parse_label
 
 UNKNOWN_CONFIDENCE_CAP = 0.2
 MAX_EVIDENCE = 6
+_INSTRUCTION_GAP = (
+    "missing",
+    "absent",
+    "lacked",
+    "ignored",
+    "contradict",
+    "inject",
+    "system prompt",
+    "instruction",
+    "dropped",
+    "misleading",
+)
+
+
+def _has_instruction_gap(text: str) -> bool:
+    low = (text or "").lower()
+    return any(w in low for w in _INSTRUCTION_GAP)
+
+
+def _upgrade_root_cause(run: Run, root_cause: str, step: int | None, notes: list[str]) -> str:
+    """Replace symptom-only LLM root_cause when heuristics can name the instruction gap."""
+    if _has_instruction_gap(root_cause):
+        return root_cause
+    from .heuristics import _missing_rule_cause, candidates
+
+    decision = step if step is not None else 0
+    for c in candidates(run):
+        cause = _missing_rule_cause(run, c.reason, c.step if c.step is not None else decision)
+        if not cause:
+            continue
+        # strip the Heuristic: prefix for the stored diagnosis text
+        cleaned = cause[11:] if cause.startswith("Heuristic: ") else cause
+        notes.append("root_cause upgraded from symptom-only LLM text to the instruction-gap cause")
+        return cleaned
+    return root_cause
 
 
 def _int(value: Any) -> int | None:
@@ -164,6 +199,13 @@ def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
     )
     if remap:
         method["failing_step_remap"] = remap
+    explanation = str(raw.get("explanation") or "").strip() if raw.get("root_cause") else ""
+    if label is TaxonomyLabel.TASK_SPEC_VIOLATION and root_cause:
+        upgraded = _upgrade_root_cause(run, root_cause, step, notes)
+        if upgraded != root_cause:
+            if not explanation:
+                explanation = root_cause  # keep the model's symptom sentence
+            root_cause = upgraded
     return Diagnosis(
         run_id=run.run_id,
         failing_step=step if label is not TaxonomyLabel.UNKNOWN else None,
@@ -173,7 +215,7 @@ def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
         confidence=round(confidence, 3),
         root_cause=root_cause,
         evidence=evidence,
-        explanation=str(raw.get("explanation") or "").strip() if raw.get("root_cause") else "",
+        explanation=explanation,
         notes=notes,
         method=method,
         **extra,

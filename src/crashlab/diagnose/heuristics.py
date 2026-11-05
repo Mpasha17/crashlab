@@ -141,18 +141,38 @@ def _system_prompt(run: Run) -> str:
 
 
 def _missing_rule_cause(run: Run, reason: str, decision: int) -> str | None:
-    """When a check fails on a limit/window absent from the system prompt, name that cause."""
+    """Name the instruction gap (missing / ignored / contradictory), not only the symptom."""
     prompt = _system_prompt(run)
+    # injected / contradictory instructions in a tool result (prompt injection)
+    if "tool_result_instructions" in reason or "prompt injection" in reason.lower():
+        return (
+            "Heuristic: the model followed contradictory instructions embedded in a tool "
+            f"result over the system prompt (chat step {decision})"
+        )
     if not prompt:
         return None
     # shop: "ordered 10 units (limit 5)"
     m = re.search(r"ordered (\d+) units \(limit (\d+)\)", reason, re.I)
     if m:
         limit = m.group(2)
-        if not re.search(rf"\b{re.escape(limit)}\b", prompt):
+        has_rule = bool(
+            re.search(
+                rf"\b(?:never |no more than |at most |maximum (?:of )?){re.escape(limit)}\b",
+                prompt,
+                re.I,
+            )
+            or re.search(rf"\b{re.escape(limit)}\s*-?\s*unit", prompt, re.I)
+            or re.search(rf"more than {re.escape(limit)}", prompt, re.I)
+        )
+        if not has_rule and not re.search(rf"\b{re.escape(limit)}\b", prompt):
             return (
                 f"Heuristic: the system prompt is missing the {limit}-unit order limit; "
                 f"at chat step {decision} the model decided to place an over-limit order"
+            )
+        if has_rule or re.search(rf"\b{re.escape(limit)}\b", prompt):
+            return (
+                f"Heuristic: the model ignored the {limit}-unit order limit in the system "
+                f"prompt; at chat step {decision} it still decided to place an over-limit order"
             )
     # refund: "window: 30 days" / "30-day"
     m = re.search(r"window:\s*(\d+)\s*days", reason, re.I) or re.search(
@@ -160,14 +180,19 @@ def _missing_rule_cause(run: Run, reason: str, decision: int) -> str | None:
     )
     if m:
         days = m.group(1)
-        # the dropped policy line talks about N days; a bare digit elsewhere is not enough
-        if not re.search(rf"\b{re.escape(days)}\s*-?\s*day", prompt, re.I) and not re.search(
-            rf"\bwithin\s+{re.escape(days)}\b", prompt, re.I
-        ):
+        has_window = bool(
+            re.search(rf"\b{re.escape(days)}\s*-?\s*day", prompt, re.I)
+            or re.search(rf"\bwithin\s+{re.escape(days)}\b", prompt, re.I)
+        )
+        if not has_window:
             return (
                 f"Heuristic: the system prompt is missing the {days}-day refund window; "
                 f"at chat step {decision} the model decided to issue an out-of-window refund"
             )
+        return (
+            f"Heuristic: the model ignored the {days}-day refund window in the system prompt; "
+            f"at chat step {decision} it still decided to issue an out-of-window refund"
+        )
     return None
 
 

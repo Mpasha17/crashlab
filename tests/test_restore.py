@@ -228,3 +228,30 @@ def test_inform_only_and_fact_only_prompt_patches_are_rejected(crashlab_dir):
         1,
     )
     assert ok is not None and why is None, why
+
+
+def test_soft_awareness_and_fact_only_patches_are_rejected(crashlab_dir):
+    # Beyond inform/Note: explain/remind/aware/should-without-action and bare fact statements
+    # also made agents stall; keep imperative action rules.
+    run = _policy_run()
+    for text in (
+        "Please explain the 5-unit order limit to the customer.",
+        "Remind the user about the 30-day refund window.",
+        "Make the customer aware of the quantity limit.",
+        "You should probably respect the quantity limit.",
+        "The maximum allowed quantity per order is 5 units.",
+        "Be careful about ordering more than 5 units.",
+    ):
+        fix, why = validate_fix({"patch": {**APPEND, "text": text}}, run, 1)
+        assert fix is None, text
+        assert why and ("unattended" in why or "must act" in why or "what to do" in why.lower()), (
+            text,
+            why,
+        )
+    for text in (
+        "Never order more than 5 units; if asked for more, order 5 and tell the customer.",
+        "Never refund after 30 days; refuse and tell the customer the window.",
+        "Note: max is 5. If asked for more, order only 5 units and inform them of the limit.",
+    ):
+        fix, why = validate_fix({"patch": {**APPEND, "text": text}}, run, 1)
+        assert fix is not None and why is None, (text, why)

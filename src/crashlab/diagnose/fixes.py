@@ -32,7 +32,7 @@ FIX_PROMPT_VERSION = "fix-v5"
 MAX_FIXES = 3
 #: version of the deterministic part (restore proposals, ask filter, ranking): a
 #: cached proposal list from another version is rebuilt
-RANKER_VERSION = "rank-v2"
+RANKER_VERSION = "rank-v3"
 MAX_PATCH_CHARS = 700  # the patch's own text (prompt lines, descriptions ...)
 MAX_PROMPT_LINES = 4
 ALLOWED_KINDS = (
@@ -99,7 +99,7 @@ _ASK = re.compile(
 )
 #: hedged wording ranks below an imperative rule
 _HEDGE = re.compile(r"\b(?:try to|consider|if possible|should probably|may want to)\b", re.I)
-#: inform-only / fact-only prompt rules: the unattended agent asks instead of acting
+#: soft / passive prompt rules: the unattended agent asks or stalls instead of acting
 #: (live: CrewAI / LlamaIndex / OA Gemini fix-1 "inform them of the limit" → REJECTED)
 _INFORM_ONLY = re.compile(
     r"\b(?:inform|tell|notify)\b[\s\w]{0,40}\b(?:user|customer|them)\b"
@@ -107,9 +107,23 @@ _INFORM_ONLY = re.compile(
     r"|\blet (?:the )?(?:user|customer|them) know\b",
     re.I,
 )
+_SOFT_AWARE = re.compile(
+    r"\b(?:explain|remind)\b"
+    r"|\bmake (?:sure )?(?:the )?(?:user|customer|them) aware\b"
+    r"|\bbe (?:sure|careful) (?:to )?(?:mention|tell|about)\b"
+    r"|\bbe careful about\b"
+    r"|\bensure (?:the )?(?:user|customer) (?:knows|is aware)\b"
+    r"|\bplease (?:mention|explain)\b",
+    re.I,
+)
+_FACT_LIMIT = re.compile(
+    r"^(?:note(?:\s+that)?:?\s*)?(?:the )?(?:maximum|max(?:imum)?|limit|window)\b",
+    re.I,
+)
 _MUST_ACT = re.compile(
     r"\b(?:never|always|must|do not|don't|refuse|reject|deny|ensure|require)\b"
-    r"|\b(?:cap|limit) (?:the |orders?|quantity|to)\b"
+    r"|\b(?:cap|limit) (?:the )?(?:orders?|quantity)\b"
+    r"|\bcap (?:at|to)\b"
     r"|\bonly (?:order|refund|place|call|use|accept)\b"
     r"|\b(?:order|refund|place|call|use) (?:at most|no more|the maximum|only|up to)\b"
     r"|\bplace an order\b|\bissue (?:a )?refund\b|\border the maximum\b|\border 5\b",
@@ -207,15 +221,22 @@ def stray_fields(patch: Any) -> list[str]:
 
 
 def _passive_rule(text: str) -> str | None:
-    """Rejection reason when a prompt rule only informs a person / states a Note: fact
+    """Rejection reason when a prompt rule only informs / explains / states a limit fact
     without an imperative action the unattended agent can take."""
     if not text.strip() or _ASK_FOR_INPUT.search(text):
         return None
     if _MUST_ACT.search(text):
         return None
-    if _INFORM_ONLY.search(text) or text.strip().lower().startswith("note"):
+    soft = (
+        _INFORM_ONLY.search(text)
+        or _SOFT_AWARE.search(text)
+        or _HEDGE.search(text)
+        or text.strip().lower().startswith("note")
+        or _FACT_LIMIT.search(text.strip())
+    )
+    if soft:
         return (
-            "only informs a person / states a fact without saying what the agent must DO "
+            "only informs / explains / states a fact without saying what the agent must DO "
             "(the agent runs unattended)"
         )
     return None

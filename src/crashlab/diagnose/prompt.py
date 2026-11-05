@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .taxonomy import render
 
-PROMPT_VERSION = "diagnose-v4"
+PROMPT_VERSION = "diagnose-v5"
 
 SYSTEM = """You are crashlab's diagnosis agent. You read the trace of one recorded run of \
 an AI agent and decide whether the agent failed, at which step, and why.
@@ -41,7 +41,10 @@ TOOL_ERROR_MISHANDLED when it ignored, misread or misreported it, STEP_REPETITIO
 kept retrying the same call.
 5. For a loop, failing_step is the first repeated call (the second identical tool step), \
 not the step where a step or budget check finally failed.
-6. root_cause is one plain sentence a developer can act on. confidence is 0 to 1.
+6. root_cause is one plain sentence a developer can act on: name the instruction \
+gap (a missing / dropped rule, contradictory tool-result text the model followed, a \
+misleading tool description, or a rule the model ignored), not only the symptom \
+(e.g. not just "ordered 10" or "refunded after 45 days"). confidence is 0 to 1.
 
 Reply with only this JSON object:
 {{"label": "<LABEL>", "failing_step": <int or null>, "root_cause": "<one sentence>", \
