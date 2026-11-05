@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..models import SEVERITY_RANK, Finding, Run, Step
 from .config import ChecksConfig
@@ -148,6 +148,20 @@ class CheckEngine:
                 old.message = _with_steps(old)
         return changed
 
+    def _crashed(self, d: Any, exc: Exception, idx: int | None) -> Finding:
+        """A crashing check is reported on the run (and warned once), never silently
+        skipped: its other results for this run are incomplete."""
+        log.debug("crashlab detector %s failed", d.kind, exc_info=True)
+        what = f"{type(exc).__name__}: {' '.join(str(exc).split())[:200]}"
+        msg = (f"built-in check {d.kind} crashed ({what}); its results for this run are "
+               "incomplete. Please report it with `crashlab show` output.")  # fmt: skip
+        if ("check_error", d.kind) not in self.by_key:
+            import warnings
+
+            warnings.warn(f"crashlab: {msg}", RuntimeWarning, stacklevel=2)
+        return Finding(kind="check_error", severity="warn", step=idx, key=d.kind, message=msg,
+                       steps=[idx] if idx is not None else [])  # fmt: skip
+
     def on_step(self, step: Step) -> list[Finding]:
         if not self.detectors:
             return []
@@ -156,8 +170,8 @@ class CheckEngine:
         for d in self.detectors:
             try:
                 found += d.on_step(step, self.h)
-            except Exception:  # a detector bug must never break the agent
-                log.debug("crashlab detector %s failed", d.kind, exc_info=True)
+            except Exception as exc:  # a detector bug must never break the agent
+                found.append(self._crashed(d, exc, step.idx))
         changed = self._merge(found)
         for f in changed:
             level = logging.WARNING if f.rank >= SEVERITY_RANK["error"] else logging.INFO
@@ -175,8 +189,8 @@ class CheckEngine:
         for d in self.detectors:
             try:
                 found += d.on_end(run, self.h)
-            except Exception:
-                log.debug("crashlab detector %s failed", d.kind, exc_info=True)
+            except Exception as exc:
+                found.append(self._crashed(d, exc, None))
         return self._merge(found)
 
 
