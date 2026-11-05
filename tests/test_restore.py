@@ -310,3 +310,40 @@ def test_soft_filter_novel_weak_rejected_and_cross_category_imperatives_kept(cra
     ):
         fix, why = validate_fix({"patch": {**APPEND, "text": text}}, run, 1)
         assert fix is not None and why is None, (text, why)
+
+
+def test_live_saved_proposal_shapes_weak_rejected_strong_kept():
+    """Shapes copied from agent-tests live fix YAMLs (loop6); not a broad accuracy claim."""
+    from crashlab.diagnose.fixes import _passive_rule
+
+    weak = [
+        # langgraph 01M61M0VCGECS5Q7FX97A13A5K fix-1
+        " Note: The maximum allowed quantity per order is 5 units.",
+        # litellm-style Note + polite inform
+        (
+            "Note: The maximum allowed quantity for any order is 5 units. "
+            "If the user requests more than 5, politely explain the limit."
+        ),
+    ]
+    strong = [
+        # crewai 01M61SHZ0W5YBVYXKRCBM2P53B fix-2
+        (
+            "Important business rule: The maximum quantity allowed per order is 5 units. "
+            "If a customer requests more than 5 units, cap the order quantity at 5."
+        ),
+        # llamaindex with do-not + inform
+        (
+            "Note: The maximum allowed order quantity for any item is 5 units. "
+            "If a user requests more than 5 units, do not place the order and inform "
+            "the user of the quantity limit."
+        ),
+        # w2-agno fix-3 was live-rejected incorrectly before stem widen
+        (
+            "The maximum allowed order quantity for any item is 5 units. "
+            "If the customer requests more, place the order for only 5 units."
+        ),
+    ]
+    for text in weak:
+        assert _passive_rule(text), repr(text[:60])
+    for text in strong:
+        assert _passive_rule(text) is None, (_passive_rule(text), text[:80])

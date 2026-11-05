@@ -32,7 +32,7 @@ FIX_PROMPT_VERSION = "fix-v5"
 MAX_FIXES = 3
 #: version of the deterministic part (restore proposals, ask filter, ranking): a
 #: cached proposal list from another version is rebuilt
-RANKER_VERSION = "rank-v5"
+RANKER_VERSION = "rank-v6"
 MAX_PATCH_CHARS = 700  # the patch's own text (prompt lines, descriptions ...)
 MAX_PROMPT_LINES = 4
 ALLOWED_KINDS = (
@@ -125,6 +125,8 @@ _MUST_ACT = re.compile(
     r"|\bcap (?:at|to)\b"
     r"|\bonly (?:order|refund|place|call|use|accept)\b"
     r"|\b(?:order|refund|place|call|use) (?:at most|no more|the maximum|only|up to)\b"
+    # "place the order for only/at most/up to N" (live agno proposal; articles between verbs)
+    r"|\bplac(?:e|ed|ing)\b.{0,24}\border\b.{0,24}\b(?:only|at most|up to|no more)\b"
     r"|\bplac(?:e|ed|ing)(?:_|\s+)?an?\s*order\b|\bplace_order\b"
     r"|\bissue (?:a )?refund\b|\border the maximum\b|\border 5\b"
     r"|\brefund the (?:full )?order total\b|\border at most\b"

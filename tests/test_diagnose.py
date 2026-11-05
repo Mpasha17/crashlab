@@ -697,6 +697,74 @@ def test_symptom_root_cause_still_upgrades_when_evidence_downgrades_label():
     assert any("upgraded" in n.lower() or "symptom" in n.lower() for n in d.notes)
 
 
+def test_downgrade_note_precedes_upgrade_note_on_claimed_task_spec():
+    # Loop6: when evidence fails, notes must record downgrade before any root_cause upgrade
+    # so operators can see both the anti-hallucination downgrade and the instruction-gap fix.
+    run = _shop_drop_rule_run()
+    raw = {
+        "label": "TASK_SPEC_VIOLATION",
+        "failing_step": 2,
+        "confidence": 0.85,
+        "root_cause": "The agent placed an order for 10 widgets, exceeding the limit of 5.",
+        "evidence": [{"step": 2, "quote": "not a real quote in any step"}],
+    }
+    d = validate(raw, run)
+    assert d.label is crashlab.TaxonomyLabel.UNKNOWN
+    down_i = next(i for i, n in enumerate(d.notes) if n.startswith("downgraded to UNKNOWN"))
+    up_i = next(i for i, n in enumerate(d.notes) if "upgraded" in n.lower())
+    assert down_i < up_i
+    assert "missing" in d.root_cause.lower() or "ignor" in d.root_cause.lower()
+
+
+def test_claimed_unknown_symptom_is_not_upgraded_to_instruction_gap():
+    # True UNKNOWN (model did not claim TASK_SPEC) must not be masked by heuristic upgrade.
+    run = _shop_drop_rule_run()
+    symptom = "The agent placed an order for 10 units, exceeding the limit of 5."
+    raw = {
+        "label": "UNKNOWN",
+        "failing_step": 2,
+        "confidence": 0.4,
+        "root_cause": symptom,
+        "evidence": [{"step": 2, "quote": '"quantity": 10'}],
+    }
+    d = validate(raw, run)
+    assert d.label is crashlab.TaxonomyLabel.UNKNOWN
+    assert d.root_cause == symptom
+    assert not any("upgraded" in n.lower() for n in d.notes)
+
+
+def test_external_failure_with_bad_evidence_keeps_cause_after_downgrade(crashlab_dir):
+    # EXTERNAL claimed + evidence fail → UNKNOWN label, but root_cause must stay external
+    # (no instruction-gap upgrade masking a real tool/HTML failure).
+    from examples.refund_bot import agent as refund
+
+    script = [
+        tool_call_response(1, "get_order", {"order_id": "A17"}),
+        text_response(2, "Sorry, our order system is having trouble right now."),
+    ]
+    refund.run_agent(
+        "Refund A17",
+        client=crashlab.wrap(FakeOpenAI(script)),
+        model="fake-model",
+        faults=["html_502"],
+    )
+    run = crashlab.load("last")
+    external_rc = "The get_order tool returned a 502 Bad Gateway HTML error page."
+    raw = {
+        "label": "EXTERNAL_FAILURE",
+        "failing_step": 1,
+        "confidence": 0.9,
+        "root_cause": external_rc,
+        "evidence": [{"step": 1, "quote": "this quote is fabricated"}],
+    }
+    d = validate(raw, run)
+    assert d.label is crashlab.TaxonomyLabel.UNKNOWN
+    assert any("downgraded" in n.lower() for n in d.notes)
+    assert d.root_cause == external_rc
+    assert not any("upgraded" in n.lower() for n in d.notes)
+    assert d.secondary and d.secondary[0] is crashlab.TaxonomyLabel.EXTERNAL_FAILURE
+
+
 def _misleading_desc_run() -> crashlab.Run:
     """Refund bot whose get_order description invents a restocking fee."""
     from examples.refund_bot import agent as refund
