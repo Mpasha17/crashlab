@@ -72,6 +72,7 @@ class Redactor:
             ]
             self.hooks: list[Hook] = []
             self._cache: dict[str, str] = {}
+            self._key_cache: dict[str, bool] = {}
 
     def add_pattern(self, pattern: str | re.Pattern[str]) -> None:
         with self._lock:
@@ -83,13 +84,23 @@ class Redactor:
         compiled = re.compile(pattern, re.IGNORECASE) if isinstance(pattern, str) else pattern
         with self._lock:
             self.key_patterns.append(compiled)
+            self._key_cache = {}
 
     def add_hook(self, hook: Hook) -> None:
         with self._lock:
             self.hooks.append(hook)
 
     def _sensitive_key(self, key: str) -> bool:
-        return any(p.search(key) for p in self.key_patterns)
+        # the same few keys (role, content, type ...) come back in every message of every
+        # request: a 200-turn run made ~730k regex checks (1 s) for them
+        cache = self._key_cache
+        hit = cache.get(key)
+        if hit is None:
+            hit = any(p.search(key) for p in self.key_patterns)
+            if len(cache) >= _CACHE_MAX:
+                cache.clear()
+            cache[key] = hit
+        return hit
 
     def redact_str(self, value: str) -> str:
         # An agent loop re-sends the whole conversation on every LLM call, so the same

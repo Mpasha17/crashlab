@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import threading
@@ -154,6 +155,11 @@ class SQLiteIndex:
         except (OSError, sqlite3.Error) as exc:
             raise StoreError(f"cannot use crashlab store {self.path.parent}: {exc}") from exc
         conn.row_factory = sqlite3.Row
+        # WAL + NORMAL: a crashed agent process loses nothing committed (only an OS crash
+        # can drop the last commits, and the JSONL cassette is appended separately);
+        # FULL fsynced every step (~2 ms each, 0.9 s for a 200-turn run)
+        with contextlib.suppress(sqlite3.Error):
+            conn.execute("PRAGMA synchronous=NORMAL")
         if not self._initialized:
             try:
                 # Two runs starting at once on a fresh store (agents in threads) used to
