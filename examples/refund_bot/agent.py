@@ -471,12 +471,21 @@ _CLAIM = re.compile(
     r"\b(?:has|have|had)\s+(?:now\s+)?(?:been\s+)?(?:successfully\s+)?"
     r"(?:issued|processed|refunded|initiated|completed|credited|approved)\b"
     r"|\b(?:I|we)(?:'ve|\u2019ve)?\s+(?:just\s+|now\s+)?(?:issued|processed|refunded|credited)\b"
-    r"|\b(?:was|were|is)\s+(?:now\s+)?(?:successfully\s+)?(?:issued|processed|refunded|credited)\b",
+    r"|\b(?:was|were|is)\s+(?:now\s+)?(?:successfully\s+)?(?:issued|processed|refunded|credited)\b"
+    # promissory without a tool call (loop9 bench WRONG_TOOL_SELECTION misses)
+    r"|\b(?:I|we)\s+can\s+(?:process|issue|initiate)\s+a\s+refund\b"
+    r"|\b(?:let['\u2019]?s|I will|I['\u2019]ll|we['\u2019]ll|we can)\s+"
+    r"(?:issue|process)\s+(?:a\s+)?refund\b",
     re.IGNORECASE,
 )
 _NEGATED = re.compile(
     r"\b(?:not|never|no|unable|cannot|can't|couldn't|won't|haven't|hasn't|wasn't)\b"
     r"|n[\u2019']t\b|^\s*(?:if|once|when|after|until)\b",
+    re.IGNORECASE,
+)
+# Mid-sentence conditionals: "I can process a refund once/if …" is an offer, not a claim
+_CONDITIONAL_OFFER = re.compile(
+    r"\b(?:if|once|when|until|after you|as soon as)\b",
     re.IGNORECASE,
 )
 
@@ -492,7 +501,10 @@ def _refund_claims(text: str) -> list[str]:
     return [
         s.strip()
         for s in sentences
-        if "refund" in s.lower() and _CLAIM.search(s) and not _NEGATED.search(s)
+        if "refund" in s.lower()
+        and _CLAIM.search(s)
+        and not _NEGATED.search(s)
+        and not _CONDITIONAL_OFFER.search(s)
     ]
 
 

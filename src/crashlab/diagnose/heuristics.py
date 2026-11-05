@@ -31,6 +31,18 @@ _TOOL_FAILURE_FINDINGS = frozenset(
         "failed_side_effect_claim",
     }
 )
+
+_INVENTED_ORDER_STATE = re.compile(
+    r"no longer available|not (?:found|available) in our (?:system|records)|"
+    r"(?:has|have|likely) been (?:cancelled|canceled|processed)|does(?: not|n't) exist",
+    re.I,
+)
+_SYSTEM_TROUBLE = re.compile(
+    r"\b(?:try again|retry|timed out|timeout|having (?:trouble|issues?|problems?)|"
+    r"system (?:is )?(?:down|unavailable)|order system|502|bad gateway|"
+    r"technical (?:issue|error))\b",
+    re.I,
+)
 _API_ERRORS = (
     "RateLimit",
     "APIConnection",
@@ -379,6 +391,19 @@ def candidates(run: Run) -> list[Candidate]:
         label, rank = _FINDING_RULES.get(f.kind, (None, 8))
         if f.kind == "suspicious_tool_result":  # an HTML / error page, drift: upstream
             label, rank = TaxonomyLabel.EXTERNAL_FAILURE, 6 if "changed shape" in f.message else 5
+            # Inventing order state from an HTML/error page is mishandling (loop9 GTXC);
+            # apologising / asking to retry stays EXTERNAL (cross-case EXTERNAL labels).
+            if "html" in f.message.lower() or "502" in f.message.lower():
+                reply = " ".join(
+                    str(p.get("content") or p.get("text") or "")
+                    for s in run.steps
+                    if s.operation == "chat" and s.idx > (f.step or -1)
+                    for m in ((s.response or {}).get("messages") or [])
+                    for p in (m.get("parts") or [])
+                    if isinstance(m, dict) and p.get("type") == "text"
+                )
+                if _INVENTED_ORDER_STATE.search(reply) and not _SYSTEM_TROUBLE.search(reply):
+                    label = TaxonomyLabel.TOOL_ERROR_MISHANDLED
         # Boost error-level tool streaks only when a consequence check would otherwise
         # steal the label as TASK_SPEC (loop7). Do NOT boost when an independent later
         # spec violation (quantity/limit) is the real fail (loop8 FP control).

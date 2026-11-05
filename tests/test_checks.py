@@ -75,6 +75,20 @@ def test_offers_and_negations_are_not_refund_claims(reply):
     assert _status(run)["no_unbacked_refund_claim"] == "pass"
 
 
+def test_unconditional_promissory_refund_without_tool_call_fails():
+    """Loop9 bench gap: 'I can process a refund' / 'Let\'s issue a refund' without
+    issue_refund is an unbacked claim (cross-case WRONG_TOOL_SELECTION misses)."""
+    for reply in (
+        "I can process a refund for you. The refund amount will be $49.00.",
+        "Let's issue a refund for your order A17.",
+        "We can issue a refund for your broken Ceramic teapot.",
+    ):
+        run = _refund_run(
+            [tool_call_response(1, "get_order", {"order_id": "A17"}), text_response(2, reply)]
+        )
+        assert _status(run)["no_unbacked_refund_claim"] == "fail", reply
+
+
 def test_wrong_amount_fails():
     run = _refund_run(refund_script(amount=30.0))
     assert run.outcome == "fail"

@@ -349,6 +349,155 @@ def test_heuristic_html_page_handled_politely_is_external():
     assert raw["label"] == "EXTERNAL_FAILURE" and raw["failing_step"] == 1
 
 
+def test_html_502_invented_order_status_is_tool_error_mishandled():
+    """Cross-case: after HTML 502, inventing 'no longer available' is mishandling,
+    not a polite EXTERNAL apology (bench 01M581GTXC vs EXTERNAL apology cases)."""
+    from crashlab.models import Finding, Run
+
+    chat, tool = _shop_steps_with_tools()
+    # reuse refund-shaped names via generic steps
+    from crashlab.models import Step
+
+    steps = [
+        Step(
+            run_id="h",
+            idx=0,
+            span_id="c0",
+            operation="chat",
+            name="m",
+            request_hash="h0",
+            request={"system": "Refund helper."},
+            response={"tool_calls": [{"name": "get_order", "arguments": {"order_id": "A17"}}]},
+        ),
+        Step(
+            run_id="h",
+            idx=1,
+            span_id="t1",
+            operation="execute_tool",
+            name="get_order",
+            request_hash="h1",
+            request={"args": {"order_id": "A17"}},
+            response={"result": "<html>502 Bad Gateway</html>"},
+        ),
+        Step(
+            run_id="h",
+            idx=2,
+            span_id="c2",
+            operation="chat",
+            name="m",
+            request_hash="h2",
+            request={"system": "Refund helper."},
+            response={
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {
+                                "type": "text",
+                                "content": (
+                                    "It looks like the order A17 is no longer available in our "
+                                    "system. The order has likely been processed or cancelled."
+                                ),
+                            }
+                        ],
+                    }
+                ]
+            },
+        ),
+    ]
+    run = Run(
+        run_id="h",
+        name="h",
+        status="ok",
+        outcome="pass",
+        steps=steps,
+        checks=[],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_order returned an HTML page (502 Bad Gateway) instead of data",
+            )
+        ],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] == "TOOL_ERROR_MISHANDLED"
+
+
+def test_html_502_system_apology_stays_external():
+    """Apology / retry after HTML 502 remains EXTERNAL (cross-case EXTERNAL labels)."""
+    from crashlab.models import Finding, Run, Step
+
+    steps = [
+        Step(
+            run_id="h",
+            idx=0,
+            span_id="c0",
+            operation="chat",
+            name="m",
+            request_hash="h0",
+            request={"system": "Refund helper."},
+            response={"tool_calls": [{"name": "get_order", "arguments": {"order_id": "A17"}}]},
+        ),
+        Step(
+            run_id="h",
+            idx=1,
+            span_id="t1",
+            operation="execute_tool",
+            name="get_order",
+            request_hash="h1",
+            request={"args": {"order_id": "A17"}},
+            response={"result": "<html>502 Bad Gateway</html>"},
+        ),
+        Step(
+            run_id="h",
+            idx=2,
+            span_id="c2",
+            operation="chat",
+            name="m",
+            request_hash="h2",
+            request={"system": "Refund helper."},
+            response={
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {
+                                "type": "text",
+                                "content": (
+                            "Sorry, our order system is having trouble right now. "
+                            "Please try again later."
+                        ),
+                            }
+                        ],
+                    }
+                ]
+            },
+        ),
+    ]
+    run = Run(
+        run_id="h",
+        name="h",
+        status="ok",
+        outcome="pass",
+        steps=steps,
+        checks=[],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_order returned an HTML page (502 Bad Gateway) instead of data",
+            )
+        ],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] == "EXTERNAL_FAILURE"
+
+
 def test_heuristic_prefers_tool_error_finding_over_consequence_check():
     """Loop7 real-agent gap: agno bad-price run had tool_error_streak (502 HTML) but
     heuristic picked TASK_SPEC from 'ordered without a valid price' (rank 2 < 4)."""
