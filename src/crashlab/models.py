@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from .patch import AnyPatch, PatchSet
 
@@ -74,6 +74,14 @@ class ErrorInfo(_Model):
     # what handlers read besides the message: small JSON ``args`` (``KeyError('b')``)
     # and public JSON attributes (``e.sku``, ``e.retry_after``); rebuilt on replay
     state: dict[str, Any] | None = None
+
+    @model_serializer(mode="wrap")
+    def _drop_empty_state(self, handler: Any) -> Any:
+        # crashlab<=0.0.2 rejects unknown keys (extra="forbid"): only write it when set
+        data = handler(self)
+        if isinstance(data, dict) and data.get("state") is None:
+            data.pop("state", None)
+        return data
 
     @property
     def detail(self) -> str:

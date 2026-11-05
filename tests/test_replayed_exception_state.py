@@ -163,3 +163,14 @@ def test_llm_call_cancelled_by_wait_for_replays_as_timeout():
     run = crashlab.load("last")
     assert run.steps[0].error.state["cancelled_outside_ms"] >= 0
     assert crashlab.replay(run, fn=agent).output == "timed out"
+
+
+def test_state_left_out_when_empty_so_older_readers_load_the_step():
+    """crashlab<=0.0.2 validates with extra='forbid': a ``state`` key on every error made
+    it skip the step as damaged. Write it only when there is state."""
+    from crashlab.models import ErrorInfo
+
+    assert "state" not in ErrorInfo(type="ValueError", message="x").model_dump(mode="json")
+    full = ErrorInfo(type="KeyError", message="'b'", state={"args": ["b"]})
+    assert full.model_dump(mode="json")["state"] == {"args": ["b"]}
+    assert ErrorInfo.model_validate(full.model_dump(mode="json")) == full
