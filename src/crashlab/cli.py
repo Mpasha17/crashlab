@@ -1437,8 +1437,11 @@ def _run_oracles(console: Console, run: Run, *, quiet: bool) -> list[CheckResult
     from .verify.oracles import apply_outcome, checks_for, run_checks
 
     if run.entrypoint:  # importing the agent's module registers its checks
+        from ._import_guard import process_wide
+
         try:
-            resolve_entrypoint(run.entrypoint)
+            with process_wide(run.entrypoint):
+                resolve_entrypoint(run.entrypoint)
         except ReplayError as err:
             if not quiet:
                 console.print(f"[yellow]could not import {_e(run.entrypoint)}:[/] {_e(err)}")

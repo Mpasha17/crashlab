@@ -619,16 +619,21 @@ def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
             f"module {importing()!r} called crashlab replay/fork while crashlab was importing "
             f"it to resolve {entrypoint!r}: {HINT}"
         )
+    from ..store.redact import get_redactor
+
+    def _safe(msg: str) -> str:  # import errors can echo keys (URLs, env dumps, configs)
+        return get_redactor().redact_str(msg)
+
     try:
         with importing_entrypoint(target):
             module = _import_target(entrypoint, target)
     except RunAtImportError as exc:
-        raise ReplayError(f"cannot import entry point {target!r}: {exc}") from exc
-    except ReplayError:
-        raise
-    except Exception as exc:  # the module itself failed at import: clear error, no traceback
+        raise ReplayError(_safe(f"cannot import entry point {target!r}: {exc}")) from exc
+    except ReplayError as exc:
+        raise ReplayError(_safe(str(exc))) from exc.__cause__
+    except (Exception, SystemExit) as exc:  # the module failed at import: clear error
         raise ReplayError(
-            f"importing entry point module {target!r} raised {type(exc).__name__}: {exc}"
+            _safe(f"importing entry point module {target!r} raised {type(exc).__name__}: {exc}")
         ) from exc
     obj: Any = module
     for part in qualname.split("."):

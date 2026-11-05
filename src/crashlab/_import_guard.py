@@ -22,8 +22,25 @@ class RunAtImportError(RuntimeError):
     """A recording was started while crashlab was importing a run's entry point."""
 
 
+# set by the CLI around its own entry point imports: there, no user threads exist yet, so a
+# thread the module starts at import time (which does not inherit the contextvar) is refused
+# too. Library callers keep the per-context guard so their other threads keep recording.
+_process_target: str | None = None
+
+
 def importing() -> str | None:
+    """The entry point this context is importing (replay/fork re-entry check)."""
     return _importing.get()
+
+
+@contextmanager
+def process_wide(target: str) -> Iterator[None]:
+    global _process_target
+    prev, _process_target = _process_target, target
+    try:
+        yield
+    finally:
+        _process_target = prev
 
 
 @contextmanager
@@ -36,7 +53,7 @@ def importing_entrypoint(target: str) -> Iterator[None]:
 
 
 def refuse_run_at_import(name: str) -> None:
-    target = _importing.get()
+    target = _importing.get() or _process_target
     if target is not None:
         raise RunAtImportError(
             f"crashlab was importing {target!r} (the entry point of a stored run) and the "

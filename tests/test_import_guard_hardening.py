@@ -240,7 +240,7 @@ def test_guard_nested_restores_outer():
         ("raise ValueError('boom at import')", ReplayError),
         ("import crashlab\nwith crashlab.record('m'):\n    pass", ReplayError),
         ("import crashlab\ncrashlab.replay('last')", ReplayError),
-        ("raise SystemExit(3)", SystemExit),
+        ("raise SystemExit(3)", ReplayError),
         ("raise KeyboardInterrupt", KeyboardInterrupt),
     ],
     ids=["error", "record", "replay", "systemexit", "kbint"],
