@@ -25,7 +25,7 @@ pip install "crashlab[openai]"
 Then try it [offline with no API key](#try-it-with-no-api-key-and-no-model) or see the
 [Quickstart](#quickstart).
 
-> **Status: pre-alpha (0.0.1).** Today crashlab **records** runs, lets you inspect them,
+> **Status: pre-alpha (0.0.2).** Today crashlab **records** runs, lets you inspect them,
 > **replays** them strictly offline, grades them with **`@crashlab.check`** oracles,
 > **forks** them at any step with typed **patches** and **diffs** two runs. It also
 > **diagnoses** failed runs, **proposes fixes** and **verifies** them with repeated live
@@ -226,9 +226,23 @@ Or per command: `--model M --base-url URL --api-key-env NAME_OF_THE_ENV_VAR` (th
 the variable's *name*, never the key). This model is separate from your agent's: forks
 and `verify` re-run your agent with its own client and keys.
 
-Using a framework? Wrap the client it uses; per-framework notes (AutoGen, AG2, Haystack,
-DSPy, Google ADK, LangChain, Agno, CrewAI, OpenAI Agents SDK, smolagents) are in
-[examples/integrations/](https://github.com/Mpasha17/crashlab/tree/main/examples/integrations).
+**Using a framework?** Wrap the client it already uses. One-liners below are from the
+live notes in
+[examples/integrations/](https://github.com/Mpasha17/crashlab/tree/main/examples/integrations)
+(do not wrap `ChatOpenAI` itself — that raises `TypeError`):
+
+- **LangChain / LangGraph:** `oc = crashlab.wrap(OpenAI(...)); ChatOpenAI(..., client=oc.chat.completions, root_client=oc)` — [langchain](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/langchain.md) · [langgraph](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/langgraph.md)
+- **PydanticAI:** `OpenAIProvider(openai_client=crashlab.wrap(AsyncOpenAI(...)))` — [pydantic-ai](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/pydantic-ai.md)
+- **OpenAI Agents SDK:** wrap `AsyncOpenAI`, `set_default_openai_client(...)`, pass `OpenAIChatCompletionsModel(..., openai_client=client)` — [openai-agents](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/openai-agents.md)
+- **smolagents:** `m.client = crashlab.wrap(m.client)` — [smolagents](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/smolagents.md)
+- **CrewAI:** `llm._client = crashlab.wrap(llm._client)` — [crewai](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/crewai.md)
+- **LlamaIndex:** `OpenAILike(..., async_openai_client=crashlab.wrap(AsyncOpenAI(...)))` — [llamaindex](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/llamaindex.md)
+- **Agno:** `OpenAILike(..., client=crashlab.wrap(OpenAI(...)))` — [agno](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/agno.md)
+- **Haystack:** `gen.client = crashlab.wrap(OpenAI(...))` — [haystack](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/haystack.md)
+- **AutoGen:** `mc._client = crashlab.wrap(mc._client)` — [autogen](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/autogen.md)
+- **AG2:** subclass the config's `create()` and wrap `client._client` — [ag2](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/ag2.md)
+- **DSPy:** `crashlab.integrations.litellm.patch()` + `dspy.LM(..., engine="litellm", cache=False)` — [dspy](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/dspy.md)
+- **Google ADK:** `crashlab.integrations.litellm.patch()` + `LiteLlm(...)` (native Gemini not recorded yet) — [google-adk](https://github.com/Mpasha17/crashlab/blob/main/examples/integrations/google-adk.md)
 
 ```python
 import crashlab
@@ -452,7 +466,7 @@ PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... MODEL=claude-haiku-4-5 \
 
 See [examples/refund_bot](https://github.com/Mpasha17/crashlab/blob/main/examples/refund_bot/README.md) for details.
 
-See [CHANGELOG.md](https://github.com/Mpasha17/crashlab/blob/main/CHANGELOG.md) for what landed in 0.0.1.
+See [CHANGELOG.md](https://github.com/Mpasha17/crashlab/blob/main/CHANGELOG.md) for what landed in 0.0.2.
 
 ## Benchmark (seed, small n)
 
