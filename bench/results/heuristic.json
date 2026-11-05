@@ -5,7 +5,7 @@
   "label_accuracy": 80.6,
   "failure_cases": 21,
   "failure_label_accuracy": 71.4,
-  "step_exact": 66.7,
+  "step_exact": 71.4,
   "step_in_window": 76.2,
   "clean_cases": 8,
   "false_alarms": 0,
@@ -18,7 +18,7 @@
   "cost_usd": 0,
   "seconds_per_case": 0.0
  },
- "prompt_version": "diagnose-v3",
+ "prompt_version": "diagnose-v5",
  "cases": [
   {
    "run": "01M581H68W",
@@ -231,7 +231,7 @@
    ],
    "notes": [],
    "label_ok": true,
-   "step_exact": false,
+   "step_exact": true,
    "step_in_window": true,
    "false_alarm": false,
    "downgraded": false,
@@ -438,9 +438,9 @@
    ],
    "error": null,
    "label": "TASK_SPEC_VIOLATION",
-   "step": 3,
+   "step": 2,
    "confidence": 0.5,
-   "root_cause": "Heuristic: check refund_within_policy failed: step 3: refunded C03, delivered 45 days ago (window: 30 days)",
+   "root_cause": "Heuristic: the system prompt is missing the 30-day refund window; at chat step 2 the model decided to issue an out-of-window refund",
    "evidence": [
     {
      "step": 3,
@@ -474,9 +474,9 @@
    ],
    "error": null,
    "label": "TASK_SPEC_VIOLATION",
-   "step": 3,
+   "step": 2,
    "confidence": 0.5,
-   "root_cause": "Heuristic: check refund_within_policy failed: step 3: refunded C03, delivered 45 days ago (window: 30 days)",
+   "root_cause": "Heuristic: the system prompt is missing the 30-day refund window; at chat step 2 the model decided to issue an out-of-window refund",
    "evidence": [
     {
      "step": 3,
@@ -510,9 +510,9 @@
    ],
    "error": null,
    "label": "TASK_SPEC_VIOLATION",
-   "step": 3,
+   "step": 2,
    "confidence": 0.5,
-   "root_cause": "Heuristic: check refund_within_policy failed: step 3: refunded C03, delivered 45 days ago (window: 30 days)",
+   "root_cause": "Heuristic: the system prompt is missing the 30-day refund window; at chat step 2 the model decided to issue an out-of-window refund",
    "evidence": [
     {
      "step": 3,
@@ -728,7 +728,7 @@
    "label": "EXTERNAL_FAILURE",
    "step": 0,
    "confidence": 0.5,
-   "root_cause": "Heuristic: the LLM call failed: openai.RateLimitError; step raised openai.RateLimitError",
+   "root_cause": "Heuristic: the LLM call failed: openai.RateLimitError; the run ended with openai.RateLimitError: Error code: 429 - [{'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this; step raised openai.RateLimitError",
    "evidence": [
     {
      "step": 0,

@@ -501,6 +501,272 @@ def test_heuristic_prefers_unhandled_tool_error_over_no_order_placed_check():
 # --- compaction ------------------------------------------------------------------------
 
 
+def _shop_steps_with_tools():
+    """Minimal helpers for FP-control runs (loop8)."""
+    from crashlab.models import Step
+
+    def chat(idx, tool_call=None, text=None, system="Shop. Max 5 units per order."):
+        resp = {}
+        if tool_call is not None:
+            resp["tool_calls"] = [tool_call]
+        if text is not None:
+            resp["messages"] = [{"role": "assistant", "content": text}]
+        return Step(
+            run_id="fp",
+            idx=idx,
+            span_id=f"c{idx}",
+            operation="chat",
+            name="m",
+            request_hash=f"h{idx}",
+            request={"system": system},
+            response=resp,
+        )
+
+    def tool(idx, name, args, result=None, error=None):
+        from crashlab.models import Step
+
+        return Step(
+            run_id="fp",
+            idx=idx,
+            span_id=f"t{idx}",
+            operation="execute_tool",
+            name=name,
+            request_hash=f"h{idx}",
+            request={"args": args},
+            response={"result": result} if error is None else None,
+            error=error,
+        )
+
+    return chat, tool
+
+
+def test_recovered_tool_error_does_not_mask_later_task_spec():
+    """Isolated/recovered lookup error must not hide a later independent quantity fail."""
+    from crashlab.models import CheckResult, Finding, Run
+
+    chat, tool = _shop_steps_with_tools()
+    steps = [
+        chat(0, tool_call={"name": "get_price", "arguments": {"item": "widget"}}),
+        tool(1, "get_price", {"item": "widget"}, result="<html>502 Bad Gateway</html>"),
+        chat(2, tool_call={"name": "get_price", "arguments": {"item": "widget"}}),
+        tool(3, "get_price", {"item": "widget"}, result={"price": 9.5}),  # recovered
+        chat(4, tool_call={"name": "place_order", "arguments": {"item": "widget", "qty": 10}}),
+        tool(5, "place_order", {"item": "widget", "qty": 10}, result={"ok": True}),
+        chat(6, text="Ordered 10 widgets."),
+    ]
+    run = Run(
+        run_id="fp",
+        name="fp",
+        status="ok",
+        outcome="fail",
+        steps=steps,
+        checks=[
+            CheckResult(
+                name="order_quantity_within_limit",
+                status="fail",
+                message="ordered 10 units (limit 5)",
+            )
+        ],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_price returned an HTML page (502 Bad Gateway) instead of data",
+            )
+        ],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] == "TASK_SPEC_VIOLATION"
+    assert "missing" in raw["root_cause"].lower() or "limit" in raw["root_cause"].lower()
+    assert raw["label"] != "TOOL_ERROR_MISHANDLED"
+
+
+def test_error_tool_streak_does_not_mask_later_independent_task_spec():
+    """Even an error-level early streak must not outrank a later quantity-limit violation."""
+    from crashlab.models import CheckResult, Finding, Run
+
+    chat, tool = _shop_steps_with_tools()
+    steps = [
+        chat(0, tool_call={"name": "get_price", "arguments": {"item": "gadget"}}),
+        tool(1, "get_price", {"item": "gadget"}, result="<html>502</html>"),
+        chat(2, tool_call={"name": "get_price", "arguments": {"item": "gadget"}}),
+        tool(3, "get_price", {"item": "gadget"}, result="<html>502</html>"),
+        chat(4, tool_call={"name": "get_price", "arguments": {"item": "gadget"}}),
+        tool(5, "get_price", {"item": "gadget"}, result={"price": 3.0}),
+        chat(6, tool_call={"name": "place_order", "arguments": {"item": "gadget", "qty": 12}}),
+        tool(7, "place_order", {"item": "gadget", "qty": 12}, result={"ok": True}),
+    ]
+    run = Run(
+        run_id="fp",
+        name="fp",
+        status="ok",
+        outcome="fail",
+        steps=steps,
+        checks=[
+            CheckResult(
+                name="order_quantity_within_limit",
+                status="fail",
+                message="ordered 12 units (limit 5)",
+            )
+        ],
+        findings=[
+            Finding(
+                kind="tool_error_streak",
+                severity="error",
+                step=1,
+                steps=[1, 3],
+                message="get_price failed 2 times in a row: HTML 502",
+            )
+        ],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] == "TASK_SPEC_VIOLATION"
+    assert raw["failing_step"] in (6, 7) or "limit" in raw["root_cause"].lower()
+
+
+def test_isolated_recovered_tool_error_without_fail_check_is_not_task_spec():
+    """Agent hit one HTML error, recovered, completed successfully → not TASK_SPEC."""
+    from crashlab.models import Finding, Run
+
+    chat, tool = _shop_steps_with_tools()
+    steps = [
+        chat(0, tool_call={"name": "get_price", "arguments": {"item": "widget"}}),
+        tool(1, "get_price", {"item": "widget"}, result="<html>502 Bad Gateway</html>"),
+        chat(2, tool_call={"name": "get_price", "arguments": {"item": "widget"}}),
+        tool(3, "get_price", {"item": "widget"}, result={"price": 9.5}),
+        chat(4, tool_call={"name": "place_order", "arguments": {"item": "widget", "qty": 2}}),
+        tool(5, "place_order", {"item": "widget", "qty": 2}, result={"ok": True}),
+        chat(6, text="Ordered 2 widgets."),
+    ]
+    run = Run(
+        run_id="fp",
+        name="fp",
+        status="ok",
+        outcome="pass",
+        steps=steps,
+        checks=[],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_price returned an HTML page (502 Bad Gateway) instead of data",
+            )
+        ],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] in ("NO_FAILURE", "EXTERNAL_FAILURE", "TOOL_ERROR_MISHANDLED")
+    assert raw["label"] != "TASK_SPEC_VIOLATION"
+
+
+def test_side_effect_success_claim_after_tool_errors_is_tool_error_mishandled():
+    """Repeated tool failures then a false success claim → TOOL_ERROR_MISHANDLED."""
+    from crashlab.models import CheckResult, Finding, Run
+
+    chat, tool = _shop_steps_with_tools()
+    steps = [
+        chat(0, tool_call={"name": "place_order", "arguments": {"item": "widget", "qty": 1}}),
+        tool(1, "place_order", {"item": "widget", "qty": 1}, result={"status": "rejected"}),
+        chat(2, tool_call={"name": "place_order", "arguments": {"item": "widget", "qty": 1}}),
+        tool(3, "place_order", {"item": "widget", "qty": 1}, result={"status": "rejected"}),
+        chat(4, text="All set — your order for 1 widget is confirmed."),
+    ]
+    run = Run(
+        run_id="fp",
+        name="fp",
+        status="ok",
+        outcome="fail",
+        steps=steps,
+        checks=[
+            CheckResult(
+                name="no_false_order_claim",
+                status="fail",
+                message="step 4: claimed an order succeeded but every place_order failed",
+            )
+        ],
+        findings=[
+            Finding(
+                kind="failed_side_effect_claim",
+                severity="error",
+                step=4,
+                steps=[1, 3, 4],
+                message="every place_order call failed; reply claimed success",
+            )
+        ],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] == "TOOL_ERROR_MISHANDLED"
+
+
+def test_external_timeout_consequence_check_is_not_task_spec():
+    """External timeout + 'no order placed' must not become TASK_SPEC (loop7/8)."""
+    from crashlab.models import CheckResult, ErrorInfo, Finding, Run
+
+    chat, tool = _shop_steps_with_tools()
+    steps = [
+        chat(0, tool_call={"name": "place_order", "arguments": {"qty": 2}}),
+        tool(
+            1,
+            "place_order",
+            {"qty": 2},
+            error=ErrorInfo(type="TimeoutError", message="504"),
+        ),
+        chat(2, text="Could not place the order."),
+    ]
+    run = Run(
+        run_id="fp",
+        name="fp",
+        status="ok",
+        outcome="fail",
+        steps=steps,
+        checks=[CheckResult(name="placed_an_order", status="fail", message="no order placed")],
+        findings=[
+            Finding(
+                kind="unhandled_tool_error",
+                severity="error",
+                step=1,
+                steps=[1],
+                message="place_order raised TimeoutError and the exception ended the run",
+            )
+        ],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] != "TASK_SPEC_VIOLATION"
+    assert raw["label"] in ("TOOL_ERROR_MISHANDLED", "EXTERNAL_FAILURE")
+
+
+def test_run_level_framework_error_with_no_order_placed_is_external():
+    """smolagents AgentGenerationError + only 'no order placed' must not be TASK_SPEC."""
+    from crashlab.models import CheckResult, ErrorInfo, Run
+
+    chat, tool = _shop_steps_with_tools()
+    steps = [
+        chat(
+            0,
+            tool_call={"name": "place_order", "arguments": {"item": "gadget", "quantity": 2}},
+        ),
+    ]
+    run = Run(
+        run_id="fp",
+        name="fp",
+        status="error",
+        outcome="fail",
+        steps=steps,
+        error=ErrorInfo(
+            type="smolagents.utils.AgentGenerationError",
+            message="Tool call index is not provided in tool delta",
+        ),
+        checks=[CheckResult(name="placed_an_order", status="fail", message="no order placed")],
+        findings=[],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] == "EXTERNAL_FAILURE"
+    assert raw["label"] != "TASK_SPEC_VIOLATION"
+
+
 def test_compact_shows_what_is_new_per_step_and_hides_inputs():
     run = _policy_run()
     trace = compact(run, candidates=candidates(run), hide_input=["faults"])

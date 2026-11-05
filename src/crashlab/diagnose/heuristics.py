@@ -330,6 +330,24 @@ def candidates(run: Run) -> list[Candidate]:
     steps = {s.idx: s for s in run.steps}
     out: list[Candidate] = []
 
+    # Framework / agent crashed (run.error) with no completed side effect: external, not
+    # a task-spec miss. Otherwise "no order placed" after AgentGenerationError becomes
+    # TASK_SPEC (loop8 smolagents FP).
+    if run.error is not None:
+        idx = next((s.idx for s in reversed(run.steps) if s.operation == "chat"), 0)
+        if not run.steps:
+            idx = 0
+        detail = (run.error.message or run.error.type or "run error")[:160]
+        out.append(
+            Candidate(
+                idx,
+                f"the run ended with {run.error.type}: {detail}",
+                TaxonomyLabel.EXTERNAL_FAILURE,
+                [detail[:120]],
+                1,
+            )
+        )
+
     for s in run.steps:  # an LLM API call that failed: usually external
         if (
             s.error is not None
@@ -361,8 +379,19 @@ def candidates(run: Run) -> list[Candidate]:
         label, rank = _FINDING_RULES.get(f.kind, (None, 8))
         if f.kind == "suspicious_tool_result":  # an HTML / error page, drift: upstream
             label, rank = TaxonomyLabel.EXTERNAL_FAILURE, 6 if "changed shape" in f.message else 5
-        # error-level tool streaks outrank warn-level repetition on the same failure mode
-        if f.kind == "tool_error_streak" and f.severity == "error":
+        # Boost error-level tool streaks only when a consequence check would otherwise
+        # steal the label as TASK_SPEC (loop7). Do NOT boost when an independent later
+        # spec violation (quantity/limit) is the real fail (loop8 FP control).
+        if (
+            f.kind == "tool_error_streak"
+            and f.severity == "error"
+            and any(
+                c.status in ("fail", "error") and _TOOL_FAILURE_CONSEQUENCE.search(c.message or "")
+                for c in run.checks
+            )
+        ):
+            rank = 2
+        if f.kind == "failed_side_effect_claim" and f.severity == "error":
             rank = 2
         quotes = [e.quote for e in f.evidence if e.step_idx == idx][:2] or [_quote(steps[idx])]
         reason = f"runtime check {f.kind} ({f.severity}): {f.message}"
@@ -394,12 +423,20 @@ def candidates(run: Run) -> list[Candidate]:
             # wrong action: blame the chat that decided on the tool, not the tool itself
             idx = _decision_step(run, damage)
         rank = 2 if (refs or action) else 7
-        if _TOOL_FAILURE_CONSEQUENCE.search(msg) and any(
-            f.kind in _TOOL_FAILURE_FINDINGS and f.severity in ("error", "warn")
-            for f in run.findings
+        if _TOOL_FAILURE_CONSEQUENCE.search(msg) and (
+            run.error is not None
+            or any(
+                f.kind in _TOOL_FAILURE_FINDINGS and f.severity in ("error", "warn")
+                for f in run.findings
+            )
         ):
-            # symptom of the tool failure — let the finding candidate outrank TASK_SPEC
+            # symptom of the tool/framework failure — let EXTERNAL / tool finding win
             rank = 7
+        if re.search(r"claimed .*succeeded|false .*claim|every .+ failed", msg, re.I) and any(
+            f.kind == "failed_side_effect_claim" and f.severity == "error" for f in run.findings
+        ):
+            rank = 7
+            label = TaxonomyLabel.TOOL_ERROR_MISHANDLED
         out.append(
             Candidate(
                 idx,

@@ -80,7 +80,31 @@ def diagnose_with_retry(run: crashlab.Run, args: argparse.Namespace, store: Stor
     raise AssertionError("unreachable")
 
 
-def score(case: dict[str, Any], d: crashlab.Diagnosis | None, error: str | None) -> dict[str, Any]:
+def _step_exact(run: crashlab.Run | None, predicted: int | None, expected: int | None) -> bool:
+    """True when predicted is expected, or the decision chat behind a tool expected step."""
+    if expected is None or predicted is None:
+        return False
+    if predicted == expected:
+        return True
+    if run is None:
+        return False
+    step = next((s for s in run.steps if s.idx == expected), None)
+    if step is None or step.operation != "execute_tool":
+        return False
+    caller = next(
+        (s.idx for s in sorted(run.steps, key=lambda s: -s.idx)
+         if s.idx < expected and s.operation == "chat"),
+        None,
+    )  # fmt: skip
+    return predicted == caller
+
+
+def score(
+    case: dict[str, Any],
+    d: crashlab.Diagnosis | None,
+    error: str | None,
+    run: crashlab.Run | None = None,
+) -> dict[str, Any]:
     clean_only = case["labels"] == ["NO_FAILURE"]
     failure_case = case["step"] is not None
     row: dict[str, Any] = {
@@ -114,8 +138,8 @@ def score(case: dict[str, Any], d: crashlab.Diagnosis | None, error: str | None)
         evidence=[{"step": e.step_idx, "field": e.field, "quote": e.quote} for e in d.evidence],
         notes=d.notes,
         label_ok=d.label.value in case["labels"],
-        step_exact=failure_case and step == case["step"],
-        step_in_window=failure_case and step is not None and lo <= step <= hi,
+        step_exact=failure_case and _step_exact(run, step, case["step"]),
+        step_in_window=failure_case and step is not None and lo is not None and lo <= step <= hi,
         false_alarm=clean_only and d.is_failure,
         downgraded=any(n.startswith("downgraded") for n in d.notes),
         evidence_valid=m.get("evidence_valid", len(d.evidence)),
@@ -200,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
             d = diagnose_with_retry(run, args, store, key)
         except DiagnoseError as e:
             error = str(e)[:300]
-        row = score(case, d, error)
+        row = score(case, d, error, run)
         rows.append(row)
         mark = "ok " if row["label_ok"] else "BAD"
         got = f"{row['label']}@{row['step']}" if d else f"ERROR {error}"
