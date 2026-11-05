@@ -11,7 +11,14 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from .patch import AnyPatch, PatchSet
 
@@ -370,6 +377,24 @@ class Diagnosis(_Model):
     fix_method: dict[str, Any] = Field(default_factory=dict)
     method: dict[str, Any] = Field(default_factory=dict)
     confirmed_by_counterfactual: bool | None = None
+
+    @field_validator("secondary", mode="before")
+    @classmethod
+    def _coerce_secondary(cls, v: Any) -> Any:
+        """Drop unknown / non-label entries so old or hand-edited diagnosis JSON still loads.
+        Valid TaxonomyLabel strings and members are kept; non-lists become []."""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            v = [v]
+        if not isinstance(v, (list, tuple)):
+            return []
+        valid = {m.value for m in TaxonomyLabel}
+        out: list[Any] = []
+        for item in v:
+            if isinstance(item, TaxonomyLabel) or isinstance(item, str) and item in valid:
+                out.append(item)
+        return out
 
     @model_validator(mode="after")
     def _normalize_secondary(self) -> Diagnosis:

@@ -578,3 +578,69 @@ def test_setup_errors_are_errored_not_a_rejection():
     assert v.verdict == "INCONCLUSIVE"
     assert all(t.status == "errored" for t in v.trials)
     assert any("setup error" in (t.error or "") for t in v.trials)
+
+
+# --- loop15: dual-failure verify consolidation (fake side effects / multi-oracle) --------
+
+
+def test_dual_failure_verify_fake_side_effects_no_false_rejected():
+    """Blocked side-effect trials are errored/INCONCLUSIVE, never false REJECTED.
+    With fake_tool, trials grade; VERIFIED only when every targeted check passes."""
+    from crashlab.models import TaxonomyLabel
+
+    # Dual-failure surface + CAP patch that issues a novel side-effect amount.
+    # Existing semantics: blocked side effects → errored trials → not REJECTED.
+    cap = {**APPEND, "text": "4. CAP refunds outside the window at 10.00."}
+    run2, _ = _setup(cap)
+    assert run2.diagnosis is not None
+    run2.diagnosis.secondary = [TaxonomyLabel.EXTERNAL_FAILURE]
+    crashlab.store.Store().save_diagnosis(run2, run2.diagnosis)
+    v_b = crashlab.verify(
+        run2, 1, k=2, regress="none", client=crashlab.wrap(_CapsAtTen()), control=False
+    )
+    assert v_b.verdict != "REJECTED"
+    assert v_b.verdict in ("INCONCLUSIVE", "LIKELY", "VERIFIED")
+    errored = [t for t in v_b.trials if t.role == "patched" and t.status == "errored"]
+    assert errored and all(
+        "blocked" in (t.error or "").lower() or "SideEffect" in (t.error or "") for t in errored
+    )
+
+    # With fake side-effect tool: trials are graded (pass/fail), not blocked
+    crashlab.fake_tool(
+        "issue_refund",
+        lambda order_id, amount: {"refund_id": "FAKE", "amount": amount, "status": "issued"},
+    )
+    try:
+        v_fake = crashlab.verify(
+            run2, 1, k=2, regress="none", client=crashlab.wrap(_CapsAtTen()), control=False
+        )
+    finally:
+        crashlab.clear_fakes()
+    assert all(t.status in ("pass", "fail") for t in v_fake.trials if t.role == "patched")
+    assert not any("blocked" in r.lower() for r in v_fake.reasons)
+    # CAP-at-10 fails amount oracle → must not be VERIFIED
+    assert v_fake.verdict != "VERIFIED"
+
+
+def test_dual_failure_verify_verified_only_when_all_oracles_pass():
+    """VERIFIED requires patched arm to pass all checks (multi-oracle), not a partial fix."""
+    run, clean = _setup(APPEND)
+    from crashlab.models import TaxonomyLabel
+
+    run.diagnosis.secondary = [TaxonomyLabel.STEP_REPETITION]
+    crashlab.store.Store().save_diagnosis(run, run.diagnosis)
+
+    # Good policy fix + rule-following model → all oracles pass → can be VERIFIED
+    v = crashlab.verify(
+        run,
+        1,
+        k=3,
+        regress="none",
+        control=True,
+        client=crashlab.wrap(PolicyModel()),
+    )
+    # With control failing and patched passing, verdict is VERIFIED (existing semantics)
+    assert v.verdict == "VERIFIED", v.reasons
+    for t in v.trials:
+        if t.role == "patched" and t.status == "pass":
+            assert t.failed_checks == []

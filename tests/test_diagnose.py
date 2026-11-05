@@ -2624,6 +2624,15 @@ def test_secondary_dedupes_and_roundtrips_json():
     # old consumer: no secondary key
     old = Diagnosis.model_validate({"run_id": "r", "label": "EXTERNAL_FAILURE"})
     assert old.secondary == []
+    # malformed / hand-edited JSON: unknown strings and non-labels are dropped (loop15)
+    junk = Diagnosis.model_validate(
+        {
+            "run_id": "r",
+            "label": "TOOL_ERROR_MISHANDLED",
+            "secondary": ["BOGUS", 99, None, "TASK_SPEC_VIOLATION", {"x": 1}],
+        }
+    )
+    assert [s.value for s in junk.secondary] == ["TASK_SPEC_VIOLATION"]
 
 
 def test_validate_secondary_dedupes_and_caps():

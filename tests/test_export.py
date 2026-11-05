@@ -301,3 +301,60 @@ def test_export_includes_expected_secondary_constant(tmp_path):
     assert "EXPECTED_SECONDARY" in src
     assert "EXTERNAL_FAILURE" in src and "STEP_REPETITION" in src
     assert "run.diagnosis.secondary" in src or "EXPECTED_SECONDARY" in src
+
+
+def test_export_without_diagnosis_emits_empty_expected_secondary(tmp_path):
+    """Old run with no diagnosis: export-test still works; EXPECTED_SECONDARY = []."""
+    from crashlab.export import export_test
+
+    run, _ = _setup()
+    run.diagnosis = None
+    crashlab.store.Store().update_run(run)
+    # clear diagnosis from stored JSON explicitly
+    loaded = crashlab.load(run.run_id)
+    loaded.diagnosis = None
+    crashlab.store.Store().update_run(loaded)
+    paths = export_test(run.run_id, out_dir=tmp_path / "nodiag")
+    mod = next(p for p in paths if p.suffix == ".py")
+    src = mod.read_text()
+    assert "EXPECTED_SECONDARY = []" in src
+    # assert guard is conditional — empty list must not fail the test module shape
+    assert "if EXPECTED_SECONDARY and run.diagnosis is not None:" in src
+
+
+def test_export_tolerates_malformed_diagnosis_secondary(tmp_path):
+    """Malformed diagnosis JSON (bad secondary) must not crash load or export-test.
+    Store load prefers the sqlite index; corrupt both index + run.json like a bad edit."""
+    import json
+
+    from crashlab.export import export_test
+    from crashlab.models import Diagnosis
+    from crashlab.store import Store
+
+    # unit: Diagnosis itself coerces junk secondary
+    d = Diagnosis.model_validate(
+        {
+            "run_id": "r",
+            "label": "TASK_SPEC_VIOLATION",
+            "secondary": ["NOT_A_LABEL", 123, {"x": 1}, "EXTERNAL_FAILURE", "EXTERNAL_FAILURE"],
+        }
+    )
+    assert [s.value for s in d.secondary] == ["EXTERNAL_FAILURE"]
+
+    run, _ = _setup()
+    store = Store()
+    path = store.run_dir(run.run_id) / "run.json"
+    data = json.loads(path.read_text())
+    assert "diagnosis" in data
+    data["diagnosis"]["secondary"] = ["NOT_A_LABEL", 123, {"x": 1}, "EXTERNAL_FAILURE"]
+    path.write_text(json.dumps(data, indent=2))
+    # index is what load_run reads first — keep it in sync with the corrupt file
+    store.index.upsert_run(data)
+    loaded = crashlab.load(run.run_id)
+    assert loaded.diagnosis is not None
+    assert [s.value for s in loaded.diagnosis.secondary] == ["EXTERNAL_FAILURE"]
+    paths = export_test(run.run_id, out_dir=tmp_path / "malformed")
+    mod = next(p for p in paths if p.suffix == ".py")
+    src = mod.read_text()
+    assert 'EXPECTED_SECONDARY = ["EXTERNAL_FAILURE"]' in src
+    assert "NOT_A_LABEL" not in src
