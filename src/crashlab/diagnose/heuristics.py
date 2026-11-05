@@ -43,6 +43,13 @@ _SYSTEM_TROUBLE = re.compile(
     r"technical (?:issue|error))\b",
     re.I,
 )
+# suspicious_tool_result messages for HTML / JSON / error-body pages (not schema drift)
+_ERROR_PAGE_MSG = re.compile(
+    r"html|502|bad gateway|error message|error object|error status|failed status|"
+    r"json that does not parse",
+    re.I,
+)
+_SIDE_EFFECT_TOOLS = frozenset({"place_order", "issue_refund"})
 _API_ERRORS = (
     "RateLimit",
     "APIConnection",
@@ -337,6 +344,60 @@ def _missing_rule_cause(run: Run, reason: str, decision: int) -> str | None:
     return None
 
 
+def _chat_reply_text(run: Run, after_idx: int) -> str:
+    """Concatenate assistant text parts after ``after_idx`` (HTML invent / apology)."""
+    parts_out: list[str] = []
+    for s in run.steps:
+        if s.operation != "chat" or s.idx <= after_idx:
+            continue
+        for m in (s.response or {}).get("messages") or []:
+            if not isinstance(m, dict):
+                continue
+            for p in m.get("parts") or []:
+                if p.get("type") == "text":
+                    parts_out.append(str(p.get("content") or p.get("text") or ""))
+            if not m.get("parts") and m.get("content"):
+                parts_out.append(str(m["content"]))
+    return " ".join(parts_out)
+
+
+def _lookup_recovered(run: Run, bad_idx: int, tool_name: str) -> int | None:
+    """First successful same-tool call after a bad lookup, if any."""
+    for s in run.steps:
+        if s.idx <= bad_idx or s.operation != "execute_tool" or s.name != tool_name:
+            continue
+        if s.error is not None:
+            continue
+        result = (s.response or {}).get("result")
+        if isinstance(result, str):
+            low = result.lstrip().lower()
+            if low.startswith("<html") or "bad gateway" in low or '"error"' in low[:200]:
+                continue
+        elif isinstance(result, dict) and any(
+            result.get(k) not in (None, "", [], {}, False) for k in ("error", "errors")
+        ):
+            continue
+        return s.idx
+    return None
+
+
+def _proceeded_after_bad_lookup(run: Run, bad_idx: int, tool_name: str) -> bool:
+    """True when a side-effect tool succeeds before any clean recovery of ``tool_name``.
+
+    Held-out litellm pattern: ignore HTML/JSON error page, still place_order.
+    """
+    recovered = _lookup_recovered(run, bad_idx, tool_name)
+    for s in run.steps:
+        if s.idx <= bad_idx or s.operation != "execute_tool":
+            continue
+        if s.name not in _SIDE_EFFECT_TOOLS or s.error is not None:
+            continue
+        if recovered is not None and s.idx > recovered:
+            continue  # placed only after a clean retry
+        return True
+    return False
+
+
 def candidates(run: Run) -> list[Candidate]:
     """Candidate culprit steps with the reason each was picked, strongest first."""
     steps = {s.idx: s for s in run.steps}
@@ -391,18 +452,17 @@ def candidates(run: Run) -> list[Candidate]:
         label, rank = _FINDING_RULES.get(f.kind, (None, 8))
         if f.kind == "suspicious_tool_result":  # an HTML / error page, drift: upstream
             label, rank = TaxonomyLabel.EXTERNAL_FAILURE, 6 if "changed shape" in f.message else 5
-            # Inventing order state from an HTML/error page is mishandling (loop9 GTXC);
-            # apologising / asking to retry stays EXTERNAL (cross-case EXTERNAL labels).
-            if "html" in f.message.lower() or "502" in f.message.lower():
-                reply = " ".join(
-                    str(p.get("content") or p.get("text") or "")
-                    for s in run.steps
-                    if s.operation == "chat" and s.idx > (f.step or -1)
-                    for m in ((s.response or {}).get("messages") or [])
-                    for p in (m.get("parts") or [])
-                    if isinstance(m, dict) and p.get("type") == "text"
-                )
-                if _INVENTED_ORDER_STATE.search(reply) and not _SYSTEM_TROUBLE.search(reply):
+            # Inventing order state from an HTML/JSON error page is mishandling (loop9 GTXC);
+            # proceeding to a side effect without a clean retry is too (loop10 held-out);
+            # apologising / asking to retry with no side effect stays EXTERNAL.
+            msg = f.message or ""
+            if "changed shape" not in msg and _ERROR_PAGE_MSG.search(msg):
+                bad_idx = f.step if f.step is not None else idx
+                bad_tool = steps[bad_idx].name if bad_idx in steps else ""
+                reply = _chat_reply_text(run, bad_idx)
+                invented = _INVENTED_ORDER_STATE.search(reply) and not _SYSTEM_TROUBLE.search(reply)
+                proceeded = bool(bad_tool) and _proceeded_after_bad_lookup(run, bad_idx, bad_tool)
+                if invented or proceeded:
                     label = TaxonomyLabel.TOOL_ERROR_MISHANDLED
         # Boost error-level tool streaks only when a consequence check would otherwise
         # steal the label as TASK_SPEC (loop7). Do NOT boost when an independent later

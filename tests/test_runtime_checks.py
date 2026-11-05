@@ -548,7 +548,34 @@ def test_failed_side_effect_claim_quiet(results, output):
     assert found == []
 
 
+@pytest.mark.parametrize(
+    ("output", "expect_finding"),
+    [
+        # completed claim after every side effect failed → finding
+        ("Your order has been placed successfully. Order ID O-9.", True),
+        ("All set — I have successfully placed your order for 3 gizmos.", True),
+        # promissory / future intent is not a completed side-effect claim
+        ("I will place your order once pricing is back.", False),
+        ("I'll place the order for you when the catalog recovers.", False),
+        ("We can place an order if you still want one after retry.", False),
+        # refusal / inability — FP control
+        ("I refuse to place an order from a broken price page.", False),
+        ("I cannot place your order; the price lookup failed.", False),
+        ("Sorry, I won't place an order until get_price returns data.", False),
+    ],
+)
+def test_failed_side_effect_promissory_vs_completed(output, expect_finding):
+    """Loop10: completed success wording vs promissory/refusal (FP controls)."""
+    found = [
+        f
+        for f in evaluate(_effect_run([REJ], output), ChecksConfig())
+        if f.kind == "failed_side_effect_claim"
+    ]
+    assert bool(found) is expect_finding, (output, found)
+
+
 def test_response_text_reads_recorded_parts():
+
     # recorded replies are {"parts": [{"type": "text", "content": ...}]}; response_text
     # read only "content", so text-based checks (same reply twice, length-cutoff
     # evidence) saw an empty reply on every real run

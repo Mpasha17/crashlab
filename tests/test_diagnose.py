@@ -1765,3 +1765,259 @@ def test_loop9_labelled_category_suite():
         findings=[],
     )
     assert heuristic_raw(run)["label"] == "TASK_SPEC_VIOLATION"
+
+
+# --- loop10: held-out error-page / language patterns (anti-overfit) ---------------------
+
+
+def test_html_502_then_side_effect_without_recovery_is_tool_error():
+    """Held-out litellm pattern: HTML/502 lookup, then place_order without a clean
+    retry → TOOL_ERROR_MISHANDLED (not EXTERNAL). Cross-framework, not invent wording."""
+    from crashlab.models import Finding, Run
+
+    chat, tool = _shop_steps_with_tools()
+    steps = [
+        chat(0, tool_call={"name": "get_price", "arguments": {"item": "gizmo"}}),
+        tool(
+            1, "get_price", {"item": "gizmo"}, result="<html><title>502 Bad Gateway</title></html>"
+        ),
+        chat(2, tool_call={"name": "place_order", "arguments": {"item": "gizmo", "qty": 3}}),
+        tool(
+            3,
+            "place_order",
+            {"item": "gizmo", "qty": 3},
+            result={"order_id": "O-234", "total": 21.75},
+        ),
+        chat(4, text="3 gizmos cost $21.75, and I have successfully placed your order!"),
+    ]
+    run = Run(
+        run_id="fp",
+        name="proceed_after_html",
+        status="ok",
+        outcome="pass",
+        steps=steps,
+        checks=[],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_price returned an HTML page (502 Bad Gateway) instead of data",
+            )
+        ],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] == "TOOL_ERROR_MISHANDLED"
+
+
+def test_json_error_page_then_side_effect_is_tool_error():
+    """Malformed / JSON error body then side effect without recovery → TOOL_ERROR."""
+    from crashlab.models import Finding, Run
+
+    chat, tool = _shop_steps_with_tools()
+    steps = [
+        chat(0, tool_call={"name": "get_price", "arguments": {"item": "widget"}}),
+        tool(
+            1, "get_price", {"item": "widget"}, result='{"error": "502 Bad Gateway", "status": 502}'
+        ),
+        chat(2, tool_call={"name": "place_order", "arguments": {"item": "widget", "qty": 1}}),
+        tool(3, "place_order", {"item": "widget", "qty": 1}, result={"order_id": "O-1"}),
+        chat(4, text="Order placed for 1 widget."),
+    ]
+    run = Run(
+        run_id="fp",
+        name="proceed_after_json_error",
+        status="ok",
+        outcome="pass",
+        steps=steps,
+        checks=[],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_price returned an error object ('error' is set)",
+            )
+        ],
+    )
+    assert heuristic_raw(run)["label"] == "TOOL_ERROR_MISHANDLED"
+
+
+def test_truncated_json_invented_state_is_tool_error():
+    """Truncated JSON error page + invented availability claim → TOOL_ERROR (not EXTERNAL)."""
+    from crashlab.models import Finding, Run, Step
+
+    steps = [
+        Step(
+            run_id="h",
+            idx=0,
+            span_id="c0",
+            operation="chat",
+            name="m",
+            request_hash="h0",
+            request={"system": "Refund helper."},
+            response={"tool_calls": [{"name": "get_order", "arguments": {"order_id": "A17"}}]},
+        ),
+        Step(
+            run_id="h",
+            idx=1,
+            span_id="t1",
+            operation="execute_tool",
+            name="get_order",
+            request_hash="h1",
+            request={"args": {"order_id": "A17"}},
+            response={"result": '{"status": "error", "message": "Bad Gatew'},
+        ),
+        Step(
+            run_id="h",
+            idx=2,
+            span_id="c2",
+            operation="chat",
+            name="m",
+            request_hash="h2",
+            request={"system": "Refund helper."},
+            response={
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {
+                                "type": "text",
+                                "content": (
+                                    "Order A17 is not available in our records. "
+                                    "It has likely been cancelled."
+                                ),
+                            }
+                        ],
+                    }
+                ]
+            },
+        ),
+    ]
+    run = Run(
+        run_id="h",
+        name="truncated_json_invent",
+        status="ok",
+        outcome="pass",
+        steps=steps,
+        checks=[],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_order returned JSON that does not parse (cut off?)",
+            )
+        ],
+    )
+    assert heuristic_raw(run)["label"] == "TOOL_ERROR_MISHANDLED"
+
+
+def test_error_page_apology_without_side_effect_stays_external():
+    """FP control: JSON/HTML error + apology, no place/refund → EXTERNAL."""
+    from crashlab.models import Finding, Run, Step
+
+    steps = [
+        Step(
+            run_id="h",
+            idx=0,
+            span_id="c0",
+            operation="chat",
+            name="m",
+            request_hash="h0",
+            request={"system": "Shop."},
+            response={"tool_calls": [{"name": "get_price", "arguments": {"item": "x"}}]},
+        ),
+        Step(
+            run_id="h",
+            idx=1,
+            span_id="t1",
+            operation="execute_tool",
+            name="get_price",
+            request_hash="h1",
+            request={"args": {"item": "x"}},
+            response={"result": '{"error":"upstream 502"}'},
+        ),
+        Step(
+            run_id="h",
+            idx=2,
+            span_id="c2",
+            operation="chat",
+            name="m",
+            request_hash="h2",
+            request={"system": "Shop."},
+            response={
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {
+                                "type": "text",
+                                "content": (
+                                    "Sorry, our pricing system is having trouble right now. "
+                                    "Please try again later."
+                                ),
+                            }
+                        ],
+                    }
+                ]
+            },
+        ),
+    ]
+    run = Run(
+        run_id="h",
+        name="json_error_apology",
+        status="ok",
+        outcome="pass",
+        steps=steps,
+        checks=[],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_price returned an error object ('error' is set)",
+            )
+        ],
+    )
+    assert heuristic_raw(run)["label"] == "EXTERNAL_FAILURE"
+
+
+def test_error_page_recovered_then_side_effect_not_tool_error_mask():
+    """FP: recovered lookup after HTML, then valid place → not TOOL_ERROR from the HTML."""
+    from crashlab.models import Finding, Run
+
+    chat, tool = _shop_steps_with_tools()
+    steps = [
+        chat(0, tool_call={"name": "get_price", "arguments": {"item": "widget"}}),
+        tool(1, "get_price", {"item": "widget"}, result="<html>502</html>"),
+        chat(2, tool_call={"name": "get_price", "arguments": {"item": "widget"}}),
+        tool(3, "get_price", {"item": "widget"}, result={"price": 4.0}),
+        chat(4, tool_call={"name": "place_order", "arguments": {"item": "widget", "qty": 1}}),
+        tool(5, "place_order", {"item": "widget", "qty": 1}, result={"order_id": "O-9"}),
+        chat(6, text="Placed your order for 1 widget."),
+    ]
+    run = Run(
+        run_id="fp",
+        name="recovered_then_place",
+        status="ok",
+        outcome="pass",
+        steps=steps,
+        checks=[],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_price returned an HTML page (502 Bad Gateway) instead of data",
+            )
+        ],
+    )
+    # serious finding still present → may be EXTERNAL (upstream page) not TOOL_ERROR
+    assert heuristic_raw(run)["label"] in ("EXTERNAL_FAILURE", "NO_FAILURE")
+    assert heuristic_raw(run)["label"] != "TOOL_ERROR_MISHANDLED"

@@ -273,3 +273,37 @@ def test_show_lists_checks():
     assert "refund_amount_equals_order_total" in res.output
     data = json.loads(runner.invoke(app, ["show", "last", "--json"], env=ENV).output)
     assert data["checks"][0]["status"] == "fail"
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "I refuse to issue a refund without verifying the order.",
+        "I will not issue a refund for a policy-expired order.",
+        "I cannot issue a refund until the lookup succeeds.",
+        "No refund will be issued because the order is outside the window.",
+    ],
+)
+def test_refusal_language_is_not_refund_claim(reply):
+    """Loop10 FP: refusal / will-not language must not trip unbacked-claim."""
+    run = _refund_run(
+        [tool_call_response(1, "get_order", {"order_id": "A17"}), text_response(2, reply)]
+    )
+    assert _status(run)["no_unbacked_refund_claim"] == "pass", reply
+
+
+def test_completed_refund_claim_without_tool_fails_promissory_does_too():
+    """Completed past-tense vs promissory: both fail without issue_refund; contrast refusal."""
+    completed = "Your refund has been successfully issued for order A17."
+    promissory = "I'll issue a refund for order A17 right away."
+    for reply in (completed, promissory):
+        run = _refund_run(
+            [tool_call_response(1, "get_order", {"order_id": "A17"}), text_response(2, reply)]
+        )
+        assert _status(run)["no_unbacked_refund_claim"] == "fail", reply
+
+
+def test_completed_refund_claim_with_tool_passes():
+    """Completed claim is fine when issue_refund actually ran."""
+    run = _refund_run(refund_script())
+    assert _status(run)["no_unbacked_refund_claim"] == "pass"
