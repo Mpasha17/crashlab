@@ -241,9 +241,24 @@ def test_exported_test_does_not_import_agent_at_collection(tmp_path):
 
 
 def test_process_wide_guard_resets_after_exception():
-    with pytest.raises(ValueError), guard.process_wide("x"):
-        with pytest.raises(guard.RunAtImportError):
+    import threading
+
+    errs = []
+
+    def child():
+        try:
             guard.refuse_run_at_import("m")
+        except guard.RunAtImportError as exc:
+            errs.append(exc)
+
+    with pytest.raises(ValueError), guard.process_wide("x"):
+        t = threading.Thread(target=child)
+        t.start()
+        t.join()
         raise ValueError
-    guard.refuse_run_at_import("m")  # cleared
-    assert guard.importing() is None
+    assert len(errs) == 1  # a thread started inside the window is refused
+    guard.refuse_run_at_import("m")  # the importing thread itself is free again
+    t = threading.Thread(target=child)
+    t.start()
+    t.join()
+    assert len(errs) == 1 and guard.importing() is None  # new threads are not tainted
