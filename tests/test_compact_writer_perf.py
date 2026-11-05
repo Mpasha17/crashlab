@@ -286,7 +286,7 @@ def test_compactor_cache_holds_one_entry_per_field(monkeypatch, tmp_path):
         msgs = msgs + [{"role": "user", "content": f"q{i}"}]
         w.append(_line(i, msgs))
     assert list(w._compactor._last) == ["request.messages"]
-    seq, full, enc = w._compactor._last["request.messages"]
+    seq, full, enc, fps = w._compactor._last["request.messages"]
     assert seq == 499 and len(full) == 500 and len(enc) == 500
     # encodings are not shared with a growing mutable buffer across steps
     assert enc is not full

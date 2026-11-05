@@ -69,3 +69,10 @@ Cache encodings are content-based. Reusing an encoding because a message object 
 identical (``is``) is unsafe when callers mutate nested fields; compact recordings always
 encode the messages passed to each append so a deep-copied full baseline matches. Mapping
 subclasses in message lists are coerced to dicts on every append (compact on or off).
+
+Append-only reuse (experimental writer): cached encodings are immutable strings keyed by a
+content fingerprint of each message, never by object identity. A nested mutation changes
+the fingerprint and forces a fresh serialize. Fingerprint reuse applies only to large
+messages (long cached encodings); small messages re-serialize and compare, which is
+cheaper than hashing them. Typical short-chat runs therefore stay O(n²) in serialize cost;
+large-attachment prefixes are the win. Correctness always beats the old identity fast path.

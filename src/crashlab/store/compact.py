@@ -106,37 +106,123 @@ def digest_from_enc(enc: list[str]) -> str:
     return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
 
 
-def _encode_list(
-    full: list[Any], _prev: tuple[int, list[Any], list[str]] | None
-) -> tuple[list[Any], list[str]]:
-    """Encode ``full`` by content. Identity-based reuse is unsafe: a later step may
-    mutate nested fields of a message still referenced from an earlier step, and a
-    stale encoding would silently drop that mutation from the recording.
+# Reuse cached encodings only when a content fingerprint still matches. Identity is
+# never consulted. Fingerprinting a large string is cheaper than re-JSON-escaping it;
+# for small messages dumps is cheaper than sha256, so the fp path applies only when
+# the previous encoding exceeded FP_THRESHOLD characters.
+FP_THRESHOLD = 2000
+_CacheEntry = tuple[int, list[Any], list[str], list[bytes | None]]
 
-    ``prev`` is accepted for API symmetry with the cache; encodings are always
-    rebuilt so ``keep`` / ``check`` reflect the messages passed to this append.
-    Returns ``(normalized_messages, encodings)``.
-    """
+
+def _content_fp(o: Any, h: Any | None = None) -> bytes:
+    """Tree fingerprint: equal iff ``_dumps_msg`` would be equal for JSON-ish values."""
+    if h is None:
+        h = hashlib.sha256()
+        _content_fp(o, h)
+        return h.digest()
+    if o is None:
+        h.update(b"N")
+    elif o is True:
+        h.update(b"T")
+    elif o is False:
+        h.update(b"F")
+    elif isinstance(o, int) and not isinstance(o, bool):
+        h.update(b"I" + repr(o).encode())
+    elif isinstance(o, float):
+        h.update(b"f" + json.dumps(o).encode())
+    elif isinstance(o, str):
+        b = o.encode("utf-8")
+        h.update(b"S" + str(len(b)).encode() + b":" + b)
+    elif isinstance(o, Mapping):
+        items = list(o.items())
+        h.update(b"D" + str(len(items)).encode())
+        # Message keys are str; avoid calling _dumps_msg here (it would defeat the
+        # large-message fast path that exists to skip dumps).
+        for k, v in sorted(items, key=lambda kv: (str(type(kv[0])), str(kv[0]))):
+            _content_fp(k, h)
+            _content_fp(v, h)
+    elif isinstance(o, (list, tuple)):
+        h.update(b"L" + str(len(o)).encode())
+        for x in o:
+            _content_fp(x, h)
+    else:
+        h.update(b"U" + str(o).encode())
+    return h.digest()  # ignored when h was passed; kept for type checkers
+
+
+def _fp_for(m: Any, enc: str) -> bytes | None:
+    return _content_fp(m) if len(enc) >= FP_THRESHOLD else None
+
+
+def _encode_list(
+    full: list[Any], prev: _CacheEntry | None
+) -> tuple[list[Any], list[str], list[bytes | None]]:
+    """Encode ``full`` by content, reusing immutable cached encodings when a content
+    fingerprint still matches (large messages) or when a fresh dumps equals the cache
+    (small messages). Never uses object identity. Returns ``(norm, enc, fps)``."""
     norm = [_normalize_msg(m) for m in full]
-    return norm, [_dumps_msg(m) for m in norm]
+    if prev is None:
+        enc = [_dumps_msg(m) for m in norm]
+        return norm, enc, [_fp_for(m, e) for m, e in zip(norm, enc, strict=True)]
+
+    _, _, prev_enc, prev_fps = prev
+    enc: list[str] = []
+    fps: list[bytes | None] = []
+    j = 0
+    while j < len(norm) and j < len(prev_enc):
+        m = norm[j]
+        prev_e = prev_enc[j]
+        prev_f = prev_fps[j] if j < len(prev_fps) else None
+        if prev_f is not None and len(prev_e) >= FP_THRESHOLD:
+            f = _content_fp(m)
+            if f == prev_f:
+                enc.append(prev_e)
+                fps.append(prev_f)
+                j += 1
+                continue
+            break
+        e = _dumps_msg(m)
+        if e == prev_e:
+            enc.append(prev_e)
+            fps.append(prev_f if prev_f is not None else _fp_for(m, e))
+            j += 1
+            continue
+        enc.append(e)
+        fps.append(_fp_for(m, e))
+        j += 1
+        break
+    else:
+        # prefix exhausted without break: encode any new tail only
+        for m in norm[j:]:
+            e = _dumps_msg(m)
+            enc.append(e)
+            fps.append(_fp_for(m, e))
+        return norm, enc, fps
+    # mismatched at j-1 already appended; encode the remainder
+    for m in norm[j:]:
+        e = _dumps_msg(m)
+        enc.append(e)
+        fps.append(_fp_for(m, e))
+    return norm, enc, fps
 
 
 class Compactor:
     """Writer side; holds the last full list seen for each field of one cassette.
 
-    Cached per field: ``(seq, messages_ref, encodings)``. Encodings are content-based
-    (identity reuse is not trusted: nested mutations must be visible). ``encodings`` is
-    never mutated in place, so :meth:`snapshot` / :meth:`restore` stay exact after a
-    failed write.
+    Cached per field: ``(seq, messages_ref, encodings, fingerprints)``. Encodings are
+    content-based (identity is never trusted). Large-message fingerprints let an
+    append-only step reuse immutable encodings without re-escaping; a nested mutation
+    changes the fingerprint and forces a fresh dumps. ``encodings`` / ``fingerprints``
+    are never mutated in place, so :meth:`snapshot` / :meth:`restore` stay exact.
     """
 
     def __init__(self) -> None:
-        self._last: dict[str, tuple[int, list[Any], list[str]]] = {}
+        self._last: dict[str, _CacheEntry] = {}
 
-    def snapshot(self) -> dict[str, tuple[int, list[Any], list[str]]]:
+    def snapshot(self) -> dict[str, _CacheEntry]:
         return dict(self._last)
 
-    def restore(self, snap: dict[str, tuple[int, list[Any], list[str]]]) -> None:
+    def restore(self, snap: dict[str, _CacheEntry]) -> None:
         self._last = snap
 
     def compact(self, line: dict[str, Any]) -> dict[str, Any]:
@@ -151,14 +237,12 @@ class Compactor:
                 continue
             name = f"{top}.{key}"
             prev = self._last.get(name)
-            norm, enc = _encode_list(full, prev)
-            # cache the normalized list (stable content); keep caller's list identity
-            # only for the in-place-append fast path (full is prev_full).
-            self._last[name] = (seq, full, enc)
+            norm, enc, fps = _encode_list(full, prev)
+            self._last[name] = (seq, full, enc, fps)
             out[top] = {**out[top], key: norm}
             if prev is None or prev[0] == seq:
                 continue
-            base_seq, _, base_enc = prev
+            base_seq, _, base_enc, _ = prev
             keep = 0
             for a, b in zip(base_enc, enc, strict=False):
                 if a != b:
