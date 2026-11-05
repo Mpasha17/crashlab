@@ -24,6 +24,10 @@ are parameters (`id_key="id"`, `text_key="text"`); when missing, the id falls ba
 `chunk` / `document` / `snippet`. Malformed results (None, numbers, non-JSON text, error
 objects, non-dict items) are skipped, never raised.
 
+Two lower-level helpers are public too. `rag.retrieved(run, tool="search_docs")` returns
+`(step, document)` pairs with the documents normalized as above. `rag.cited_ids(text)`
+returns the citation ids in an answer.
+
 ## 2. Add oracles
 
 Each helper returns a failure message (naming the step) or `None`, so it can be returned
@@ -113,6 +117,10 @@ crashlab check last --json
 crashlab check --all --save --name rag-qa   # grade older runs with newly added checks
 ```
 
+The entrypoint module is imported, so keep the code that starts a run under
+`if __name__ == "__main__":`. A script that calls the agent at import time records again
+when `crashlab check` imports it.
+
 ## 4. Replay and export
 
 ```python
@@ -124,9 +132,15 @@ crashlab.replay(run.run_id)                 # offline, same outcome
 crashlab export-test last                  # writes tests/crashlab/test_<agent>_<id>.py
 ```
 
-A complete offline example is `examples/rag_qa/agent.py` (in-memory corpus, faults
-`wrong_retrieval`, `missing_context`, `stale_docs`); `tests/test_rag.py` runs every failure
-mode with a scripted fake model, replays a failing run and runs its exported test.
+A complete offline example is `examples/rag_qa/agent.py`. It has an in-memory corpus, the
+faults `wrong_retrieval`, `missing_context`, `stale_docs`, `retrieval_timeout` and
+`retrieval_error`, and seven checks, including `grounded_in_current_docs`
+(`exclude_stale=True`). `tests/test_rag_integration.py` takes every failure mode, with a
+scripted fake model, through record, `crashlab check` (fresh process), replay and
+export-test (fresh pytest process).
+
+`crashlab.rag` ships in the installed package. The examples, tests and this page are in
+the source repository and the sdist, not in the wheel. Run the examples from a checkout.
 
 ## Live run
 
@@ -162,6 +176,10 @@ abstention. It now is, with a regression test.
 - Word overlap is not semantic equivalence. In a live run, "You have 14 days from the date
   of delivery to return an item." scored 2/5 against "Refunds are accepted within 14 days
   of delivery." and was flagged at the default `min_overlap=0.5`.
-- `abstains_without_context` matches refusal phrases (`rag.ABSTAIN`, overridable).
+- `abstains_without_context` matches refusal phrases (`rag.ABSTAIN`; pass `phrases=` to
+  replace them). `citations_were_retrieved` uses the default phrases to excuse an
+  uncited refusal.
+- Helpers do not raise on retrieved data. An invalid `duplicates=` value raises
+  `ValueError`.
 - The built-in runtime checks only flag an empty retrieval (`suspicious_tool_result`, info);
   the other RAG failure modes need these oracles.

@@ -38,7 +38,7 @@ GOOD = "You have 30 days from delivery to return an item [refund-policy-v2]."
 def test_clean_rag_run_passes_and_replays_offline():
     run = _run(GOOD)
     assert run.outcome == "pass", run.checks
-    assert set(_status(run).values()) == {"pass"} and len(run.checks) == 6
+    assert set(_status(run).values()) == {"pass"} and len(run.checks) == 7
     assert [d["id"] for _, d in rag.retrieved(run)][0] == "refund-policy-v2"
     assert crashlab.replay(run.run_id).outcome == "pass"
 

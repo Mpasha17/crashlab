@@ -185,6 +185,12 @@ def answer_grounded(run: crashlab.Run) -> str | None:
 
 
 @crashlab.check("rag-qa")
+def grounded_in_current_docs(run: crashlab.Run) -> str | None:
+    """Stale grounding: numbers must come from non-superseded documents."""
+    return rag.answer_grounded(run, _answer(run), exclude_stale=True)
+
+
+@crashlab.check("rag-qa")
 def claims_supported(run: crashlab.Run) -> str | None:
     """Unsupported claim: answer sentences share enough words (same negation) with the
     documents they cite."""
