@@ -97,10 +97,16 @@ class Candidate:
     quotes: list[str] = field(default_factory=list)  # verbatim from the step
     rank: int = 0  # lower = stronger signal
     quote_from: int | None = None  # step the quotes came from (tool) when step is the decision chat
+    # Other labels that also pointed at this step (multi-failure; loop12 secondary).
+    alt_labels: list[TaxonomyLabel] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         label = self.label.value if self.label else None
-        return {"step": self.step, "reason": self.reason, "label": label}
+        alts = [a.value for a in self.alt_labels]
+        out = {"step": self.step, "reason": self.reason, "label": label}
+        if alts:
+            out["alt_labels"] = alts
+        return out
 
 
 def _quote(step: Step) -> str:
@@ -475,6 +481,11 @@ def candidates(run: Run) -> list[Candidate]:
                 proceeded = bool(bad_tool) and _proceeded_after_bad_lookup(run, bad_idx, bad_tool)
                 if invented or proceeded:
                     label = TaxonomyLabel.TOOL_ERROR_MISHANDLED
+                    # Impact order (loop12): proceed-after-error-page without recovery outranks
+                    # a concurrent qty/limit TASK_SPEC (rank 2). Recovered lookups keep
+                    # EXTERNAL at rank 5 so a later independent TASK_SPEC still wins.
+                    if proceeded:
+                        rank = 1
         # Boost error-level tool streaks only when a consequence check would otherwise
         # steal the label as TASK_SPEC (loop7). Do NOT boost when an independent later
         # spec violation (quantity/limit) is the real fail (loop8 FP control).
@@ -569,7 +580,13 @@ def candidates(run: Run) -> list[Candidate]:
         if c.step not in best:
             best[c.step] = c
         else:
-            best[c.step].reason += f"; {c.reason}"
+            cur = best[c.step]
+            cur.reason += f"; {c.reason}"
+            if c.label is not None and c.label is not cur.label and c.label not in cur.alt_labels:
+                cur.alt_labels.append(c.label)
+            for alt in c.alt_labels:
+                if alt is not cur.label and alt not in cur.alt_labels:
+                    cur.alt_labels.append(alt)
     return sorted(best.values(), key=lambda c: (c.rank, c.step))
 
 
@@ -597,18 +614,45 @@ def heuristic_raw(run: Run, cands: list[Candidate] | None = None) -> dict[str, A
             "root_cause": "No failed check and no error-level runtime finding.",
             "evidence": [],
         }
-    for c in cands:
-        if c.label is not None:
-            cause = _missing_rule_cause(run, c.reason, c.step) or f"Heuristic: {c.reason}"
-            # quotes may come from the damage tool step while failing_step is the decision chat
-            ev_step = c.quote_from if c.quote_from is not None else c.step
-            return {
-                "label": c.label.value,
-                "failing_step": c.step,
-                "confidence": 0.5,
-                "root_cause": cause,
-                "evidence": [{"step": ev_step, "quote": q} for q in c.quotes if q],
-            }
+    labelled = [c for c in cands if c.label is not None]
+    if labelled:
+        primary = labelled[0]
+        secondary: list[str] = []
+
+        def _add_secondary(lbl: TaxonomyLabel | None) -> None:
+            if lbl is None or lbl is primary.label:
+                return
+            val = lbl.value
+            if val not in secondary and val not in (
+                TaxonomyLabel.UNKNOWN.value,
+                TaxonomyLabel.NO_FAILURE.value,
+            ):
+                secondary.append(val)
+
+        for alt in primary.alt_labels:
+            _add_secondary(alt)
+            if len(secondary) >= 3:
+                break
+        for c in labelled[1:]:
+            _add_secondary(c.label)
+            for alt in c.alt_labels:
+                _add_secondary(alt)
+            if len(secondary) >= 3:
+                break
+        cause = _missing_rule_cause(run, primary.reason, primary.step) or (
+            f"Heuristic: {primary.reason}"
+        )
+        ev_step = primary.quote_from if primary.quote_from is not None else primary.step
+        out: dict[str, Any] = {
+            "label": primary.label.value,
+            "failing_step": primary.step,
+            "confidence": 0.5,
+            "root_cause": cause,
+            "evidence": [{"step": ev_step, "quote": q} for q in primary.quotes if q],
+        }
+        if secondary:
+            out["secondary"] = secondary
+        return out
     return {
         "label": "UNKNOWN",
         "failing_step": cands[0].step if cands else None,
