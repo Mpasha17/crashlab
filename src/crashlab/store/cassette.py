@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ..models import Step
+from . import compact
 
 _RENAMES = {"idx": "seq", "operation": "op", "request_hash": "hash"}
 _REVERSE = {v: k for k, v in _RENAMES.items()}
@@ -80,9 +81,14 @@ class CassetteWriter:
         self._lock = threading.Lock()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.touch(exist_ok=True)
+        # Experimental, opt-in only (see store/compact.py); the default is the full format.
+        self._compactor = compact.Compactor() if compact.enabled() else None
 
     def append(self, line: dict[str, Any]) -> None:
-        data = json.dumps(line, ensure_ascii=False, default=str)
+        with self._lock:
+            if self._compactor is not None:
+                line = self._compactor.compact(line)
+            data = json.dumps(line, ensure_ascii=False, default=str)
         with self._lock, self.path.open("a", encoding="utf-8") as fh:
             fh.write(data + "\n")
             fh.flush()
@@ -111,16 +117,38 @@ def read_cassette(path: Path) -> list[Step]:
     steps: list[Step] = []
     bad: list[int] = []
     unknown: list[str] = []
+    parsed: list[tuple[int, dict[str, Any]]] = []
     with path.open(encoding="utf-8", errors="replace") as fh:
         for n, raw in enumerate(fh, 1):
             raw = raw.strip()
             if not raw:
                 continue
             try:
-                steps.append(line_to_step(json.loads(raw), unknown))
-            except (ValueError, TypeError):  # JSONDecodeError / pydantic ValidationError
+                obj = json.loads(raw)
+            except ValueError:
                 bad.append(n)
+                continue
+            if isinstance(obj, dict):
+                parsed.append((n, obj))
+            else:
+                bad.append(n)
+    expanded, problems = compact.expand([obj for _, obj in parsed])
+    for (n, _), obj in zip(parsed, expanded, strict=True):
+        try:
+            steps.append(line_to_step(obj, unknown))
+        except (ValueError, TypeError):  # pydantic ValidationError
+            bad.append(n)
+    bad.sort()
     import warnings
+
+    if problems:
+        warnings.warn(
+            f"crashlab: {len(problems)} compact step(s) in {path} could not be expanded and "
+            f"were kept with partial requests (attribute {compact.UNRESOLVED_ATTR}): "
+            + " | ".join(problems[:5]),
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     if unknown:
         names = ", ".join(sorted(set(unknown)))

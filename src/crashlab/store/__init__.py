@@ -180,7 +180,19 @@ def import_run(
         raise ValueError(f"export version {lines[0].get('version')} is newer than supported")
     run = Run.model_validate(lines[0]["run"])
     unknown: list[str] = []
-    steps = [line_to_step(line, unknown) for line in lines[1:]]
+    from . import compact
+
+    body, problems = compact.expand(lines[1:])
+    if problems:
+        import warnings
+
+        warnings.warn(
+            f"crashlab: {len(problems)} compact step(s) in {path} could not be expanded: "
+            + " | ".join(problems[:5]),
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    steps = [line_to_step(line, unknown) for line in body]
     if unknown:
         import warnings
 

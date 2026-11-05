@@ -35,3 +35,22 @@ recording. It cannot rebuild the exception's args, so it may report a final-outp
 divergence (for example `missing 'b'` vs `missing b`), but it never drops a step. Main
 still reads inline `error.state` lines written by earlier main builds. Keys from a newer
 crashlab are ignored with a "written by a newer crashlab" warning rather than skipping the step.
+
+## Compact cassette lines (experimental, off by default)
+
+Long chat runs repeat the whole conversation in every step, so the size of a recording
+grows quadratically. Compact format v1 (`src/crashlab/store/compact.py`) stores only the
+new tail of each message list and refers to an earlier step for the prefix. It carries a
+required digest of the full list.
+
+- **Reading is always on.** Old and compact lines can be mixed in one file. They load
+  identically in store reads, `import`, replay, checks and `export`.
+- **Writing is opt-in:** `CRASHLAB_EXPERIMENTAL_COMPACT=1`. The default writer is unchanged.
+- crashlab 0.0.2 **cannot** read compact lines. It skips them, and older main builds ignore
+  the `compact` key with a warning. Only enable compact writing for recordings that are
+  replayed by this version or newer. `crashlab export` always writes the full format, so
+  exported files stay readable by 0.0.2.
+- If a step cannot be expanded (damaged or missing base, cycle, bad digest, unknown
+  version), it is **kept**, not dropped. Its stored tail is all that survives, it is
+  marked with the attribute `crashlab.compact.unresolved`, and a RuntimeWarning names it.
+  The recorded response is still served on replay.

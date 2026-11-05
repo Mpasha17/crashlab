@@ -2,10 +2,9 @@
 tests/compat_agent.py at c5f8982) must load and replay on current main: exported
 cassettes, and a whole 0.0.2 store directory (index schema included).
 
-Direction: newer crashlab reads older runs. crashlab 0.0.2 validates steps with
-extra="forbid", so it skips any step carrying a field added later (``error.state``,
-written only when a tool error has args/attributes/cancel info): record with the newest
-version you replay with."""
+Direction: newer crashlab reads older runs (see docs/compatibility.md for what 0.0.2
+makes of newer recordings: main now writes ``error.state`` as an attribute so 0.0.2
+keeps those steps; compact lines are opt-in and not readable by 0.0.2)."""
 
 from __future__ import annotations
 
