@@ -15,10 +15,14 @@ from typing import Any
 REDACTED = "[REDACTED]"
 
 DEFAULT_SENSITIVE_KEYS = re.compile(
-    r"^(authorization|proxy[-_]authorization|x[-_]api[-_]key|api[-_]?key|"
-    r"openai[-_]api[-_]key|anthropic[-_]api[-_]key|x[-_]goog[-_]api[-_]key|"
-    r"access[-_]?token|refresh[-_]?token|id[-_]?token|client[-_]?secret|secret|"
-    r"password|passwd|cookie|set[-_]cookie|private[-_]?key)$",
+    # strong names match with any prefix (``db_password``, ``aws_secret_access_key``,
+    # camelCase ``openaiApiKey`` / ``authToken``); weak words (``secret``, ``token``,
+    # ``cookie``) only alone or after ``-``/``_`` so ``secretary`` / ``max_tokens`` /
+    # ``next_page_token`` stay readable
+    r"^(?:.*?(?:authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|"
+    r"id[-_]?token|auth[-_]?token|api[-_]?token|bearer[-_]?token|session[-_]?token|"
+    r"client[-_]?secret|secret[-_]?(?:access[-_]?)?key|private[-_]?key|password|passwd)"
+    r"|(?:.*[-_])?(?:secret|cookie)|token)$",
     re.IGNORECASE,
 )
 
@@ -37,6 +41,18 @@ DEFAULT_VALUE_PATTERNS: list[str] = [
     r"hf_(?<!\whf_)[A-Za-z0-9]{20,}\b",  # Hugging Face
     r"gsk_(?<!\wgsk_)[A-Za-z0-9]{20,}\b",  # Groq
     r"AQ\.Ab8(?<!\wAQ\.Ab8)[A-Za-z0-9_\-]{8,}\b",  # Alibaba / DashScope-shaped
+    # free-text credentials: only the ``secret`` group is replaced, the name stays
+    r"://[^/\s:@]{1,256}:(?P<secret>[^/\s@]{1,256})@",  # URL user:password@
+    r"(?i)[?&](?:api[_-]?key|apikey|key|(?:access|auth|id|refresh)[_-]?token|token|"
+    r"client[_-]?secret|secret|password|sig|signature)=(?P<secret>[^&\s\"'#]{4,})",
+    r"(?:API_?KEY|_TOKEN|_SECRET|SECRET_KEY|ACCESS_KEY|PASSWORD|PASSWD)(?![A-Za-z0-9_])"
+    r"['\"]?\s*[=:]\s*['\"]?(?P<secret>[^\s'\"&,;]{4,})",  # OPENAI_API_KEY=... / env
+    # "...key": "value" in JSON / repr text; the whole key name is checked against
+    # DEFAULT_SENSITIVE_KEYS in _secret_span (case-sensitive literals: (?i) and a full
+    # name alternation cost 0.7-1.8 s / 20 MB)
+    r"(?P<keytail>key|Key|KEY|token|Token|TOKEN|secret|Secret|SECRET|password|Password|"
+    r"PASSWORD|passwd|PASSWD)[\"']\s*:\s*[\"'](?P<secret>[^\"'\\]+)",
+    r"uthorization(?<=[Aa]uthorization)[\"']?\s*[:=]\s*[\"']?(?i:basic)\s+(?P<secret>[A-Za-z0-9+/]{8,}={0,2})",
 ]
 
 Hook = Callable[[str], str]
@@ -84,7 +100,9 @@ class Redactor:
         if out is None:
             out = _storable(value)
             for pat in self.value_patterns:
-                out = pat.sub(REDACTED, out)
+                out = (
+                    pat.sub(_replace, out) if "secret" in pat.groupindex else pat.sub(REDACTED, out)
+                )
             if len(cache) >= _CACHE_MAX:
                 cache.clear()
             cache[value] = out
@@ -102,7 +120,12 @@ class Redactor:
             for k, v in obj.items():
                 if isinstance(k, str):
                     k = _storable(k)
-                if isinstance(k, str) and self._sensitive_key(k) and v not in (None, ""):
+                if (
+                    isinstance(k, str)
+                    and self._sensitive_key(k)
+                    and v not in (None, "")
+                    and not isinstance(v, bool)
+                ):
                     out[k] = REDACTED
                 else:
                     out[k] = self.redact(v)
@@ -146,12 +169,16 @@ class Redactor:
         cuts: dict[int, list[tuple[int, int]]] = {}
         for pat in self.value_patterns:
             for m in pat.finditer(joined):
-                hit = [k for k, (a, b) in enumerate(bounds) if a < m.end() and m.start() < b]
-                if len(hit) < 2:
-                    continue  # inside one piece: already redacted there
+                span = _secret_span(m)
+                if span is None:
+                    continue
+                ms, me = span
+                if any(a <= m.start() and m.end() <= b for a, b in bounds):
+                    continue  # the whole match is inside one piece: already redacted there
+                hit = [k for k, (a, b) in enumerate(bounds) if a < me and ms < b]
                 for k in hit:
                     a, b = bounds[k]
-                    cuts.setdefault(k, []).append((max(m.start(), a) - a, min(m.end(), b) - a))
+                    cuts.setdefault(k, []).append((max(ms, a) - a, min(me, b) - a))
         for k, spans in cuts.items():
             merged: list[list[int]] = []
             for a, b in sorted(spans):
@@ -163,6 +190,29 @@ class Redactor:
             for a, b in reversed(merged):
                 text = text[:a] + REDACTED + text[b:]
             items[start + k] = self.redact_str(text)
+
+
+_KEY_NAME_BEFORE = re.compile(r"[\w-]{0,64}$")
+
+
+def _secret_span(m: re.Match[str]) -> tuple[int, int] | None:
+    """Span to replace: the ``secret`` group if the pattern has one (else the whole
+    match); None when a ``keytail`` match belongs to a non-secret key (``monkey``)."""
+    if "keytail" in m.re.groupindex:
+        head = m.string[max(0, m.start() - 64) : m.start()]
+        before = _KEY_NAME_BEFORE.search(head)
+        name = (before.group(0) if before else "") + m.group("keytail")
+        if not DEFAULT_SENSITIVE_KEYS.match(name):
+            return None
+    return m.span("secret") if "secret" in m.re.groupindex else m.span()
+
+
+def _replace(m: re.Match[str]) -> str:
+    whole = m.group(0)
+    span = _secret_span(m)
+    if span is None:
+        return whole
+    return whole[: span[0] - m.start()] + REDACTED + whole[span[1] - m.start() :]
 
 
 def _storable(value: str) -> str:

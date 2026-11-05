@@ -43,3 +43,18 @@ def test_large_string_redacts_fast():
     t = time.perf_counter()
     assert r.redact_str(big + " " + GROQ).endswith(REDACTED)
     assert time.perf_counter() - t < 1.5  # was ~1.9 s; now ~0.15 s
+
+
+def test_large_mixed_text_redacts_fast():
+    """The free-text credential patterns (URL / query / env / JSON key / Basic) must not
+    make big tool results slow: (?i) alternations cost ~1.8 s on 20 MB."""
+    import random
+    import string
+
+    rnd = random.Random(0)
+    chunk = "".join(rnd.choice(string.ascii_letters + " \n\"'=:?&_-") for _ in range(1 << 20))
+    big = chunk * 20
+    r = Redactor()
+    t = time.perf_counter()
+    r.redact_str(big)
+    assert time.perf_counter() - t < 1.5  # old patterns ~0.2 s, new ~0.6 s
