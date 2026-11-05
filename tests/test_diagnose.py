@@ -68,7 +68,7 @@ def _with(**changes):
 def test_valid_answer_is_kept():
     run = _policy_run()
     d = validate(GOOD, run)
-    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION and d.failing_step == 3
+    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION and d.failing_step == 2  # decision chat, not issue_refund tool
     assert d.step_window == (1, 3) and d.confidence == 0.9 and d.is_failure
     assert [(e.step_idx, e.field) for e in d.evidence] == [(1, "result"), (3, "args")]
     assert [s.value for s in d.secondary] == ["BAD_TOOL_ARGUMENTS"] and d.notes == []
@@ -199,7 +199,7 @@ def test_diagnose_with_a_callable_stores_and_caches(crashlab_dir):
     assert "FAIL refund_within_policy: step 3" in user
 
     stored = crashlab.load(run.run_id)
-    assert stored.diagnosis is not None and stored.diagnosis.failing_step == 3
+    assert stored.diagnosis is not None and stored.diagnosis.failing_step == 2  # decision chat
     again = crashlab.diagnose(run.run_id, fn=fake)
     assert len(calls) == 1 and again.method["cached"] is True
     crashlab.diagnose(run.run_id, fn=fake, cache=False)
@@ -287,7 +287,7 @@ def test_unsaved_run_object_is_not_written_to_the_store():
 
 def test_heuristic_baseline():
     d = crashlab.diagnose(_policy_run(), heuristic=True)
-    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION and d.failing_step == 3
+    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION and d.failing_step == 2  # decision chat, not issue_refund tool
     assert d.model == "heuristic" and d.evidence
     assert crashlab.diagnose(_clean_run(), heuristic=True).label.value == "NO_FAILURE"
 
@@ -362,7 +362,7 @@ def test_cli_diagnose_json_and_show():
     res = runner.invoke(app, ["diagnose", run.run_id, "--heuristic", "--json"])
     assert res.exit_code == 0, res.output
     data = json.loads(res.output)
-    assert data["label"] == "TASK_SPEC_VIOLATION" and data["failing_step"] == 3
+    assert data["label"] == "TASK_SPEC_VIOLATION" and data["failing_step"] == 2
     shown = runner.invoke(app, ["show", run.run_id])
     assert "diagnosis" in shown.output and "TASK_SPEC_VIOLATION" in shown.output
     as_json = json.loads(runner.invoke(app, ["show", run.run_id, "--json"]).output)
@@ -485,3 +485,88 @@ def test_heuristic_names_a_rejected_llm_call():
     d = crashlab.diagnose(run, heuristic=True)
     assert d.method["raw_failing_step"] == last.idx
     assert "tool_choice='required'" in d.root_cause and "rejected LLM call" in d.root_cause
+
+
+def _shop_drop_rule_run() -> crashlab.Run:
+    """Synthetic shop agent that ordered 10 after the quantity-limit rule was dropped.
+
+    Mirrors real agent-tests drop_rule cassettes: the failing check names no step index
+    (``ordered 10 units (limit 5)``), the damage shows on ``place_order``, and the system
+    prompt no longer contains the 5-unit rule. Live diagnoses blamed the tool step and
+    restated the symptom; the heuristic fell back to the last chat reply.
+    """
+    sys = (
+        "You are a shop assistant. Use the tools to look up prices and place orders.\n"
+        "Reply to the customer in one or two short sentences."
+    )
+    chat0 = crashlab.Step(
+        run_id="shop", idx=0, span_id="c0", operation="chat", name="m", request_hash="h0",
+        request={"system": sys, "tools": [{"name": "get_price"}, {"name": "place_order"}],
+                 "messages": [{"role": "user", "content": "I'd like to order 10 widgets please."}]},
+        response={"tool_calls": [{"name": "get_price", "arguments": {"item": "widget"}}]},
+    )  # fmt: skip
+    tool1 = crashlab.Step(
+        run_id="shop", idx=1, span_id="t1", operation="execute_tool", name="get_price",
+        request_hash="h1", request={"args": {"item": "widget"}},
+        response={"result": {"item": "widget", "price": 4.5}},
+    )  # fmt: skip
+    chat2 = crashlab.Step(
+        run_id="shop", idx=2, span_id="c2", operation="chat", name="m", request_hash="h2",
+        request={"system": sys, "tools": [{"name": "get_price"}, {"name": "place_order"}],
+                 "messages": [{"role": "user", "content": "I'd like to order 10 widgets please."}]},
+        response={"tool_calls": [{"name": "place_order",
+                                  "arguments": {"item": "widget", "quantity": 10}}]},
+    )  # fmt: skip
+    tool3 = crashlab.Step(
+        run_id="shop", idx=3, span_id="t3", operation="execute_tool", name="place_order",
+        request_hash="h3", request={"args": {"item": "widget", "quantity": 10}},
+        response={"result": {"order_id": "O-1", "item": "widget", "quantity": 10, "total": 45.0}},
+    )  # fmt: skip
+    chat4 = crashlab.Step(
+        run_id="shop", idx=4, span_id="c4", operation="chat", name="m", request_hash="h4",
+        request={"system": sys},
+        response={"messages": [{"role": "assistant",
+                                "content": "Your order for 10 widgets has been placed."}]},
+    )  # fmt: skip
+    return crashlab.Run(
+        run_id="shop", name="shop", status="ok", outcome="fail",
+        outcome_reason="order_quantity_within_limit",
+        steps=[chat0, tool1, chat2, tool3, chat4],
+        checks=[
+            crashlab.CheckResult(
+                name="order_quantity_within_limit", status="fail",
+                message="ordered 10 units (limit 5)",
+            ),
+            crashlab.CheckResult(name="placed_an_order", status="pass"),
+        ],
+    )
+
+
+def test_heuristic_quantity_limit_blames_the_llm_decision_not_the_tool_or_last_reply():
+    # live (CrewAI / OA / Agno / Haystack / AG2 drop_rule): check message has no "step N",
+    # so candidates() fell back to the last chat; LLM diagnoses pointed at place_order.
+    # The decisive step is the chat that chose quantity=10.
+    raw = heuristic_raw(_shop_drop_rule_run())
+    assert raw["label"] == "TASK_SPEC_VIOLATION"
+    assert raw["failing_step"] == 2  # chat that called place_order, not tool 3 or reply 4
+
+
+def test_heuristic_drop_rule_root_cause_names_the_missing_prompt_rule():
+    # live: root_cause restated the symptom ("ordered 10") instead of "the 5-unit rule is
+    # missing from the system prompt" (policy_drop / drop_rule).
+    d = crashlab.diagnose(_shop_drop_rule_run(), heuristic=True)
+    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION
+    rc = d.root_cause.lower()
+    assert "prompt" in rc or "rule" in rc
+    assert any(w in rc for w in ("missing", "absent", "lacked", "not in", "without"))
+    assert "ordered 10" not in rc or "missing" in rc  # symptom alone is not enough
+
+
+def test_heuristic_policy_drop_blames_the_decision_chat_and_names_the_missing_window():
+    # refund_bot policy_drop: check cites step 3 (issue_refund); the decision was chat 2;
+    # the 30-day line is absent from the system prompt.
+    d = crashlab.diagnose(_policy_run(), heuristic=True)
+    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION
+    assert d.failing_step == 2  # chat that called issue_refund, not the tool
+    rc = d.root_cause.lower()
+    assert "30" in rc and ("missing" in rc or "absent" in rc or "lacked" in rc or "prompt" in rc)

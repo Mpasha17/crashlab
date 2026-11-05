@@ -12,6 +12,10 @@ from .fields import step_fields
 
 _STEP_REF = re.compile(r"\bsteps? (\d+)\b")
 _NOT_CALLED = re.compile(r"\b(?:never|not) (?:been )?called\b|\bwithout calling\b", re.I)
+_ACTION_VIOLATION = re.compile(
+    r"\bordered\b|\brefunded\b|\bplaced\b|\blimit\b|\bwindow:\b|\bexceed",
+    re.I,
+)
 _API_ERRORS = (
     "RateLimit",
     "APIConnection",
@@ -47,6 +51,7 @@ class Candidate:
     label: TaxonomyLabel | None = None  # what the rule table would say
     quotes: list[str] = field(default_factory=list)  # verbatim from the step
     rank: int = 0  # lower = stronger signal
+    quote_from: int | None = None  # step the quotes came from (tool) when step is the decision chat
 
     def as_dict(self) -> dict[str, Any]:
         label = self.label.value if self.label else None
@@ -69,6 +74,101 @@ def _finding_step(f: Any) -> int | None:
     if f.kind == "step_repetition" and len(steps) > 1:
         return steps[1]  # the first repeat, not the original call
     return steps[0]
+
+
+def _caller_chat(run: Run, idx: int) -> int | None:
+    """The chat step that decided on tool step ``idx``, if any."""
+    return next(
+        (s.idx for s in sorted(run.steps, key=lambda s: -s.idx)
+         if s.idx < idx and s.operation == "chat"),
+        None,
+    )  # fmt: skip
+
+
+def _decision_step(run: Run, idx: int) -> int:
+    """For a wrong action, blame the LLM decision (caller chat), not the tool execution."""
+    step = next((s for s in run.steps if s.idx == idx), None)
+    if step is None or step.operation != "execute_tool":
+        return idx
+    caller = _caller_chat(run, idx)
+    return caller if caller is not None else idx
+
+
+def _step_for_check(run: Run, message: str, steps: dict[int, Step]) -> int | None:
+    """Resolve where a failing check points: an explicit ``step N``, else a tool whose
+    args/result share a number with the message, else the last tool, else the last step.
+
+    Real shop oracles say ``ordered 10 units (limit 5)`` with no step index; blaming the
+    last chat reply (the previous fallback) hid the decision that placed the order.
+    """
+    refs = [int(m) for m in _STEP_REF.findall(message or "") if int(m) in steps]
+    if refs:
+        return refs[0]
+    nums = set(re.findall(r"\d+", message or ""))
+    tools = [s for s in run.steps if s.operation == "execute_tool"]
+    for s in reversed(tools):
+        blob = " ".join(_walk_nums(s.args)) + " " + " ".join(_walk_nums(s.result))
+        if nums and any(n in blob for n in nums):
+            return s.idx
+    if tools:
+        return tools[-1].idx
+    return run.steps[-1].idx if run.steps else None
+
+
+def _walk_nums(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        out: list[str] = []
+        for v in value.values():
+            out.extend(_walk_nums(v))
+        return out
+    if isinstance(value, (list, tuple)):
+        out = []
+        for v in value:
+            out.extend(_walk_nums(v))
+        return out
+    if value is None:
+        return []
+    return re.findall(r"\d+", str(value))
+
+
+def _system_prompt(run: Run) -> str:
+    for s in run.steps:
+        if s.operation == "chat":
+            sys = (s.request or {}).get("system") or ""
+            if sys:
+                return sys if isinstance(sys, str) else str(sys)
+    return ""
+
+
+def _missing_rule_cause(run: Run, reason: str, decision: int) -> str | None:
+    """When a check fails on a limit/window absent from the system prompt, name that cause."""
+    prompt = _system_prompt(run)
+    if not prompt:
+        return None
+    # shop: "ordered 10 units (limit 5)"
+    m = re.search(r"ordered (\d+) units \(limit (\d+)\)", reason, re.I)
+    if m:
+        limit = m.group(2)
+        if not re.search(rf"\b{re.escape(limit)}\b", prompt):
+            return (
+                f"Heuristic: the system prompt is missing the {limit}-unit order limit; "
+                f"at chat step {decision} the model decided to place an over-limit order"
+            )
+    # refund: "window: 30 days" / "30-day"
+    m = re.search(r"window:\s*(\d+)\s*days", reason, re.I) or re.search(
+        r"\b(\d+)[ -]?day(?:s)?\b", reason, re.I
+    )
+    if m:
+        days = m.group(1)
+        # the dropped policy line talks about N days; a bare digit elsewhere is not enough
+        if not re.search(rf"\b{re.escape(days)}\s*-?\s*day", prompt, re.I) and not re.search(
+            rf"\bwithin\s+{re.escape(days)}\b", prompt, re.I
+        ):
+            return (
+                f"Heuristic: the system prompt is missing the {days}-day refund window; "
+                f"at chat step {decision} the model decided to issue an out-of-window refund"
+            )
+    return None
 
 
 def candidates(run: Run) -> list[Candidate]:
@@ -115,16 +215,34 @@ def candidates(run: Run) -> list[Candidate]:
         if c.status not in ("fail", "error"):
             continue
         refs = [int(m) for m in _STEP_REF.findall(c.message or "") if int(m) in steps]
-        idx = refs[0] if refs else (run.steps[-1].idx if run.steps else None)
-        if idx is None:
+        damage = _step_for_check(run, c.message or "", steps)
+        if damage is None:
             continue
         reason = f"check {c.name} failed: {c.message or ''}".strip()
         label = TaxonomyLabel.TASK_SPEC_VIOLATION
         if _NOT_CALLED.search(c.message or ""):  # "... but issue_refund was never called"
             label = TaxonomyLabel.WRONG_TOOL_SELECTION
-        # a check that names no step (a budget, the final answer) is weaker evidence of
-        # *where* it went wrong than a detector that does
-        out.append(Candidate(idx, reason, label, [_quote(steps[idx])], 2 if refs else 7))
+        msg = c.message or ""
+        # a concrete action violation (ordered N / refunded / limit) points at a tool; a
+        # budget / step-count check does not — keep those weak so detectors win (loops)
+        action = bool(_ACTION_VIOLATION.search(msg))
+        quote_step = damage if damage in steps else damage
+        idx = damage
+        if (
+            action
+            and label in (TaxonomyLabel.TASK_SPEC_VIOLATION, TaxonomyLabel.WRONG_TOOL_SELECTION)
+            and damage in steps
+            and steps[damage].operation == "execute_tool"
+        ):
+            # wrong action: blame the chat that decided on the tool, not the tool itself
+            idx = _decision_step(run, damage)
+        rank = 2 if (refs or action) else 7
+        out.append(
+            Candidate(
+                idx, reason, label, [_quote(steps[quote_step])], rank,
+                quote_from=quote_step if quote_step != idx else None,
+            )
+        )
 
     for s in run.steps:
         if s.source == "blocked":
@@ -173,12 +291,15 @@ def heuristic_raw(run: Run, cands: list[Candidate] | None = None) -> dict[str, A
         }
     for c in cands:
         if c.label is not None:
+            cause = _missing_rule_cause(run, c.reason, c.step) or f"Heuristic: {c.reason}"
+            # quotes may come from the damage tool step while failing_step is the decision chat
+            ev_step = c.quote_from if c.quote_from is not None else c.step
             return {
                 "label": c.label.value,
                 "failing_step": c.step,
                 "confidence": 0.5,
-                "root_cause": f"Heuristic: {c.reason}",
-                "evidence": [{"step": c.step, "quote": q} for q in c.quotes if q],
+                "root_cause": cause,
+                "evidence": [{"step": ev_step, "quote": q} for q in c.quotes if q],
             }
     return {
         "label": "UNKNOWN",

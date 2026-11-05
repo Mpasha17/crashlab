@@ -195,3 +195,35 @@ def test_fix_prompt_lists_prompt_lines_and_the_restore_already_proposed(crashlab
     user = seen[0]
     assert "SYSTEM PROMPT LINES" in user and "\n1: You are the refund assistant" in user
     assert "ALREADY PROPOSED" in user and "30 days" in user.split("ALREADY PROPOSED")[1]
+
+
+def test_inform_only_and_fact_only_prompt_patches_are_rejected(crashlab_dir):
+    # live (CrewAI / LlamaIndex / OA Gemini fix-1): "inform them of the limit" or
+    # "Note: the maximum is 5" made the agent ask instead of ordering → verify REJECTED.
+    # Asking for missing input stays allowed; a rule that both caps and tells is fine.
+    run = _policy_run()
+    for text in (
+        "If the customer asks for more than 5 units, politely inform them of the limit.",
+        "Note: The maximum allowed quantity per order is 5 units.",
+        "Tell the customer that orders are limited to 5 units.",
+        "Inform the user of the 30-day refund window.",
+    ):
+        fix, why = validate_fix({"patch": {**APPEND, "text": text}}, run, 1)
+        assert fix is None, text
+        assert why and ("unattended" in why or "must act" in why or "what to do" in why.lower()), (
+            text, why
+        )
+    ok, why = validate_fix(
+        {
+            "patch": {
+                **APPEND,
+                "text": (
+                    "Never refund an order delivered more than 30 days ago; "
+                    "refuse and tell the customer the window."
+                ),
+            }
+        },
+        run,
+        1,
+    )
+    assert ok is not None and why is None, why

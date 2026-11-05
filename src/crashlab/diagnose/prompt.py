@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .taxonomy import render
 
-PROMPT_VERSION = "diagnose-v3"
+PROMPT_VERSION = "diagnose-v4"
 
 SYSTEM = """You are crashlab's diagnosis agent. You read the trace of one recorded run of \
 an AI agent and decide whether the agent failed, at which step, and why.
@@ -21,10 +21,11 @@ Labels (choose exactly one):
 {labels}
 
 Rules:
-1. failing_step is the earliest decisive step. For a wrong action, the tool step that \
-executed it; if no tool ran (a wrong or premature reply), the chat step whose reply was \
-wrong. For EXTERNAL_FAILURE, the step where the external failure shows. null for \
-NO_FAILURE.
+1. failing_step is the earliest decisive step. For a wrong action (bad tool args or a \
+broken policy), the chat step that decided to make that tool call — not the tool \
+execution where the damage shows. If no tool ran (a wrong or premature reply), the \
+chat step whose reply was wrong. For EXTERNAL_FAILURE / TOOL_ERROR_MISHANDLED, the \
+step where that failure shows. null for NO_FAILURE.
 2. evidence: 1 to 4 quotes copied character for character from the STEPS section, each \
 with the number of the step it appears under. Quote the content after the label (after \
 "reply: ", "result: ", "error: " ...), never the label or a truncation marker. CHECKS, \

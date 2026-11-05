@@ -32,7 +32,7 @@ FIX_PROMPT_VERSION = "fix-v5"
 MAX_FIXES = 3
 #: version of the deterministic part (restore proposals, ask filter, ranking): a
 #: cached proposal list from another version is rebuilt
-RANKER_VERSION = "rank-v1"
+RANKER_VERSION = "rank-v2"
 MAX_PATCH_CHARS = 700  # the patch's own text (prompt lines, descriptions ...)
 MAX_PROMPT_LINES = 4
 ALLOWED_KINDS = (
@@ -99,6 +99,23 @@ _ASK = re.compile(
 )
 #: hedged wording ranks below an imperative rule
 _HEDGE = re.compile(r"\b(?:try to|consider|if possible|should probably|may want to)\b", re.I)
+#: inform-only / fact-only prompt rules: the unattended agent asks instead of acting
+#: (live: CrewAI / LlamaIndex / OA Gemini fix-1 "inform them of the limit" → REJECTED)
+_INFORM_ONLY = re.compile(
+    r"\b(?:inform|tell|notify)\b[\s\w]{0,40}\b(?:user|customer|them)\b"
+    r"|\b(?:inform|tell|notify) (?:the )?(?:user|customer|them)\b"
+    r"|\blet (?:the )?(?:user|customer|them) know\b",
+    re.I,
+)
+_MUST_ACT = re.compile(
+    r"\b(?:never|always|must|do not|don't|refuse|reject|deny|ensure|require)\b"
+    r"|\b(?:cap|limit) (?:the |orders?|quantity|to)\b"
+    r"|\bonly (?:order|refund|place|call|use|accept)\b"
+    r"|\b(?:order|refund|place|call|use) (?:at most|no more|the maximum|only|up to)\b"
+    r"|\bplace an order\b|\bissue (?:a )?refund\b|\border the maximum\b|\border 5\b",
+    re.I,
+)
+_ASK_FOR_INPUT = re.compile(r"\bask (?:the )?(?:user|customer|them) for\b", re.I)
 #: fields that are the patch's new text (not anchors or targets)
 _NEW_TEXT = ("text", "description", "content", "result", "value")
 
@@ -189,6 +206,21 @@ def stray_fields(patch: Any) -> list[str]:
     return [f for f in _UNUSED_BY_OP.get(patch.op, ()) if getattr(patch, f) is not None]
 
 
+def _passive_rule(text: str) -> str | None:
+    """Rejection reason when a prompt rule only informs a person / states a Note: fact
+    without an imperative action the unattended agent can take."""
+    if not text.strip() or _ASK_FOR_INPUT.search(text):
+        return None
+    if _MUST_ACT.search(text):
+        return None
+    if _INFORM_ONLY.search(text) or text.strip().lower().startswith("note"):
+        return (
+            "only informs a person / states a fact without saying what the agent must DO "
+            "(the agent runs unattended)"
+        )
+    return None
+
+
 def validate_fix(item: Any, run: Run, rank: int) -> tuple[Fix | None, str | None]:
     """``(Fix, None)`` for an acceptable proposal, else ``(None, reason)``."""
     if not isinstance(item, dict):
@@ -232,6 +264,8 @@ def validate_fix(item: Any, run: Run, rank: int) -> tuple[Fix | None, str | None
             f"{label}: asks a person ({m.group(0)!r}); the agent runs unattended, so it "
             "must act on the rule itself"
         )
+    if patch.kind == "system_prompt" and (why := _passive_rule(new_text)):
+        return None, f"{label}: {why}"
     at = _fork_step(patch, run)
     try:
         preview = preview_patches(PatchSet(patches=[patch]), run, fork_step=at)

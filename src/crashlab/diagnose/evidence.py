@@ -126,10 +126,33 @@ def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
         confidence = min(confidence, UNKNOWN_CONFIDENCE_CAP)
     if label is TaxonomyLabel.NO_FAILURE:
         step = None
+    # wrong-action labels: prefer the chat that decided on the tool call (live diagnoses
+    # pointed at place_order / issue_refund; users read that as "the tool is broken")
+    if (
+        step is not None
+        and label
+        in (
+            TaxonomyLabel.TASK_SPEC_VIOLATION,
+            TaxonomyLabel.BAD_TOOL_ARGUMENTS,
+            TaxonomyLabel.WRONG_TOOL_SELECTION,
+        )
+        and step in steps
+        and steps[step].operation == "execute_tool"
+    ):
+        caller = next(
+            (s.idx for s in sorted(run.steps, key=lambda s: -s.idx)
+             if s.idx < step and s.operation == "chat"),
+            None,
+        )  # fmt: skip
+        if caller is not None:
+            # recorded in method below (not notes: a clean answer stays notes==[])
+            extra.setdefault("_remap_failing_step", f"tool {step} -> chat {caller}")
+            step = caller
     window = None
     if step is not None and label is not TaxonomyLabel.UNKNOWN:
         cited = [e.step_idx for e in evidence] + [step]
         window = (min(cited), max(cited))
+    remap = extra.pop("_remap_failing_step", None)
     method = dict(extra.pop("method", {}) or {})
     method.update(
         {
@@ -139,6 +162,8 @@ def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
             "raw_failing_step": raw.get("failing_step"),
         }
     )
+    if remap:
+        method["failing_step_remap"] = remap
     return Diagnosis(
         run_id=run.run_id,
         failing_step=step if label is not TaxonomyLabel.UNKNOWN else None,
