@@ -5,6 +5,7 @@ import time must not record a new run or re-enter the import (recursion)."""
 from __future__ import annotations
 
 import contextvars
+import functools
 import threading
 import weakref
 from collections.abc import Iterator
@@ -61,12 +62,14 @@ def _install_start_hook() -> None:
         orig_start = threading.Thread.start
         orig_submit = ThreadPoolExecutor.submit
 
+        @functools.wraps(orig_start)
         def start(self: threading.Thread) -> None:
             target = _taint_of_caller()
             if target is not None:
                 _tainted[self] = target
             orig_start(self)
 
+        @functools.wraps(orig_submit)
         def submit(self: Any, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
             target = _taint_of_caller()
             if target is None:

@@ -180,3 +180,34 @@ def test_library_use_never_patches_threading(store):
     res = subprocess.run([sys.executable, "-c", code], cwd=store, capture_output=True,
                          text=True, env={"PYTHONPATH": src, "PATH": ""}, timeout=60)  # fmt: skip
     assert res.stdout.split() == ["threading", "concurrent.futures.thread"], res.stderr
+
+
+def test_installed_wrappers_are_transparent_and_idempotent(store):
+    import inspect
+
+    with guard.process_wide("x:go"):
+        pass
+    first = (ThreadPoolExecutor.submit, threading.Thread.start)
+    with guard.process_wide("x:go"):
+        pass
+    assert (ThreadPoolExecutor.submit, threading.Thread.start) == first  # installed once
+    for wrapped in first:
+        orig = wrapped.__wrapped__  # metadata of the stdlib method is kept
+        assert wrapped.__doc__ == orig.__doc__ and wrapped.__name__ == orig.__name__
+        assert inspect.signature(wrapped) == inspect.signature(orig)
+    pool = SHARED["pool"]
+    assert pool.submit(lambda a, *, k: a + k, 1, k=2).result(10) == 3
+    assert guard._process_target is None and guard._importer is None
+
+
+def test_marked_task_keeps_args_and_exceptions(store):
+    _write(store, "poolmod_j", (
+        "def f(a, *, k):\n    if k == 'boom':\n        raise KeyError(a)\n    return a + k\n"
+        "OK = T.SHARED['pool'].submit(f, 'x', k='y').result(10)\n"
+        "try:\n    T.SHARED['pool'].submit(f, 'z', k='boom').result(10)\n"
+        "except KeyError as e:\n    ERR = e\n"
+    ))  # fmt: skip
+    _import("poolmod_j")
+    mod = sys.modules["poolmod_j"]
+    assert mod.OK == "xy" and mod.ERR.args == ("z",)
+    assert getattr(guard._task, "target", None) is None

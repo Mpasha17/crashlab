@@ -124,6 +124,19 @@ crashlab refuses that run while it imports the entry point and reports `could no
 recurses. Checks defined above that call still run. Replay of such a run fails with a
 `ReplayError` that names the fix.
 
+Scope of that guard (best effort; the `__main__` guard is the real fix):
+
+- Everywhere (library `crashlab.replay` / fork / check): runs started in the importing
+  context are refused, including async tasks and `asyncio.to_thread` (context-propagated).
+- `crashlab check` additionally refuses runs from threads the module starts while imported
+  (and their descendants, also after the import returns) and from tasks it submits to any
+  `concurrent.futures.ThreadPoolExecutor`, including one created earlier. Other threads and
+  their pool work keep recording.
+- Not covered: subprocesses / `multiprocessing` / `ProcessPoolExecutor`, executors that do
+  not go through `ThreadPoolExecutor.submit` (e.g. a custom queue feeding existing threads),
+  and library replay's threads. Errors raised at import are reported as `ReplayError` with
+  secrets redacted; `SystemExit` becomes an error, `KeyboardInterrupt` still aborts.
+
 ## 4. Replay and export
 
 ```python
