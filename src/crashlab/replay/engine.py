@@ -44,6 +44,7 @@ from .divergence import (
     ForkError,
     ReplayError,
     ReplayNetworkError,
+    SideEffectBlockedError,
     diff_values,
 )
 
@@ -355,6 +356,7 @@ class Forker(Replayer):
         self.applied: dict[int, int] = {}  # patch index -> times applied
         self._patch_state: dict[int, dict] = {}
         self.max_idx = -1
+        self.blocked_calls: list[tuple[int, str]] = []  # (step, tool) refused live
 
     def _seen(self, idx: int) -> None:
         with self._lock:
@@ -452,6 +454,22 @@ class Forker(Replayer):
                     kind="fork", step=p.target_step(), severity="warn",
                     message=f"patch {i + 1} was never applied: {p.describe()}",
                 ))  # fmt: skip
+        blocked = sorted(self.blocked_calls)
+        # the agent caught SideEffectBlockedError and carried on (frameworks hand tool
+        # errors to the model): what it did afterwards is not what it would do live
+        if blocked and not (len(blocked) == 1 and isinstance(exc, SideEffectBlockedError)):
+            names = sorted({name for _, name in blocked})
+            steps = ", ".join(str(i) for i, _ in blocked[:8]) + (" ..." if len(blocked) > 8 else "")
+            self.flags.append(Finding(
+                kind="fork", step=blocked[0][0], severity="warn",
+                message=(
+                    f"{len(blocked)} side-effect call(s) were blocked and the agent saw an "
+                    f"error instead: {', '.join(names)} (steps {steps}); the fork from there "
+                    "is not what would happen live. Register crashlab.fake_tool("
+                    f"{names[0]!r}, ...) or fork with --allow-live-side-effects against a "
+                    "sandbox."
+                ),
+            ))  # fmt: skip
         return None
 
 

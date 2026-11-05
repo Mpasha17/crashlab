@@ -343,6 +343,9 @@ def _revive(value: Any, src: Any, fn: Callable[..., Any]) -> Any:
 
 
 def _block(pending: Any, message: str) -> None:
+    blocked = getattr(pending.ctx.replayer, "blocked_calls", None)
+    if isinstance(blocked, list):
+        blocked.append((pending.idx, pending.name))
     err = SideEffectBlockedError(message)
     pending.fail(err, is_tool_error=True, source="blocked")
     raise err
