@@ -96,6 +96,8 @@ def _render(
     lines = [textwrap.fill(a, 88, subsequent_indent="    ") for a in about]
     doc = "\n".join(lines).replace('"""', "'''").replace("\\", "/")
     checks = "".join(f"    {_q(k)}: {_q(v)},\n" for k, v in _checks(run).items())
+    secondary_vals = [s.value for s in d.secondary] if d is not None and d.secondary else []
+    secondary_lit = ", ".join(_q(v) for v in secondary_vals)
     out = [
         f'"""{doc}\n"""',
         "",
@@ -106,6 +108,11 @@ def _render(
         "pytestmark = pytest.mark.crashlab",
         'CASSETTES = Path(__file__).parent / "cassettes"',
         ("EXPECTED_CHECKS = {\n" + checks + "}") if checks else "EXPECTED_CHECKS = {}",
+        (
+            f"EXPECTED_SECONDARY = [{secondary_lit}]"
+            if secondary_vals
+            else "EXPECTED_SECONDARY = []"
+        ),
     ]
     if fixed is not None:
         fix_line = f"FIX = {_q(fixed.patch_description or '')}"
@@ -126,6 +133,9 @@ def _render(
         "    checks = {c.name: c.status for c in run.checks}",
         "    # checks added after the recording may join; the recorded ones must still agree",
         "    assert {k: checks.get(k) for k in EXPECTED_CHECKS} == EXPECTED_CHECKS, checks",
+        "    if EXPECTED_SECONDARY and run.diagnosis is not None:",
+        "        got = [s.value for s in run.diagnosis.secondary]",
+        "        assert got == EXPECTED_SECONDARY, got",
     ]
     if fixed is not None:
         out += [

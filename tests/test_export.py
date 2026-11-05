@@ -283,3 +283,21 @@ def test_export_test_docstring_mentions_secondary_when_present(tmp_path):
     doc = mod.read_text()
     assert run.diagnosis.label.value in doc
     assert "EXTERNAL_FAILURE" in doc
+
+
+def test_export_includes_expected_secondary_constant(tmp_path):
+    """When diagnosis has secondary, export-test emits EXPECTED_SECONDARY and asserts it
+    when the replayed run carries a diagnosis."""
+    run, _ = _setup()
+    from crashlab.export import export_test
+    from crashlab.models import TaxonomyLabel
+
+    assert run.diagnosis is not None
+    run.diagnosis.secondary = [TaxonomyLabel.EXTERNAL_FAILURE, TaxonomyLabel.STEP_REPETITION]
+    crashlab.store.Store().save_diagnosis(run, run.diagnosis)
+    paths = export_test(run.run_id, out_dir=tmp_path / "out")
+    mod = next(p for p in paths if p.suffix == ".py")
+    src = mod.read_text()
+    assert "EXPECTED_SECONDARY" in src
+    assert "EXTERNAL_FAILURE" in src and "STEP_REPETITION" in src
+    assert "run.diagnosis.secondary" in src or "EXPECTED_SECONDARY" in src

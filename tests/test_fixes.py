@@ -214,7 +214,7 @@ def test_cli_fix_prints_the_report_with_a_diff(fake_fix_model):
         "--patch",
     ):
         assert want in out, want
-    assert fake_fix_model == ["fix-v6"]
+    assert fake_fix_model == ["fix-v7"]
     stored = crashlab.load(run.run_id).diagnosis
     assert stored.fixes[0].file and stored.fixes[0].kind == "system_prompt"
 
@@ -252,7 +252,7 @@ def test_cli_diagnose_with_fix(fake_fix_model, monkeypatch):
     assert res.exit_code == 0, res.output
     assert "proposed fixes" in res.output and "fix-1" in res.output
     again = runner.invoke(app, ["diagnose", run.run_id, "-m", "fake", "--fix"])
-    assert again.exit_code == 0 and fake_fix_model == ["fix-v6"]  # both calls cached
+    assert again.exit_code == 0 and fake_fix_model == ["fix-v7"]  # both calls cached
 
 
 def test_stray_anchor_on_append_is_flagged_and_dropped():
@@ -275,8 +275,9 @@ def test_fix_prompt_treats_passing_checks_as_requirements():
     system = F.fix_messages(run, d)[0]["content"]
     assert "Every check marked PASS" in system and "keep it passing" in system
     assert "primary LABEL" in system and "SECONDARY" in system
+    assert "fully resolved" in system or "SECONDARY remains" in system
     assert "runs unattended" in system and '"op": "insert_line"' in system
-    assert F.FIX_PROMPT_VERSION == "fix-v6"
+    assert F.FIX_PROMPT_VERSION == "fix-v7"
 
 
 def test_cli_fix_no_cache_asks_the_fix_model_again_but_keeps_the_diagnosis(
@@ -294,6 +295,198 @@ def test_cli_fix_no_cache_asks_the_fix_model_again_but_keeps_the_diagnosis(
     for _ in range(2):
         res = runner.invoke(app, ["fix", run.run_id, "-m", "fake", "--no-cache", "--json"])
         assert res.exit_code == 0, res.output
-    assert fake_fix_model == ["fix-v6", "fix-v6"] and rediagnosed == []
+    assert fake_fix_model == ["fix-v7", "fix-v7"] and rediagnosed == []
     after = crashlab.load(run.run_id).diagnosis
     assert (after.label, after.method) == (before.label, before.method)
+
+
+# --- loop14: dual-failure fix generation / verify / overclaim ---------------------------
+
+
+def _dual_failure_run():
+    """HTML/503 then over-limit place_order: primary TOOL_ERROR, secondary TASK_SPEC."""
+    from crashlab.models import CheckResult, Finding, Run, Step
+    from crashlab.store import Store
+
+    rid = "01M6LOOP14DUAL000000000000"
+    sys = (
+        "You are a shop clerk. Never order more than 4 units. "
+        "Always call get_price before place_order. "
+        "1. Be concise. 2. Be polite. 3. Issue at most one refund per order."
+    )
+
+    def chat(idx, tool_call=None, text=None):
+        resp = {}
+        if tool_call:
+            resp["tool_calls"] = [tool_call]
+        if text:
+            resp["messages"] = [{"role": "assistant", "parts": [{"type": "text", "content": text}]}]
+        tools = [
+            {"name": "get_price", "description": "price lookup"},
+            {"name": "place_order", "description": "place an order"},
+        ]
+        # raw_request required for system_prompt patch preview/validate (recorded shape)
+        raw = {
+            "model": "fake-model",
+            "messages": [
+                {"role": "system", "content": sys},
+                {"role": "user", "content": "Buy 9 bolts"},
+            ],
+            "tools": tools,
+        }
+        return Step(
+            run_id=rid,
+            idx=idx,
+            span_id=f"c{idx}",
+            operation="chat",
+            name="fake-model",
+            request_hash=f"h{idx}",
+            request={"system": sys, "tools": tools},
+            raw_request=raw,
+            response=resp,
+            attributes={"crashlab.api": "openai.chat.completions"},
+        )
+
+    def tool(idx, name, args, result):
+        return Step(
+            run_id=rid,
+            idx=idx,
+            span_id=f"t{idx}",
+            operation="execute_tool",
+            name=name,
+            request_hash=f"h{idx}",
+            request={"args": args},
+            response={"result": result},
+        )
+
+    run = Run(
+        run_id=rid,
+        name="dual-failure",
+        status="ok",
+        outcome="fail",
+        steps=[
+            chat(0, tool_call={"name": "get_price", "arguments": {"item": "bolt"}}),
+            tool(1, "get_price", {"item": "bolt"}, "<html><title>503</title></html>"),
+            chat(2, tool_call={"name": "place_order", "arguments": {"item": "bolt", "qty": 9}}),
+            tool(3, "place_order", {"item": "bolt", "qty": 9}, {"order_id": "OM-77"}),
+            chat(4, text="Placed nine bolts."),
+        ],
+        checks=[
+            CheckResult(name="qty_cap", status="fail", message="ordered 9 units (limit 4)"),
+            CheckResult(name="price_before_order", status="pass", message=None),
+        ],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_price returned an HTML page (503 Service Unavailable) instead of data",
+            )
+        ],
+    )
+    store = Store()
+    store.begin_run(run)
+    for s in run.steps:
+        store.add_step(s)
+    store.end_run(run)
+    d = crashlab.diagnose(run, heuristic=True)
+    assert d.label.value == "TOOL_ERROR_MISHANDLED"
+    assert any(s.value == "TASK_SPEC_VIOLATION" for s in d.secondary)
+    return crashlab.load(rid)
+
+
+def test_dual_failure_fix_rejects_full_resolution_claim():
+    """Primary-first proposal that claims everything is fully fixed while secondary
+    remains is rejected (or not kept without acknowledging secondary)."""
+    run = _dual_failure_run()
+    overclaim = {
+        "kind": "system_prompt",
+        "op": "append",
+        "text": (
+            "If a tool returns an HTML error page, do not call place_order; "
+            "abort or retry the lookup once."
+        ),
+    }
+    item = {
+        "patch": overclaim,
+        "rationale": "This fully resolves all failures and fixes everything in the run.",
+        "expected_effect": "All issues are completely fixed; no remaining failures.",
+    }
+    fix, why = validate_fix(item, run, 1)
+    assert fix is None and why is not None
+    assert (
+        "secondary" in why.lower() or "full resolution" in why.lower() or "remaining" in why.lower()
+    )
+
+
+def test_dual_failure_fix_kept_when_secondary_acknowledged():
+    """Honest primary-first fix that notes secondary remains is kept; prompt lists both."""
+    run = _dual_failure_run()
+    patch = {
+        "kind": "system_prompt",
+        "op": "append",
+        "text": (
+            "If get_price returns an HTML/error page, do not call place_order; retry once or abort."
+        ),
+    }
+    item = {
+        "patch": patch,
+        "rationale": (
+            "Addresses TOOL_ERROR primary (proceed-after-error). "
+            "Secondary TASK_SPEC quantity limit remains a separate risk."
+        ),
+        "expected_effect": (
+            "Agent stops placing after HTML errors; quantity-limit secondary still needs care."
+        ),
+    }
+    fix, why = validate_fix(item, run, 1)
+    assert why is None and fix is not None
+    assert fix.rationale and "secondary" in fix.rationale.lower()
+
+    calls = []
+    fixes = crashlab.propose_fixes(
+        run,
+        fn=lambda m: calls.append(m) or json.dumps({"fixes": [item]}),
+        save=False,
+    )
+    assert len(fixes) == 1
+    blob = calls[0][1]["content"]
+    assert "LABEL: TOOL_ERROR_MISHANDLED" in blob
+    assert "SECONDARY: TASK_SPEC_VIOLATION" in blob
+    assert "primary LABEL" in calls[0][0]["content"]
+
+
+def test_dual_failure_try_fix_reports_all_relevant_oracles():
+    """try_fix.failed_checks lists every non-passing oracle on the forked branch."""
+    from tests.fakes import FakeOpenAI, refund_script
+
+    run = _dual_failure_run()
+    patch = {
+        "kind": "system_prompt",
+        "op": "append",
+        "text": "After an HTML tool error, do not place_order; abort the purchase.",
+    }
+    item = {
+        "patch": patch,
+        "rationale": "Primary tool-error mishandle; secondary qty limit remains.",
+        "expected_effect": "No place_order after HTML errors; secondary limit still open.",
+    }
+    fix, why = validate_fix(item, run, 1)
+    assert why is None and fix is not None
+
+    # Dual synthetic run has no entrypoint; use policy run + secondary for live fork,
+    # asserting failed_checks mirrors the branch oracles exactly.
+    policy = _diagnosed()
+    assert policy.diagnosis is not None
+    policy.diagnosis.secondary = [
+        __import__("crashlab.models", fromlist=["TaxonomyLabel"]).TaxonomyLabel.EXTERNAL_FAILURE
+    ]
+    crashlab.store.Store().save_diagnosis(policy, policy.diagnosis)
+    [fix2] = crashlab.propose_fixes(policy, fn=_reply(RULE), save=True)
+    client = crashlab.wrap(FakeOpenAI(refund_script()))
+    tried = crashlab.try_fix(policy, fix2, client=client)
+    assert "failed_checks" in tried
+    branch = crashlab.load(tried["run_id"])
+    expected = [c.name for c in branch.checks if c.status != "pass"]
+    assert tried["failed_checks"] == expected

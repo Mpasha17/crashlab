@@ -28,7 +28,7 @@ from .diagnoser import DiagnoseError, Messages, _ask, cache_key, parse_json
 from .heuristics import candidates
 from .restore import good_runs, restore_proposals, system_prompts
 
-FIX_PROMPT_VERSION = "fix-v6"
+FIX_PROMPT_VERSION = "fix-v7"
 MAX_FIXES = 3
 #: version of the deterministic part (restore proposals, ask filter, ranking): a
 #: cached proposal list from another version is rebuilt
@@ -69,7 +69,8 @@ Rules:
 1. Fix the primary LABEL cause first with the smallest change, preferably a general \
 rule in the system prompt or a tool description. When SECONDARY labels are listed, do \
 not silently ignore them (cover or note them), but never swap which cause is primary. \
-No wholesale prompt rewrites.
+Do not claim the run is fully resolved / all failures fixed while SECONDARY remains — \
+say what still remains. No wholesale prompt rewrites.
 2. Never hard-code this run's specifics (order ids, amounts, dates, names, the expected \
 answer): the fix must generalise. If a literal is truly part of a general rule, explain \
 it in "literal_justification".
@@ -91,6 +92,21 @@ Reply with only this JSON object:
 
 #: wording that hands the decision back to a person: verification forks the run
 #: unattended, so nobody answers and the task is left undone
+# claims that secondary is gone / everything fixed (rejected when secondary remains)
+_FULL_RESOLUTION = re.compile(
+    r"\b(?:fully (?:fix(?:es|ed)?|resolv(?:e|es|ed)|address(?:es|ed)?)|"
+    r"completely (?:fix(?:es|ed)?|resolv(?:e|es|ed)|address(?:es|ed)?)|"
+    r"all (?:failures|issues|causes|problems)\b.{0,40}\b(?:fixed|resolved)|"
+    r"fixes? everything|no (?:further|remaining) (?:issues|failures|causes))\b",
+    re.I,
+)
+_SECONDARY_ACK = re.compile(
+    r"\bsecondary\b|"
+    r"\balso\b.{0,30}\b(?:label|cause|failure|risk)\b|"
+    r"\bstill (?:open|needs|remains)\b|"
+    r"\b(?:TASK_SPEC|EXTERNAL_FAILURE|STEP_REPETITION|BAD_TOOL|WRONG_TOOL|TOOL_ERROR)",
+    re.I,
+)
 _ASK = re.compile(
     r"\blet (?:me|us) know\b|\bwould you like\b|\bdo you want (?:me|us) to\b|\bshall I\b"
     r"|\bask (?:the )?(?:user|customer|them)\b[^.\n]{0,40}\b(?:confirm|approv|whether|if\b"
@@ -331,14 +347,24 @@ def validate_fix(item: Any, run: Run, rank: int) -> tuple[Fix | None, str | None
             notes.append(f"contains run literals {leaked}, justified: {why}")
     else:
         notes.append("counterfactual for testing a hypothesis, not a fix")
+    rationale = str(item.get("rationale") or "").strip()
+    expected_effect = str(item.get("expected_effect") or "").strip()
+    d = run.diagnosis
+    if d is not None and d.secondary:
+        claim = f"{rationale} {expected_effect}"
+        if _FULL_RESOLUTION.search(claim) and not _SECONDARY_ACK.search(claim):
+            return None, (
+                f"{label}: claims full resolution while secondary remains "
+                f"({', '.join(s.value for s in d.secondary)}); acknowledge what is still open"
+            )
     fix = Fix(
         fix_id=f"fix-{rank}",
         rank=rank,
         kind=patch.kind,
         target=_target(patch),
         after=label,
-        rationale=str(item.get("rationale") or "").strip(),
-        expected_effect=str(item.get("expected_effect") or "").strip(),
+        rationale=rationale,
+        expected_effect=expected_effect,
         as_patch=patch,
         test_only=test_only,
         notes=notes,
