@@ -142,6 +142,9 @@ def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
         if lbl is not None and lbl not in (label, TaxonomyLabel.UNKNOWN, TaxonomyLabel.NO_FAILURE):
             secondary.append(lbl)
 
+    # remember the model-claimed label before evidence downgrade; root_cause upgrade
+    # keys off this so a bad quote does not strand a symptom-only cause text
+    claimed_label = label
     downgrade = None
     if label not in (TaxonomyLabel.UNKNOWN, TaxonomyLabel.NO_FAILURE):
         if step is None:
@@ -200,7 +203,9 @@ def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
     if remap:
         method["failing_step_remap"] = remap
     explanation = str(raw.get("explanation") or "").strip() if raw.get("root_cause") else ""
-    if label is TaxonomyLabel.TASK_SPEC_VIOLATION and root_cause:
+    # Upgrade on the claimed TASK_SPEC label even when evidence downgraded to UNKNOWN
+    # (loop5 live: flash-lite crewai kept a symptom root_cause after quote failure).
+    if claimed_label is TaxonomyLabel.TASK_SPEC_VIOLATION and root_cause:
         upgraded = _upgrade_root_cause(run, root_cause, step, notes)
         if upgraded != root_cause:
             if not explanation:

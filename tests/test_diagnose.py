@@ -110,7 +110,8 @@ def test_hallucinated_quotes_are_dropped_and_the_label_downgraded():
     d = validate(raw, _policy_run())
     assert d.label is UNKNOWN and d.evidence == []
     assert sum("dropped quote" in n for n in d.notes) == 3
-    assert "does not exist" in d.notes[2] and d.notes[-1].startswith("downgraded to UNKNOWN")
+    assert "does not exist" in d.notes[2]
+    assert any(n.startswith("downgraded to UNKNOWN") for n in d.notes)
     assert d.method["evidence_total"] == 3 and d.method["evidence_valid"] == 0
 
 
@@ -668,6 +669,32 @@ def test_symptom_only_llm_root_cause_is_upgraded_to_instruction_gap():
     assert "missing" in rc or "ignor" in rc
     assert "system prompt" in rc or "instruction" in rc
     assert any("symptom" in n.lower() or "upgraded" in n.lower() for n in d.notes)
+
+
+def test_symptom_root_cause_still_upgrades_when_evidence_downgrades_label():
+    # Loop5 live Gemini flash-lite (crewai drop_rule): model wrote a symptom root_cause and
+    # non-verbatim evidence quotes → label UNKNOWN. Upgrade must still replace the symptom
+    # with the instruction-gap cause (upgrade is about root_cause text, not the label).
+    run = _shop_drop_rule_run()
+    raw = {
+        "label": "TASK_SPEC_VIOLATION",
+        "failing_step": 2,
+        "confidence": 0.9,
+        "root_cause": (
+            "The agent placed an order for 10 units, violating the maximum "
+            "order quantity limit of 5 units."
+        ),
+        "evidence": [
+            {"step": 2, "quote": "this quote is not in the step at all"},
+        ],
+    }
+    d = validate(raw, run)
+    assert d.label is crashlab.TaxonomyLabel.UNKNOWN
+    assert any("downgraded" in n.lower() for n in d.notes)
+    rc = d.root_cause.lower()
+    assert "missing" in rc or "ignor" in rc
+    assert "system prompt" in rc or "instruction" in rc
+    assert any("upgraded" in n.lower() or "symptom" in n.lower() for n in d.notes)
 
 
 def _misleading_desc_run() -> crashlab.Run:
