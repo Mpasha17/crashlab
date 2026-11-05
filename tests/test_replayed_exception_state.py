@@ -174,3 +174,55 @@ def test_state_left_out_when_empty_so_older_readers_load_the_step():
     full = ErrorInfo(type="KeyError", message="'b'", state={"args": ["b"]})
     assert full.model_dump(mode="json")["state"] == {"args": ["b"]}
     assert ErrorInfo.model_validate(full.model_dump(mode="json")) == full
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="Task.cancelling() is 3.11+")
+def test_stream_cancelled_mid_way_by_wait_for_replays_as_timeout():
+    """The agent's timeout fired while it was reading an AsyncOpenAI stream: replay
+    served the 4 chunks and raised CancelledError at once instead of timing out."""
+    import json as _json
+
+    httpx = pytest.importorskip("httpx")
+    openai = pytest.importorskip("openai")
+
+    class SlowSSE(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            for i in range(10):
+                chunk = {"id": "c", "object": "chat.completion.chunk", "created": 1,
+                         "model": "m", "choices": [{"index": 0, "delta": {"content": f"w{i} "},
+                                                    "finish_reason": None}]}  # fmt: skip
+                yield f"data: {_json.dumps(chunk)}\n\n".encode()
+                await asyncio.sleep(0.05)
+            yield b"data: [DONE]\n\n"
+
+    async def handler(request):
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=SlowSSE())
+
+    @crashlab.agent(name="stream-timeout")
+    async def agent() -> str:
+        client = crashlab.wrap(
+            openai.AsyncOpenAI(
+                api_key="test",
+                base_url="http://llm.invalid/v1",
+                http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            )
+        )
+        got: list[str] = []
+
+        async def consume() -> None:
+            stream = await client.chat.completions.create(
+                model="m", messages=[{"role": "user", "content": "hi"}], stream=True
+            )
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    got.append(chunk.choices[0].delta.content)
+
+        try:
+            await asyncio.wait_for(consume(), 0.18)
+        except (asyncio.TimeoutError, TimeoutError):
+            return f"timeout after {len(got)} chunks"
+        return "".join(got)
+
+    out = asyncio.run(agent())
+    assert out.startswith("timeout after")
+    assert crashlab.replay(crashlab.load("last"), fn=agent).output == out

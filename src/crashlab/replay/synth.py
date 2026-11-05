@@ -509,9 +509,16 @@ class AsyncReplayStream(ReplayStream):
 
     async def __anext__(self) -> Any:
         try:
-            return self.__next__()
+            item = next(self._it)
         except StopIteration:
+            if self._error is not None:
+                err, self._error = self._error, None
+                from .rebuild import recancel
+
+                await recancel(err)  # the caller's timeout cancelled the live stream
+                raise err from None
             raise StopAsyncIteration from None
+        return item
 
     async def __aenter__(self) -> AsyncReplayStream:
         return self
