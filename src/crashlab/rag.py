@@ -55,6 +55,10 @@ ABSTAIN = (
     "not in the documents",
     "unable to find",
     "could not answer",
+    "don't have that information",
+    "do not have that information",
+    "don't have enough information",
+    "do not have enough information",
     "couldn't answer",
     "cannot answer",
     "can't answer",
@@ -145,9 +149,31 @@ def cited_ids(text: str | None, pattern: str = CITATION) -> list[str]:
     for m in re.finditer(pattern, text if isinstance(text, str) else ""):
         body = next((g for g in m.groups() if g is not None), m.group(0))
         for part in re.split(r"[,;]", body):
-            part = part.split("\u2020", 1)[0].strip()  # 'doc†L1' line anchors
+            # 'doc†L1' (line anchor) / '4†doc' (cursor): keep the segment that is an id
+            segs = [g.strip() for g in part.split("\u2020")]
+            if len(segs) > 1:  # plain '[1]' footnotes stay ids
+                part = next((g for g in segs if g and not _ANCHOR.match(g)), "")
+            else:
+                part = segs[0]
             if part and not re.search(r"\s", part) and part not in out:
                 out.append(part)
+    return out
+
+
+_ANCHOR = re.compile(r"^(?:\d+|L\d+(?:-L?\d+)?)$")
+_SUFFIX = re.compile(r"(?:#|:)(?:L?\d+(?:-L?\d+)?|page=\d+)$")
+
+
+def _resolve(cites: list[str], got: Iterable[str]) -> list[str]:
+    """Map citations with a line/page suffix (``doc.md#L10``, ``doc.md:3-5``,
+    ``doc.md#page=2``) to the retrieved id they point at; exact ids win."""
+    known = set(got)
+    out: list[str] = []
+    for c in cites:
+        base = _SUFFIX.sub("", c)
+        c = c if c in known or base not in known else base
+        if c not in out:
+            out.append(c)
     return out
 
 
@@ -191,7 +217,7 @@ def citations_were_retrieved(
     """Citation mismatch: every cited id was actually retrieved (and, with ``require``,
     the answer cites something whenever documents were retrieved)."""
     got = _ids(retrieved(run, tool, id_key=id_key), id_key)
-    cites = cited_ids(answer, pattern)
+    cites = _resolve(cited_ids(answer, pattern), got)
     bad = [c for c in cites if c not in got]
     if bad:
         return f"{_answer_step(run)}: answer cites {bad}, but {tool} returned {got}"
@@ -279,6 +305,10 @@ def answer_grounded(
     text_key: str = "text",
     pattern: str = CITATION,
     duplicates: str = "versions",
+    exclude_stale: bool = False,
+    superseded_key: str = "superseded_by",
+    date_key: str | None = None,
+    not_before: str | None = None,
 ) -> str | None:
     """Unsupported answer: every number in the answer (citations removed) appears in a
     retrieved document's ``text_key`` (in a cited one when the answer cites any).
@@ -287,10 +317,15 @@ def answer_grounded(
     texts: ``"versions"`` (default) fails as ambiguous when they are versions (differing
     ``version`` / ``updated`` / ... fields, or one has ``superseded_by``) and merges
     unversioned chunks; ``"latest"`` keeps the current/newest version; ``"first"`` the
-    first retrieved; ``"any"`` merges all; ``"strict"`` fails on any differing text."""
+    first retrieved; ``"any"`` merges all; ``"strict"`` fails on any differing text.
+
+    By default an uncited number is grounded by any retrieved document, stale ones
+    included. ``exclude_stale=True`` drops stale documents (``superseded_key`` set, or
+    ``date_key`` older than ``not_before``, as in :func:`no_stale_docs`) from the evidence,
+    so a number only a stale document supports fails, cited or not."""
     _select([], id_key, text_key, duplicates)  # validate early
     found = retrieved(run, tool, id_key=id_key, text_key=text_key)
-    cites = cited_ids(answer, pattern)
+    cites = _resolve(cited_ids(answer, pattern), _ids(found, id_key))
     if cites:
         found = [(s, d) for s, d in found if str(d.get(id_key)) in cites] or found
     claimed = _numbers(re.sub(pattern, " ", answer if isinstance(answer, str) else ""))
@@ -300,6 +335,11 @@ def answer_grounded(
     if conflict:
         return f"{_answer_step(run)}: {conflict} ({_where(run, tool)})"
     docs = [(s, d) for s, d in found if any(d is k for k in kept)]
+    ignored: list[str] = []
+    if exclude_stale:
+        stale = [(s, d) for s, d in docs if _stale_why(d, superseded_key, date_key, not_before)]
+        ignored = _ids(stale, id_key)
+        docs = [(s, d) for s, d in docs if not any(d is x for _, x in stale)]
     evidence: set[str] = set()
     for _, d in docs:
         evidence |= _numbers(str(d.get(text_key, "")))
@@ -308,7 +348,18 @@ def answer_grounded(
         return (
             f"{_answer_step(run)}: answer states {unsupported}, not found in the retrieved "
             f"documents {_ids(docs, id_key)} ({_where(run, tool)})"
+            + (f"; stale documents ignored: {ignored}" if ignored else "")
         )
+    return None
+
+
+def _stale_why(
+    d: dict[str, Any], superseded_key: str, date_key: str | None, not_before: str | None
+) -> str | None:
+    if d.get(superseded_key):
+        return f"superseded by {d[superseded_key]}"
+    if date_key and not_before and str(d.get(date_key, "")) < not_before:
+        return f"{date_key}={d.get(date_key)!r} < {not_before}"
     return None
 
 
@@ -325,11 +376,7 @@ def no_stale_docs(
     or, with ``date_key`` + ``not_before`` (ISO dates compare as strings), older than that."""
     stale: list[str] = []
     for s, d in retrieved(run, tool, id_key=id_key):
-        why = None
-        if d.get(superseded_key):
-            why = f"superseded by {d[superseded_key]}"
-        elif date_key and not_before and str(d.get(date_key, "")) < not_before:
-            why = f"{date_key}={d.get(date_key)!r} < {not_before}"
+        why = _stale_why(d, superseded_key, date_key, not_before)
         if why:
             stale.append(f"step {s.idx}: {d.get(id_key)} ({why})")
     return f"{tool} returned stale documents: " + "; ".join(stale) if stale else None
@@ -551,7 +598,8 @@ def claims_supported(
     docs = retrieved(run, tool, id_key=id_key, text_key=text_key)
     if not docs:
         return None
-    all_cites = cited_ids(answer, pattern)
+    known = _ids(docs, id_key)
+    all_cites = _resolve(cited_ids(answer, pattern), known)
     content_of: dict[str, tuple[set[str], bool]] = {}
 
     def doc_info(ds: str) -> tuple[set[str], bool]:
@@ -560,7 +608,7 @@ def claims_supported(
         return content_of[ds]
 
     for sentence in _SENT.split(answer if isinstance(answer, str) else ""):
-        cites = cited_ids(sentence, pattern) or all_cites
+        cites = _resolve(cited_ids(sentence, pattern), known) or all_cites
         claim = _INTERJECTION.sub("", re.sub(pattern, " ", sentence)).strip()
         if _CJK.search(claim):  # no spaces between words: overlap would be meaningless
             continue

@@ -31,11 +31,11 @@ from a check:
 
 | Failure mode | Helper |
 |---|---|
-| Wrong retrieval | `rag.retrieved_ids(run, ["gold-doc-id"])` |
+| Wrong retrieval / ranking | `rag.retrieved_ids(run, ["gold-doc-id"], top_k=3)`. `top_k` is optional and requires the gold document within the first k results of a call. The recorded order is the rank; score fields are not read |
 | Missing context (answered anyway) | `rag.abstains_without_context(run, answer)` |
 | Stale documents | `rag.no_stale_docs(run)` (`superseded_by` set) or `date_key=..., not_before="2026-01-01"` |
-| Citation mismatch | `rag.citations_were_retrieved(run, answer)` (default citation form `[doc-id]`, `pattern=` to change) |
-| Answer ignores evidence (numbers) | `rag.answer_grounded(run, answer)` |
+| Citation mismatch | `rag.citations_were_retrieved(run, answer)`. Recognised forms: `[doc-id]`, `[a, b]`, `[a; b]`, `【doc-id】`, `【doc-id†L1】`, `【4†doc-id】`. `[text](url)` links and bracketed text with spaces are ignored. A `#L10`, `#L10-L20`, `:3-5` or `#page=2` suffix resolves to the bare id when that was retrieved (exact ids win). Change the form with `pattern=` |
+| Answer ignores evidence (numbers) | `rag.answer_grounded(run, answer)`; with `exclude_stale=True` (opt-in) it also fails numbers that only stale documents support |
 | Unsupported / negated claim (words) | `rag.claims_supported(run, answer, min_overlap=0.5, min_words=3)` |
 
 `claims_supported` checks each answer sentence with at least `min_words` content words
@@ -43,7 +43,12 @@ against the documents that sentence cites (falls back to the answer's citations,
 all retrieved documents). It fails when under `min_overlap` of the sentence's content
 words (lower-cased, stopwords removed, light suffix stemming) appear there, or when the
 only matching document sentences have the opposite negation (`not`, `no`, `never`,
-`n't`, ...). Abstentions and short sentences are skipped; `stopwords=` is configurable.
+`n't`, ...). For negation, the best-matching document sentence decides, and ties favour the
+same polarity, so documents mixing "X is refunded. Y is not refunded." do not flag. A
+leading "Yes," / "No," is ignored. Abstentions and short sentences are skipped, and
+`stopwords=` (English by default) is configurable. Words are Unicode letters, so German
+text works; sentences containing Chinese/Japanese/Korean characters are skipped (no word
+spaces). Numbers are NFKC-normalized (full-width digits), and `1,000` equals `1000`.
 
 ```python
 @crashlab.check("support-rag")
@@ -73,6 +78,30 @@ That configuration is in the check code, so `crashlab check` and exported tests 
 Annotate the retriever's return type (`-> list[Document]`): replay rebuilds the objects from
 it. With `-> list[Any]`, replay hands the agent plain dicts, and an agent that reads
 `doc.metadata` breaks (`tests/test_rag_versions.py` covers this).
+
+### Stale vs current documents with different ids
+
+By default `answer_grounded` is permissive. If `v1` (superseded) and `v2` are both
+retrieved, an uncited "14 days" from `v1` passes. Combine the checks:
+
+```python
+rag.no_stale_docs(run)                       # the stale document was retrieved at all
+rag.citations_were_retrieved(run, answer)    # the answer must cite something
+rag.answer_grounded(run, answer, exclude_stale=True)  # numbers only from current docs
+```
+
+`exclude_stale` uses the same rules as `no_stale_docs` (`superseded_key`, or `date_key` +
+`not_before`). A number supported only by a stale document fails, cited or not, and the
+message lists the stale documents it ignored.
+
+### Retrieval errors and timeouts
+
+A retriever that raises (e.g. `TimeoutError`) is recorded as a failed tool step. One that
+returns an error object (`{"error": ...}`) yields no documents. In both cases
+`abstains_without_context` requires the answer to abstain, and `citations_were_retrieved`
+fails any citation. `examples/rag_qa` has the `retrieval_timeout` and `retrieval_error`
+faults, covered through `crashlab check` and exported tests. Empty or malformed citations
+(`[]`, `【】`, `[,]`, `【†L1】`) count as no citation.
 
 ## 3. Re-check stored runs from the CLI
 
@@ -114,6 +143,13 @@ example agent does not pass the `updated` dates to the model, so
 `grounded_in_latest_version` was right to flag those answers. The citation forms seen
 there are now supported and covered by tests.
 
+Repeated live runs of `examples/rag_qa` (n=3 per case, temperature 0, 6 Nov 2026): 12/12
+had the same outcome and failing checks per case and replayed identically. A later n=2
+validation (clean, `stale_docs`, `retrieval_timeout`, `retrieval_error`) was less stable.
+The model's refusal wording varied ("Sorry, I could not answer." vs "I'm sorry, but I
+don't have that information."), and the second phrasing was not recognised as an
+abstention. It now is, with a regression test.
+
 ## Limitations
 
 - No vector-database integrations are built in; you record your own retriever function.
@@ -121,6 +157,11 @@ there are now supported and covered by tests.
   negation. Neither is a semantic entailment judge: paraphrases using different words can
   fail (lower `min_overlap`), and wrong claims that reuse the documents' words can pass.
   Negation handling is sentence-level polarity, not scope-aware.
+- Long documents work (20,000 sentences checked in under 3 s in tests). Helpers never raise
+  on malformed retrieval results (fuzz-tested).
+- Word overlap is not semantic equivalence. In a live run, "You have 14 days from the date
+  of delivery to return an item." scored 2/5 against "Refunds are accepted within 14 days
+  of delivery." and was flagged at the default `min_overlap=0.5`.
 - `abstains_without_context` matches refusal phrases (`rag.ABSTAIN`, overridable).
 - The built-in runtime checks only flag an empty retrieval (`suspicious_tool_result`, info);
   the other RAG failure modes need these oracles.

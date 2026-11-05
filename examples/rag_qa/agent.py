@@ -9,6 +9,8 @@ Faults (``faults=[...]``), recorded in the run input so replay reproduces them:
 - ``wrong_retrieval``: the retriever returns off-topic documents
 - ``missing_context``: the retriever returns nothing
 - ``stale_docs``: the retriever returns the superseded policy version
+- ``retrieval_timeout``: the retriever raises ``TimeoutError``
+- ``retrieval_error``: the retriever returns an error object instead of documents
 
 Run against a real model: ``python -m examples.rag_qa.agent "How many days ...?"``
 (``OPENAI_BASE_URL`` / ``OPENAI_API_KEY`` / ``MODEL``).
@@ -25,7 +27,13 @@ from typing import Any
 import crashlab
 from crashlab import rag
 
-FAULTS = ("wrong_retrieval", "missing_context", "stale_docs")
+FAULTS = (
+    "wrong_retrieval",
+    "missing_context",
+    "stale_docs",
+    "retrieval_timeout",
+    "retrieval_error",
+)
 
 CORPUS: list[dict[str, Any]] = [
     {"id": "refund-policy-v2", "updated": "2026-09-01",
@@ -56,6 +64,10 @@ _faults: contextvars.ContextVar[frozenset[str]] = contextvars.ContextVar(
 def search_docs(query: str, k: int = 2) -> list[dict[str, Any]]:
     """Keyword search over CORPUS (top k, superseded documents excluded)."""
     faults = _faults.get()
+    if "retrieval_timeout" in faults:
+        raise TimeoutError("search_docs: vector store did not answer within 5s")
+    if "retrieval_error" in faults:
+        return {"error": "index unavailable", "status": 503}  # type: ignore[return-value]
     if "missing_context" in faults:
         return []
     if "wrong_retrieval" in faults:
@@ -123,7 +135,10 @@ def run_agent(
                 for tc in msg.tool_calls]})  # fmt: skip
             for tc in msg.tool_calls:
                 args = json.loads(tc.function.arguments or "{}")
-                result = search_docs(str(args.get("query", "")))
+                try:
+                    result: Any = search_docs(str(args.get("query", "")))
+                except TimeoutError as exc:  # tell the model; the checks judge the answer
+                    result = {"error": str(exc)}
                 messages.append({"role": "tool", "tool_call_id": tc.id,
                                  "content": json.dumps(result)})  # fmt: skip
         return "Sorry, I could not answer."
