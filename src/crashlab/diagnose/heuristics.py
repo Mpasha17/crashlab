@@ -16,6 +16,17 @@ _ACTION_VIOLATION = re.compile(
     r"\bordered\b|\brefunded\b|\bplaced\b|\blimit\b|\bwindow:\b|\bexceed",
     re.I,
 )
+# Soft / vague goal-only check text → leave unlabelled (UNKNOWN) rather than forcing
+# TASK_SPEC when there is no concrete constraint/action evidence (loop11 adversarial).
+_VAGUE_SOFT_GOAL = re.compile(
+    r"^(?:(?:the )?(?:user )?goal (?:was )?(?:not |un)(?:met|satisfied)|"
+    r"goal not (?:met|satisfied)|"
+    r"request (?:not |un)(?:fulfilled|completed|satisfied)|"
+    r"(?:did not|didn't|could not|couldn't) (?:help|assist|complete|fulfill)|"
+    r"no (?:useful |helpful )?response|"
+    r"unable to (?:help|assist))\.?$",
+    re.I,
+)
 # Check messages that are usually consequences of a tool/upstream failure, not the
 # instruction gap. When an error-level tool finding exists, demote these so the
 # finding label (TOOL_ERROR / EXTERNAL) wins over TASK_SPEC (loop7 real-agent gaps).
@@ -508,6 +519,14 @@ def candidates(run: Run) -> list[Candidate]:
             # wrong action: blame the chat that decided on the tool, not the tool itself
             idx = _decision_step(run, damage)
         rank = 2 if (refs or action) else 7
+        if (
+            label == TaxonomyLabel.TASK_SPEC_VIOLATION
+            and not refs
+            and not action
+            and _VAGUE_SOFT_GOAL.search((msg or "").strip())
+        ):
+            # vague soft-goal only — UNKNOWN if nothing stronger exists (loop11)
+            label = None
         if _TOOL_FAILURE_CONSEQUENCE.search(msg) and (
             run.error is not None
             or any(
