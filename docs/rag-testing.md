@@ -118,8 +118,11 @@ crashlab check --all --save --name rag-qa   # grade older runs with newly added 
 ```
 
 The entrypoint module is imported, so keep the code that starts a run under
-`if __name__ == "__main__":`. A script that calls the agent at import time records again
-when `crashlab check` imports it.
+`if __name__ == "__main__":` (recommended). If a module starts a run at import time,
+crashlab refuses that run while it imports the entry point and reports `could not import
+...: ... put that code under if __name__ == "__main__"`. No new run is recorded and nothing
+recurses. Checks defined above that call still run. Replay of such a run fails with a
+`ReplayError` that names the fix.
 
 ## 4. Replay and export
 
@@ -140,7 +143,8 @@ scripted fake model, through record, `crashlab check` (fresh process), replay an
 export-test (fresh pytest process).
 
 `crashlab.rag` ships in the installed package. The examples, tests and this page are in
-the source repository and the sdist, not in the wheel. Run the examples from a checkout.
+the source repository and the sdist, not in the wheel. Run the examples from a checkout or
+an extracted sdist (`tests/test_rag_wheel.py` runs the RAG tests from one).
 
 ## Live run
 

@@ -145,6 +145,10 @@ class record:
 
     # sync ------------------------------------------------------------------------------
     def __enter__(self) -> Run:
+        if self.mode == "record":
+            from .._import_guard import refuse_run_at_import
+
+            refuse_run_at_import(self.name)
         if bound_current() is not None:
             raise RuntimeError(
                 "crashlab.record(): a run is already active in this context; nested runs are "

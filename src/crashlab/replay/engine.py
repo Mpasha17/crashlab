@@ -565,14 +565,8 @@ def _find_script(stem: str, root: str | None = None, max_depth: int = 4) -> str:
     )
 
 
-def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
-    """``module:qualname`` or ``path/to/file.py:qualname`` -> the callable."""
-    if not entrypoint or ":" not in entrypoint:
-        raise ReplayError(
-            "this run has no entry point (it was recorded with `crashlab.record(...)`); "
-            "pass the function to re-run: crashlab.replay(run, fn=my_main)"
-        )
-    target, qualname = entrypoint.rsplit(":", 1)
+def _import_target(entrypoint: str, target: str) -> Any:
+    """Import the module named by ``target`` (a module path or a script file)."""
     if os.getcwd() not in sys.path and "" not in sys.path:
         sys.path.insert(0, os.getcwd())
     if target.endswith(".py") or os.sep in target:
@@ -596,7 +590,9 @@ def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
     elif target.startswith(REPLAY_MODULE_PREFIX) and target not in sys.modules:
         # recorded by crashlab<=0.0.1 inside a replay of a script: the module only existed
         # in that process. Find the script by its file name instead.
-        return resolve_entrypoint(f"{_find_script(target[len(REPLAY_MODULE_PREFIX) :])}:{qualname}")
+        qualname = entrypoint.rsplit(":", 1)[1]
+        path = _find_script(target[len(REPLAY_MODULE_PREFIX) :])
+        return _import_target(f"{path}:{qualname}", str(path))
     else:
         try:
             module = importlib.import_module(target)
@@ -605,6 +601,29 @@ def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
                 f"cannot import entry point module {target!r} ({exc}); run from the "
                 "directory you recorded in, or pass fn="
             ) from exc
+    return module
+
+
+def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
+    """``module:qualname`` or ``path/to/file.py:qualname`` -> the callable."""
+    if not entrypoint or ":" not in entrypoint:
+        raise ReplayError(
+            "this run has no entry point (it was recorded with `crashlab.record(...)`); "
+            "pass the function to re-run: crashlab.replay(run, fn=my_main)"
+        )
+    target, qualname = entrypoint.rsplit(":", 1)
+    from .._import_guard import HINT, RunAtImportError, importing, importing_entrypoint
+
+    if importing() is not None:
+        raise ReplayError(
+            f"module {importing()!r} called crashlab replay/fork while crashlab was importing "
+            f"it to resolve {entrypoint!r}: {HINT}"
+        )
+    try:
+        with importing_entrypoint(target):
+            module = _import_target(entrypoint, target)
+    except RunAtImportError as exc:
+        raise ReplayError(f"cannot import entry point {target!r}: {exc}") from exc
     obj: Any = module
     for part in qualname.split("."):
         if part == "<locals>":

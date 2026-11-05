@@ -4,6 +4,7 @@ examples/rag_qa and docs/rag-testing.md. Slow-ish: builds once, offline install.
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tarfile
@@ -70,3 +71,27 @@ def test_wheel_installs_and_rag_works_in_clean_venv(dist, tmp_path):
     res = subprocess.run([str(py), "-c", code], capture_output=True, text=True, timeout=120,
                          cwd=tmp_path)  # fmt: skip
     assert res.returncode == 0 and res.stdout.startswith("ok"), res.stdout + res.stderr
+
+
+def test_sdist_rag_examples_and_tests_run_from_extracted_archive(dist, tmp_path):
+    pytest.importorskip("openai")
+    [sdist] = dist.glob("*.tar.gz")
+    with tarfile.open(sdist) as tar:
+        tar.extractall(tmp_path, filter="data")
+    [src] = [p for p in tmp_path.iterdir() if p.is_dir()]
+    env = {k: v for k, v in os.environ.items() if not k.endswith("API_KEY")}
+    env.pop("CRASHLAB_DIR", None)
+    env["PYTHONPATH"] = str(src / "src")  # the archive's crashlab, not this checkout's
+    tests = ["tests/test_rag.py", "tests/test_rag_integration.py", "tests/test_rag_docs.py"]
+    res = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-o", "addopts=",
+         "-k", "not wheel", *tests],
+        cwd=src, env=env, capture_output=True, text=True, timeout=600,
+    )  # fmt: skip
+    assert res.returncode == 0, res.stdout[-3000:] + res.stderr[-2000:]
+    assert " passed" in res.stdout and "failed" not in res.stdout
+    check = subprocess.run(
+        [sys.executable, "-c", "import crashlab, sys; print(crashlab.__file__)"],
+        cwd=src, env=env, capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert check.stdout.strip().startswith(str(src)), check.stdout
