@@ -24,16 +24,54 @@ _REVERSE = {v: k for k, v in _RENAMES.items()}
 _FIRST = ("seq", "op", "name", "hash")
 
 
+STATE_ATTR = "crashlab.error.state"
+
+
 def step_to_line(step_dict: dict[str, Any]) -> dict[str, Any]:
-    """Convert a (JSON-mode) step dict into cassette line order/keys."""
+    """Convert a (JSON-mode) step dict into cassette line order/keys.
+
+    ``error.state`` is written as the attribute ``crashlab.error.state``: crashlab 0.0.2
+    rejects unknown keys (and skipped such steps) but takes any attribute."""
+    err = step_dict.get("error")
+    if isinstance(err, dict) and "state" in err:
+        err = dict(err)
+        state = err.pop("state")
+        step_dict = {**step_dict, "error": err}
+        if state is not None:
+            step_dict["attributes"] = {**(step_dict.get("attributes") or {}), STATE_ATTR: state}
     renamed = {_RENAMES.get(k, k): v for k, v in step_dict.items()}
     ordered = {k: renamed.pop(k) for k in _FIRST if k in renamed}
     ordered.update(renamed)
     return ordered
 
 
-def line_to_step(line: dict[str, Any]) -> Step:
-    return Step.model_validate({_REVERSE.get(k, k): v for k, v in line.items()})
+def line_to_step(line: dict[str, Any], unknown: list[str] | None = None) -> Step:
+    """Parse a cassette line. Keys this version does not know (written by a newer
+    crashlab) are left out and named in ``unknown`` rather than failing the step."""
+    from ..models import ErrorInfo
+
+    data = {_REVERSE.get(k, k): v for k, v in line.items()}
+    extra = [k for k in data if k not in Step.model_fields]
+    for k in extra:
+        data.pop(k)
+    err = data.get("error")
+    if isinstance(err, dict):
+        err = dict(err)
+        bad = [k for k in err if k not in ErrorInfo.model_fields]
+        for k in bad:
+            err.pop(k)
+        extra += [f"error.{k}" for k in bad]
+        data["error"] = err
+    attrs = data.get("attributes")
+    if isinstance(attrs, dict) and STATE_ATTR in attrs:
+        attrs = dict(attrs)
+        state = attrs.pop(STATE_ATTR)
+        data["attributes"] = attrs
+        if isinstance(err, dict) and err.get("state") is None and isinstance(state, dict):
+            err["state"] = state
+    if unknown is not None:
+        unknown.extend(extra)
+    return Step.model_validate(data)
 
 
 class CassetteWriter:
@@ -72,17 +110,27 @@ def read_cassette(path: Path) -> list[Step]:
         return []
     steps: list[Step] = []
     bad: list[int] = []
+    unknown: list[str] = []
     with path.open(encoding="utf-8", errors="replace") as fh:
         for n, raw in enumerate(fh, 1):
             raw = raw.strip()
             if not raw:
                 continue
             try:
-                steps.append(line_to_step(json.loads(raw)))
+                steps.append(line_to_step(json.loads(raw), unknown))
             except (ValueError, TypeError):  # JSONDecodeError / pydantic ValidationError
                 bad.append(n)
+    import warnings
+
+    if unknown:
+        names = ", ".join(sorted(set(unknown)))
+        warnings.warn(
+            f"crashlab: {path} was written by a newer crashlab; ignored field(s) it does "
+            f"not know: {names}. Upgrade crashlab to replay it exactly.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     if bad:
-        import warnings
 
         shown = ", ".join(map(str, bad[:5])) + (" ..." if len(bad) > 5 else "")
         warnings.warn(

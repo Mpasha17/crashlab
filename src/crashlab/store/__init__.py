@@ -179,7 +179,17 @@ def import_run(
     if int(lines[0].get("version", 0)) > EXPORT_VERSION:
         raise ValueError(f"export version {lines[0].get('version')} is newer than supported")
     run = Run.model_validate(lines[0]["run"])
-    steps = [line_to_step(line) for line in lines[1:]]
+    unknown: list[str] = []
+    steps = [line_to_step(line, unknown) for line in lines[1:]]
+    if unknown:
+        import warnings
+
+        warnings.warn(
+            f"crashlab: {path} was written by a newer crashlab; ignored field(s) it does "
+            f"not know: {', '.join(sorted(set(unknown)))}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     if store.index.get_run_json(run.run_id) is not None and not replace:
         return run.run_id, False
     cassette = store.cassette_path(run.run_id)

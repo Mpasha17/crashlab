@@ -26,3 +26,12 @@ call raised itself needs `asyncio.Task.cancelling()` (Python 3.11+). A run recor
 or 3x the recorded time) so an outer timeout can fire again, and otherwise raises the
 recorded `CancelledError`. A cancellation is never swallowed; the worst case is that
 short delay.
+
+## `error.state` on disk
+
+Main writes a replayed exception's state as the step attribute `crashlab.error.state`
+instead of an `error.state` key. crashlab 0.0.2 therefore loads every step of a new
+recording. It cannot rebuild the exception's args, so it may report a final-output
+divergence (for example `missing 'b'` vs `missing b`), but it never drops a step. Main
+still reads inline `error.state` lines written by earlier main builds. Keys from a newer
+crashlab are ignored with a "written by a newer crashlab" warning rather than skipping the step.
