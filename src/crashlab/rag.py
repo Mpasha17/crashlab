@@ -32,6 +32,7 @@ from .models import Run, Step
 __all__ = [
     "abstains_without_context",
     "claims_supported",
+    "DUPLICATES",
     "answer_grounded",
     "cited_ids",
     "citations_were_retrieved",
@@ -40,7 +41,7 @@ __all__ = [
     "retrieved_ids",
 ]
 
-CITATION = r"\[([^\[\]]+)\](?!\()"
+CITATION = r"\[([^\[\]]+)\](?!\()|\u3010([^\u3010\u3011]+)\u3011"
 _WRAPPERS = ("documents", "results", "docs", "hits", "matches")
 _NUM = re.compile(r"(?<![A-Za-z0-9.])\d+(?:[.,]\d+)*(?![A-Za-z0-9])")
 ABSTAIN = (
@@ -142,8 +143,9 @@ def cited_ids(text: str | None, pattern: str = CITATION) -> list[str]:
     citations."""
     out: list[str] = []
     for m in re.finditer(pattern, text if isinstance(text, str) else ""):
-        for part in re.split(r"[,;]", m.group(1)):
-            part = part.strip()
+        body = next((g for g in m.groups() if g is not None), m.group(0))
+        for part in re.split(r"[,;]", body):
+            part = part.split("\u2020", 1)[0].strip()  # 'doc†L1' line anchors
             if part and not re.search(r"\s", part) and part not in out:
                 out.append(part)
     return out
@@ -203,6 +205,71 @@ def _numbers(text: str) -> set[str]:
     return {n.replace(",", "") for n in _NUM.findall(text)}
 
 
+DUPLICATES = ("versions", "latest", "first", "any", "strict")
+VERSION_KEYS = ("version", "updated", "updated_at", "last_modified", "modified", "date")
+
+
+def _version(d: dict[str, Any], superseded_key: str) -> tuple[int, Any]:
+    meta = d.get("metadata") if isinstance(d.get("metadata"), dict) else {}
+    value = next(
+        (src[k] for k in VERSION_KEYS for src in (d, meta) if src.get(k) not in (None, "")),
+        None,
+    )
+    current = 0 if (d.get(superseded_key) or meta.get(superseded_key)) else 1
+    return current, value
+
+
+def _newer(a: Any, b: Any) -> bool:
+    """a > b for version values (numbers numerically, else as strings; None is oldest)."""
+    if b is None:
+        return a is not None
+    if a is None:
+        return False
+    num = (int, float)
+    if isinstance(a, num) and isinstance(b, num) and not isinstance(a, bool):
+        return a > b
+    return str(a) > str(b)
+
+
+def _select(
+    docs: list[dict[str, Any]],
+    id_key: str,
+    text_key: str,
+    duplicates: str,
+    superseded_key: str = "superseded_by",
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Resolve documents sharing an id but differing in text (see ``duplicates``)."""
+    if duplicates not in DUPLICATES:
+        raise ValueError(f"duplicates must be one of {DUPLICATES}, not {duplicates!r}")
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for d in docs:
+        if _scalar(d.get(id_key)):
+            groups.setdefault(str(d[id_key]), []).append(d)
+    drop: set[int] = set()
+    for key, group in groups.items():
+        texts = list(dict.fromkeys(str(d.get(text_key, "")) for d in group))
+        if len(texts) < 2 or duplicates == "any":
+            continue
+        versions = [_version(d, superseded_key) for d in group]
+        versioned = any(c == 0 for c, _ in versions) or len({repr(v) for _, v in versions}) > 1
+        if duplicates == "strict" or (duplicates == "versions" and versioned):
+            what = f"{len(texts)} versions" if versioned else f"{len(texts)} different texts"
+            return docs, (
+                f"id {key!r} was retrieved with {what}; the evidence is ambiguous "
+                f"(pass duplicates='latest', 'first' or 'any' to choose)"
+            )
+        if duplicates == "versions":  # unversioned chunks of one document: keep all
+            continue
+        keep = group[0]
+        if duplicates == "latest":
+            for d, (cur, ver) in zip(group, versions, strict=True):
+                kc, kv = _version(keep, superseded_key)
+                if cur > kc or (cur == kc and _newer(ver, kv)):
+                    keep = d
+        drop |= {id(d) for d in group if str(d.get(text_key, "")) != str(keep.get(text_key, ""))}
+    return [d for d in docs if id(d) not in drop], None
+
+
 def answer_grounded(
     run: Run,
     answer: str | None,
@@ -211,17 +278,31 @@ def answer_grounded(
     id_key: str = "id",
     text_key: str = "text",
     pattern: str = CITATION,
+    duplicates: str = "versions",
 ) -> str | None:
     """Unsupported answer: every number in the answer (citations removed) appears in a
-    retrieved document's ``text_key`` (in a cited one when the answer cites any)."""
-    docs = retrieved(run, tool, id_key=id_key, text_key=text_key)
+    retrieved document's ``text_key`` (in a cited one when the answer cites any).
+
+    ``duplicates`` decides what happens when the evidence holds one id with different
+    texts: ``"versions"`` (default) fails as ambiguous when they are versions (differing
+    ``version`` / ``updated`` / ... fields, or one has ``superseded_by``) and merges
+    unversioned chunks; ``"latest"`` keeps the current/newest version; ``"first"`` the
+    first retrieved; ``"any"`` merges all; ``"strict"`` fails on any differing text."""
+    _select([], id_key, text_key, duplicates)  # validate early
+    found = retrieved(run, tool, id_key=id_key, text_key=text_key)
     cites = cited_ids(answer, pattern)
     if cites:
-        docs = [(s, d) for s, d in docs if str(d.get(id_key)) in cites] or docs
+        found = [(s, d) for s, d in found if str(d.get(id_key)) in cites] or found
+    claimed = _numbers(re.sub(pattern, " ", answer if isinstance(answer, str) else ""))
+    if not claimed:
+        return None
+    kept, conflict = _select([d for _, d in found], id_key, text_key, duplicates)
+    if conflict:
+        return f"{_answer_step(run)}: {conflict} ({_where(run, tool)})"
+    docs = [(s, d) for s, d in found if any(d is k for k in kept)]
     evidence: set[str] = set()
     for _, d in docs:
         evidence |= _numbers(str(d.get(text_key, "")))
-    claimed = _numbers(re.sub(pattern, " ", answer or ""))
     unsupported = sorted(claimed - evidence)
     if unsupported:
         return (
@@ -449,6 +530,7 @@ def claims_supported(
     min_overlap: float = 0.5,
     min_words: int = 3,
     stopwords: frozenset[str] = STOPWORDS,
+    duplicates: str = "versions",
 ) -> str | None:
     """Unsupported (non-numeric) claims, by word overlap.
 
@@ -461,7 +543,9 @@ def claims_supported(
     retrieved documents it defers to ``abstains_without_context``.
 
     A heuristic, not entailment: paraphrases with different vocabulary can fail (lower
-    ``min_overlap``) and wrong claims reusing document words can pass."""
+    ``min_overlap``) and wrong claims reusing document words can pass. ``duplicates``: as
+    in :func:`answer_grounded`."""
+    _select([], id_key, text_key, duplicates)
     if _abstained(answer):
         return None
     docs = retrieved(run, tool, id_key=id_key, text_key=text_key)
@@ -484,6 +568,9 @@ def claims_supported(
         if len(words) < min_words:
             continue
         used = [d for _, d in docs if str(d.get(id_key)) in cites] or [d for _, d in docs]
+        used, conflict = _select(used, id_key, text_key, duplicates)
+        if conflict:
+            return f"{_answer_step(run)}: {conflict} ({_where(run, tool)})"
         doc_sents = [ds for d in used for ds in _SENT.split(str(d.get(text_key, ""))) if ds]
         vocab: set[str] = set()
         for ds in doc_sents:

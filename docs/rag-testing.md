@@ -51,6 +51,29 @@ def citations_ok(run):
     return rag.citations_were_retrieved(run, run.output)
 ```
 
+### Same id, different text (versions and chunks)
+
+`answer_grounded` and `claims_supported` take `duplicates=`, applied to the documents used
+as evidence (the cited ones, or all retrieved ones when the answer cites nothing):
+
+| `duplicates` | Same id retrieved with different texts |
+|---|---|
+| `"versions"` (default) | Fails as ambiguous if they are versions (a differing `version` / `updated` / `updated_at` / `last_modified` / `modified` / `date` field, top level or in `metadata`, or one has `superseded_by`); merges unversioned texts (chunks of one source) |
+| `"latest"` | Uses the non-superseded, newest version (numbers compare numerically, other values as strings) |
+| `"first"` | Uses the first one retrieved |
+| `"any"` | Merges all texts (either version grounds the answer) |
+| `"strict"` | Fails on any differing text, versioned or not |
+
+### LangChain-style documents
+
+`examples/rag_qa/langchain_style.py` returns `langchain_core` `Document` objects (or a
+pydantic stand-in when langchain-core is not installed). The id comes from
+`metadata["source"]`, the text from `page_content`. Its checks pass `duplicates="latest"`.
+That configuration is in the check code, so `crashlab check` and exported tests use it.
+Annotate the retriever's return type (`-> list[Document]`): replay rebuilds the objects from
+it. With `-> list[Any]`, replay hands the agent plain dicts, and an agent that reads
+`doc.metadata` breaks (`tests/test_rag_versions.py` covers this).
+
 ## 3. Re-check stored runs from the CLI
 
 `crashlab check` imports the run's recorded entrypoint, which registers the module's
@@ -83,6 +106,13 @@ the clean case and each fault. The checks flagged the expected failure modes and
 failing run replayed offline as a fail. Two false positives found there (the agent's
 "could not answer" fallback, a stale-doc paraphrase) are now regression tests. Offline
 tests remain the source of truth.
+
+Live LangChain-style example runs (Groq `openai/gpt-oss-120b`, 6 runs, 6 Nov 2026) were
+not stable. The model's answers and citation style changed between sessions (`[src]`,
+`【src】`, `【src†L1】`), and 4 of the 6 answers repeated the stale 14-day version. The
+example agent does not pass the `updated` dates to the model, so
+`grounded_in_latest_version` was right to flag those answers. The citation forms seen
+there are now supported and covered by tests.
 
 ## Limitations
 
