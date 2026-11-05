@@ -36,3 +36,25 @@ def crashlab_dir(tmp_path, monkeypatch):
     from crashlab.integrations import litellm as cl_litellm
 
     cl_litellm.unpatch()
+
+
+# ---------------------------------------------------------------------------
+# Optional provider SDKs: the CI job "Test without provider SDKs" installs only
+# the core package. Mark any test that imports openai / anthropic / httpx /
+# litellm / ... with ``@pytest.mark.requires_providers("openai", "httpx")`` so
+# it is skipped there automatically. Prefer this over a late importorskip after
+# the import has already run.
+# ---------------------------------------------------------------------------
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "requires_providers(*modules): skip unless every named package imports",
+    )
+
+
+def pytest_runtest_setup(item):
+    mark = item.get_closest_marker("requires_providers")
+    if mark is None:
+        return
+    for mod in mark.args:
+        pytest.importorskip(mod)

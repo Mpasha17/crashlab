@@ -59,3 +59,8 @@ Write failures (for example a full disk) raise as before. The partial line is tr
 away, and compact state rolls back, so the next step starts a clean line and never refers
 to a step that was not written. This applies to the default format too. Warnings and the
 `crashlab.compact.unresolved` flag redact secrets and shorten names taken from the file.
+
+The experimental writer caches JSON encodings of the shared message-object prefix, so an
+append-only chat is serialised once per message (not once per step). Digests are taken
+from that cache and match ``digest(full_messages)``. A failed write still rolls the cache
+back. Default format writing is unchanged.

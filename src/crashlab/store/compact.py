@@ -63,8 +63,41 @@ def safe_text(text: str, limit: int = 300) -> str:
     return text if len(text) <= limit else text[:limit] + "..."
 
 
+def _dumps_msg(m: Any) -> str:
+    # ensure_ascii=False matches :func:`digest`, so a check can be built from the cache.
+    return json.dumps(m, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def digest_from_enc(enc: list[str]) -> str:
+    """Same digest as :func:`digest` over the objects that produced ``enc``."""
+    data = "[" + ", ".join(enc) + "]"
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
+
+
+def _encode_list(full: list[Any], prev: tuple[int, list[Any], list[str]] | None) -> list[str]:
+    """Encode ``full``, reusing the previous encodings for a shared object prefix.
+
+    Chat agents almost always append: the new list shares message objects with the
+    previous one (``msgs = msgs + [new]`` or ``msgs.append(new)``). Re-encoding the
+    whole conversation every step was O(n^2); this is O(new messages).
+    """
+    if prev is not None:
+        _, prev_full, prev_enc = prev
+        n = min(len(prev_full), len(full), len(prev_enc))
+        shared = 0
+        while shared < n and full[shared] is prev_full[shared]:
+            shared += 1
+        if shared:
+            return prev_enc[:shared] + [_dumps_msg(m) for m in full[shared:]]
+    return [_dumps_msg(m) for m in full]
+
+
 class Compactor:
-    """Writer side; holds the last full list seen for each field of one cassette."""
+    """Writer side; holds the last full list seen for each field of one cassette.
+
+    Cached per field: ``(seq, messages, encodings)``. ``encodings`` is never mutated
+    in place, so :meth:`snapshot` / :meth:`restore` stay correct after a failed write.
+    """
 
     def __init__(self) -> None:
         self._last: dict[str, tuple[int, list[Any], list[str]]] = {}
@@ -86,8 +119,8 @@ class Compactor:
             if not isinstance(full, list):
                 continue
             name = f"{top}.{key}"
-            enc = [json.dumps(m, sort_keys=True, default=str) for m in full]
             prev = self._last.get(name)
+            enc = _encode_list(full, prev)
             self._last[name] = (seq, full, enc)
             if prev is None or prev[0] == seq:
                 continue
@@ -100,7 +133,7 @@ class Compactor:
             if keep == 0:
                 continue
             out[top] = {**out[top], key: full[keep:]}
-            meta[name] = {"base": base_seq, "keep": keep, "check": digest(full)}
+            meta[name] = {"base": base_seq, "keep": keep, "check": digest_from_enc(enc)}
         if meta:
             out["compact"] = {"v": VERSION, **meta}
         return out
