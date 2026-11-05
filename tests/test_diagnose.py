@@ -668,3 +668,138 @@ def test_symptom_only_llm_root_cause_is_upgraded_to_instruction_gap():
     assert "missing" in rc or "ignor" in rc
     assert "system prompt" in rc or "instruction" in rc
     assert any("symptom" in n.lower() or "upgraded" in n.lower() for n in d.notes)
+
+
+def _misleading_desc_run() -> crashlab.Run:
+    """Refund bot whose get_order description invents a restocking fee."""
+    from examples.refund_bot import agent as refund
+
+    from tests.fakes import FakeOpenAI, text_response, tool_call_response
+
+    script = [
+        tool_call_response(1, "get_order", {"order_id": "A17"}),
+        tool_call_response(2, "issue_refund", {"order_id": "A17", "amount": 44.1}),
+        text_response(3, "I refunded 44.10 after the restocking fee."),
+    ]
+    client = crashlab.wrap(FakeOpenAI(script))
+    refund.run_agent(
+        "Refund order A17, it arrived broken.",
+        client=client,
+        model="fake-model",
+        faults=["misleading_desc"],
+    )
+    return crashlab.load("last")
+
+
+def test_heuristic_misleading_tool_description_names_the_instruction_gap(crashlab_dir):
+    # live (w2-refund misleading_desc): under-refunded because get_order's description said
+    # "refund total * 0.9"; root_cause must name the misleading tool description, not only
+    # "refunded 44.1 but total is 49".
+    run = _misleading_desc_run()
+    assert any(
+        c.name == "refund_amount_equals_order_total" and c.status == "fail" for c in run.checks
+    )
+    d = crashlab.diagnose(run, heuristic=True)
+    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION
+    rc = d.root_cause.lower()
+    assert "misleading" in rc and ("tool" in rc or "description" in rc)
+    assert "restock" in rc or "0.9" in rc or "under-refund" in rc or "fee" in rc
+
+
+def test_upgrade_does_not_overwrite_external_failure_or_tool_error_causes(crashlab_dir):
+    # v5 upgrade is TASK_SPEC-only; other labels keep their root_cause even if a quantity
+    # check / candidate exists on the same run.
+    from examples.refund_bot import agent as refund
+
+    from tests.fakes import FakeOpenAI, text_response, tool_call_response
+
+    script = [
+        tool_call_response(1, "get_order", {"order_id": "A17"}),
+        text_response(2, "Sorry, our order system is having trouble right now."),
+    ]
+    refund.run_agent(
+        "Refund A17",
+        client=crashlab.wrap(FakeOpenAI(script)),
+        model="fake-model",
+        faults=["html_502"],
+    )
+    run = crashlab.load("last")
+    raw = {
+        "label": "EXTERNAL_FAILURE",
+        "failing_step": 1,
+        "confidence": 0.95,
+        "root_cause": "The get_order tool returned a 502 Bad Gateway HTML error page.",
+        "evidence": [{"step": 1, "quote": "502 Bad Gateway"}],
+    }
+    d = validate(raw, run)
+    assert d.label is crashlab.TaxonomyLabel.EXTERNAL_FAILURE
+    assert d.root_cause == raw["root_cause"]
+    assert not any("upgraded" in n for n in d.notes)
+
+    raw2 = {
+        "label": "TOOL_ERROR_MISHANDLED",
+        "failing_step": 1,
+        "confidence": 0.9,
+        "root_cause": "The agent ignored the HTML error page and invented an order total.",
+        "evidence": [{"step": 1, "quote": "502 Bad Gateway"}],
+    }
+    d2 = validate(raw2, run)
+    assert d2.label is crashlab.TaxonomyLabel.TOOL_ERROR_MISHANDLED
+    assert d2.root_cause == raw2["root_cause"]
+    assert not any("upgraded" in n for n in d2.notes)
+
+
+def test_upgrade_does_not_overwrite_step_repetition_cause(crashlab_dir):
+    from examples.refund_bot import agent as refund
+
+    from tests.fakes import FakeOpenAI, text_response, tool_call_response
+
+    script = [tool_call_response(i, "get_order", {"order_id": "A17"}) for i in range(1, 5)]
+    client = crashlab.wrap(FakeOpenAI([*script, text_response(9, "Sorry, the system is down.")]))
+    refund.run_agent("Refund A17", client=client, model="fake-model", faults=["html_502"])
+    run = crashlab.load("last")
+    raw = {
+        "label": "STEP_REPETITION",
+        "failing_step": 3,
+        "confidence": 0.9,
+        "root_cause": "The agent repeated get_order with the same arguments after HTML errors.",
+        "evidence": [{"step": 3, "quote": '"order_id": "A17"'}],
+    }
+    d = validate(raw, run)
+    assert d.label is crashlab.TaxonomyLabel.STEP_REPETITION
+    assert d.root_cause == raw["root_cause"]
+    assert not any("upgraded" in n for n in d.notes)
+
+
+def test_upgrade_preserves_already_correct_misleading_cause():
+    run = _misleading_desc_run()
+    good = (
+        "The agent followed a misleading get_order tool description about a restocking fee "
+        "instead of refunding the full order total."
+    )
+    raw = {
+        "label": "TASK_SPEC_VIOLATION",
+        "failing_step": 2,
+        "confidence": 0.9,
+        "root_cause": good,
+        "evidence": [{"step": 3, "quote": '"amount": 44.1'}],
+    }
+    d = validate(raw, run)
+    assert d.root_cause == good
+    assert not any("upgraded" in n for n in d.notes)
+
+
+def test_symptom_only_underrefund_root_cause_upgrades_to_misleading_tool_desc():
+    run = _misleading_desc_run()
+    raw = {
+        "label": "TASK_SPEC_VIOLATION",
+        "failing_step": 2,
+        "confidence": 0.9,
+        "root_cause": "The agent refunded 44.1 but the order total is 49.",
+        "evidence": [{"step": 3, "quote": '"amount": 44.1'}],
+    }
+    d = validate(raw, run)
+    rc = d.root_cause.lower()
+    assert "misleading" in rc and "tool" in rc
+    assert any("upgraded" in n for n in d.notes)
+    assert "44.1" in (d.explanation or "") or "49" in (d.explanation or "")

@@ -140,8 +140,55 @@ def _system_prompt(run: Run) -> str:
     return ""
 
 
+_MISLEAD_TOOL = re.compile(
+    r"restocking|never refunded|refund\s+total\s*\*\s*0\.9|withhold|\bdeduct\b.*\bfee\b|"
+    r"fee that is never refunded",
+    re.I,
+)
+_AMOUNT_MISMATCH = re.compile(
+    r"refund_amount_equals_order_total|refunded .+ but the order total|under-?refund",
+    re.I,
+)
+
+
+def _tool_descriptions(run: Run) -> list[tuple[str, str]]:
+    """``(tool_name, description)`` from the first chat request that lists tools."""
+    out: list[tuple[str, str]] = []
+    for s in run.steps:
+        if s.operation != "chat":
+            continue
+        for t in (s.request or {}).get("tools") or []:
+            if not isinstance(t, dict) or not t.get("name"):
+                continue
+            desc = t.get("description")
+            if desc is None and isinstance(t.get("function"), dict):
+                desc = t["function"].get("description")
+            if isinstance(desc, str) and desc.strip():
+                out.append((str(t["name"]), desc))
+        if out:
+            break
+    return out
+
+
+def _misleading_tool_cause(run: Run, reason: str, decision: int) -> str | None:
+    """When an amount-oracle fails and a tool description invents a fee / haircut."""
+    if not _AMOUNT_MISMATCH.search(reason):
+        return None
+    for name, desc in _tool_descriptions(run):
+        if _MISLEAD_TOOL.search(desc):
+            return (
+                f"Heuristic: misleading tool description for {name} steered the model "
+                f"to under-refund (chat step {decision}); the description invents a fee "
+                "or haircut that contradicts refunding the order total"
+            )
+    return None
+
+
 def _missing_rule_cause(run: Run, reason: str, decision: int) -> str | None:
     """Name the instruction gap (missing / ignored / contradictory), not only the symptom."""
+    mislead = _misleading_tool_cause(run, reason, decision)
+    if mislead:
+        return mislead
     prompt = _system_prompt(run)
     # injected / contradictory instructions in a tool result (prompt injection)
     if "tool_result_instructions" in reason or "prompt injection" in reason.lower():

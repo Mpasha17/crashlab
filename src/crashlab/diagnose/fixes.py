@@ -32,7 +32,7 @@ FIX_PROMPT_VERSION = "fix-v5"
 MAX_FIXES = 3
 #: version of the deterministic part (restore proposals, ask filter, ranking): a
 #: cached proposal list from another version is rebuilt
-RANKER_VERSION = "rank-v3"
+RANKER_VERSION = "rank-v4"
 MAX_PATCH_CHARS = 700  # the patch's own text (prompt lines, descriptions ...)
 MAX_PROMPT_LINES = 4
 ALLOWED_KINDS = (
@@ -108,12 +108,17 @@ _INFORM_ONLY = re.compile(
     re.I,
 )
 _SOFT_AWARE = re.compile(
-    r"\b(?:explain|remind)\b"
+    r"\b(?:explain|remind|educate|highlight)\b"
     r"|\bmake (?:sure )?(?:the )?(?:user|customer|them) aware\b"
     r"|\bbe (?:sure|careful) (?:to )?(?:mention|tell|about)\b"
     r"|\bbe careful about\b"
     r"|\bensure (?:the )?(?:user|customer) (?:knows|is aware)\b"
-    r"|\bplease (?:mention|explain)\b",
+    r"|\bplease (?:mention|explain)\b"
+    r"|\bhelp (?:the )?(?:user|customer) understand\b"
+    r"|\bfeel free to (?:share|tell|mention|explain)\b"
+    r"|\bit would be good to\b"
+    r"|\bkindly (?:educate|explain|tell|share|remind)\b"
+    r"|\bshare (?:the )?(?:limit|policy|window)\b",
     re.I,
 )
 _FACT_LIMIT = re.compile(
@@ -121,12 +126,14 @@ _FACT_LIMIT = re.compile(
     re.I,
 )
 _MUST_ACT = re.compile(
-    r"\b(?:never|always|must|do not|don't|refuse|reject|deny|ensure|require)\b"
+    r"\b(?:never|always|must|do not|don't|refus(?:e|ed|ing)|reject|deny|ensure|require|"
+    r"ignor(?:e|ed|es|ing))\b"
     r"|\b(?:cap|limit) (?:the )?(?:orders?|quantity)\b"
     r"|\bcap (?:at|to)\b"
     r"|\bonly (?:order|refund|place|call|use|accept)\b"
     r"|\b(?:order|refund|place|call|use) (?:at most|no more|the maximum|only|up to)\b"
-    r"|\bplace an order\b|\bissue (?:a )?refund\b|\border the maximum\b|\border 5\b",
+    r"|\bplace an order\b|\bissue (?:a )?refund\b|\border the maximum\b|\border 5\b"
+    r"|\brefund the (?:full )?order total\b|\border at most\b",
     re.I,
 )
 _ASK_FOR_INPUT = re.compile(r"\bask (?:the )?(?:user|customer|them) for\b", re.I)
