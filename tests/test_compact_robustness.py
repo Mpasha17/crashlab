@@ -245,6 +245,8 @@ def test_sdk_streaming_parallel_recording_matches_full(monkeypatch, tmp_path):
     import crashlab
     from crashlab.store import Store, export_run
 
+    pytest.importorskip("httpx")
+    pytest.importorskip("openai")
     agent = _sdk_agent()
     got = {}
     for on in (False, True):
