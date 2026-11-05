@@ -211,7 +211,8 @@ def test_inform_only_and_fact_only_prompt_patches_are_rejected(crashlab_dir):
         fix, why = validate_fix({"patch": {**APPEND, "text": text}}, run, 1)
         assert fix is None, text
         assert why and ("unattended" in why or "must act" in why or "what to do" in why.lower()), (
-            text, why
+            text,
+            why,
         )
     ok, why = validate_fix(
         {

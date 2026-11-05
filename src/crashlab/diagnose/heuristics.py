@@ -239,7 +239,11 @@ def candidates(run: Run) -> list[Candidate]:
         rank = 2 if (refs or action) else 7
         out.append(
             Candidate(
-                idx, reason, label, [_quote(steps[quote_step])], rank,
+                idx,
+                reason,
+                label,
+                [_quote(steps[quote_step])],
+                rank,
                 quote_from=quote_step if quote_step != idx else None,
             )
         )

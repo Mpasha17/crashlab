@@ -68,7 +68,9 @@ def _with(**changes):
 def test_valid_answer_is_kept():
     run = _policy_run()
     d = validate(GOOD, run)
-    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION and d.failing_step == 2  # decision chat, not issue_refund tool
+    assert (
+        d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION and d.failing_step == 2
+    )  # decision chat
     assert d.step_window == (1, 3) and d.confidence == 0.9 and d.is_failure
     assert [(e.step_idx, e.field) for e in d.evidence] == [(1, "result"), (3, "args")]
     assert [s.value for s in d.secondary] == ["BAD_TOOL_ARGUMENTS"] and d.notes == []
@@ -287,7 +289,9 @@ def test_unsaved_run_object_is_not_written_to_the_store():
 
 def test_heuristic_baseline():
     d = crashlab.diagnose(_policy_run(), heuristic=True)
-    assert d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION and d.failing_step == 2  # decision chat, not issue_refund tool
+    assert (
+        d.label is crashlab.TaxonomyLabel.TASK_SPEC_VIOLATION and d.failing_step == 2
+    )  # decision chat
     assert d.model == "heuristic" and d.evidence
     assert crashlab.diagnose(_clean_run(), heuristic=True).label.value == "NO_FAILURE"
 
@@ -529,12 +533,16 @@ def _shop_drop_rule_run() -> crashlab.Run:
                                 "content": "Your order for 10 widgets has been placed."}]},
     )  # fmt: skip
     return crashlab.Run(
-        run_id="shop", name="shop", status="ok", outcome="fail",
+        run_id="shop",
+        name="shop",
+        status="ok",
+        outcome="fail",
         outcome_reason="order_quantity_within_limit",
         steps=[chat0, tool1, chat2, tool3, chat4],
         checks=[
             crashlab.CheckResult(
-                name="order_quantity_within_limit", status="fail",
+                name="order_quantity_within_limit",
+                status="fail",
                 message="ordered 10 units (limit 5)",
             ),
             crashlab.CheckResult(name="placed_an_order", status="pass"),

@@ -201,7 +201,32 @@ def _fix_and_verify(run, model, base_url, api_key, store, k, regress, pace_s, lo
 # --- scoring (offline; the same code scores a live run and a rescore) --------------------
 
 
-def _diag_row(d: Any, labels: frozenset[str], step: Any, window: Any) -> dict[str, Any]:
+def _caller_chat_idx(run: Any, idx: int) -> int | None:
+    """Chat step that decided on tool step ``idx``, if any (diagnose-v4 convention)."""
+    steps = getattr(run, "steps", None) or []
+    return next(
+        (s.idx for s in sorted(steps, key=lambda s: -s.idx)
+         if s.idx < idx and s.operation == "chat"),
+        None,
+    )  # fmt: skip
+
+
+def _step_match(run: Any, predicted: int | None, expected: Any) -> bool:
+    """True when ``predicted`` is the expected step, or the decision chat behind a tool
+    expected step (diagnose-v4 blames the LLM call; ground_truth still names damage)."""
+    if expected is None or predicted is None:
+        return False
+    if predicted == expected:
+        return True
+    step = next((s for s in (run.steps or []) if s.idx == expected), None)
+    if step is None or step.operation != "execute_tool":
+        return False
+    return predicted == _caller_chat_idx(run, expected)
+
+
+def _diag_row(
+    d: Any, labels: frozenset[str], step: Any, window: Any, run: Any = None
+) -> dict[str, Any]:
     if d is None:
         return {
             "label": None,
@@ -213,11 +238,12 @@ def _diag_row(d: Any, labels: frozenset[str], step: Any, window: Any) -> dict[st
         }
     lo, hi = window or (None, None)
     s = d.failing_step
+    exact = _step_match(run, s, step) if run is not None else (step is not None and s == step)
     return {
         "label": d.label.value,
         "step": s,
         "label_ok": d.label.value in labels,
-        "step_exact": step is not None and s == step,
+        "step_exact": exact,
         "in_window": lo is not None and s is not None and lo <= s <= hi,
         "is_failure": d.is_failure,
     }
@@ -254,8 +280,8 @@ def score_run(run: Run) -> dict[str, Any]:
         "expected_labels": sorted(labels),
         "expected_step": step,
         "window": list(window) if window else None,
-        "llm": _diag_row(llm, labels, step, window),
-        "heuristic": _diag_row(heur, labels, step, window),
+        "llm": _diag_row(llm, labels, step, window, run),
+        "heuristic": _diag_row(heur, labels, step, window, run),
         "fix": {
             "proposed": len(llm.fixes) if llm else 0,
             "verdict": attempt.get("verdict") if attempt else None,
