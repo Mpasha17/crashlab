@@ -54,3 +54,8 @@ required digest of the full list.
   version), it is **kept**, not dropped. Its stored tail is all that survives, it is
   marked with the attribute `crashlab.compact.unresolved`, and a RuntimeWarning names it.
   The recorded response is still served on replay.
+
+Write failures (for example a full disk) raise as before. The partial line is truncated
+away, and compact state rolls back, so the next step starts a clean line and never refers
+to a step that was not written. This applies to the default format too. Warnings and the
+`crashlab.compact.unresolved` flag redact secrets and shorten names taken from the file.

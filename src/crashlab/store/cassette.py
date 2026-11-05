@@ -12,7 +12,9 @@ so nested steps can appear out of order; :func:`read_cassette` sorts by ``seq``.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -85,13 +87,28 @@ class CassetteWriter:
         self._compactor = compact.Compactor() if compact.enabled() else None
 
     def append(self, line: dict[str, Any]) -> None:
+        """Append one line. If the write fails (e.g. disk full), the partial line is
+        truncated away so the next append starts a clean line, and compact state is
+        rolled back so no later line refers to a step that was never written."""
         with self._lock:
+            saved = self._compactor.snapshot() if self._compactor is not None else None
             if self._compactor is not None:
                 line = self._compactor.compact(line)
-            data = json.dumps(line, ensure_ascii=False, default=str)
-        with self._lock, self.path.open("a", encoding="utf-8") as fh:
-            fh.write(data + "\n")
-            fh.flush()
+            data = json.dumps(line, ensure_ascii=False, default=str) + "\n"
+            with self.path.open("a", encoding="utf-8") as fh:
+                start = fh.seek(0, 2)
+                try:
+                    fh.write(data)
+                    fh.flush()
+                except BaseException:
+                    if self._compactor is not None:
+                        self._compactor.restore(saved)
+                    try:
+                        fh.truncate(start)
+                    except Exception:
+                        with contextlib.suppress(Exception):
+                            os.truncate(self.path, start)
+                    raise
 
 
 def read_lines(path: Path) -> list[dict[str, Any]]:
@@ -145,13 +162,13 @@ def read_cassette(path: Path) -> list[Step]:
         warnings.warn(
             f"crashlab: {len(problems)} compact step(s) in {path} could not be expanded and "
             f"were kept with partial requests (attribute {compact.UNRESOLVED_ATTR}): "
-            + " | ".join(problems[:5]),
+            + compact.safe_text(" | ".join(problems[:5])),
             RuntimeWarning,
             stacklevel=2,
         )
 
     if unknown:
-        names = ", ".join(sorted(set(unknown)))
+        names = compact.safe_text(", ".join(sorted(set(unknown))))
         warnings.warn(
             f"crashlab: {path} was written by a newer crashlab; ignored field(s) it does "
             f"not know: {names}. Upgrade crashlab to replay it exactly.",

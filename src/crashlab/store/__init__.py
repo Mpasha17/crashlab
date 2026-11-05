@@ -181,6 +181,7 @@ def import_run(
     run = Run.model_validate(lines[0]["run"])
     unknown: list[str] = []
     from . import compact
+    from .compact import safe_text
 
     body, problems = compact.expand(lines[1:])
     if problems:
@@ -188,7 +189,7 @@ def import_run(
 
         warnings.warn(
             f"crashlab: {len(problems)} compact step(s) in {path} could not be expanded: "
-            + " | ".join(problems[:5]),
+            + compact.safe_text(" | ".join(problems[:5])),
             RuntimeWarning,
             stacklevel=2,
         )
@@ -198,7 +199,7 @@ def import_run(
 
         warnings.warn(
             f"crashlab: {path} was written by a newer crashlab; ignored field(s) it does "
-            f"not know: {', '.join(sorted(set(unknown)))}",
+            f"not know: {safe_text(', '.join(sorted(set(unknown))))}",
             RuntimeWarning,
             stacklevel=2,
         )

@@ -50,11 +50,30 @@ def _get(line: dict[str, Any], top: str, key: str) -> Any:
     return obj.get(key) if isinstance(obj, dict) else None
 
 
+def safe_text(text: str, limit: int = 300) -> str:
+    """Text built from names found in a file, made safe for warnings and attributes:
+    secrets redacted and long names cut, so a crafted key cannot carry a token out."""
+    from .redact import get_redactor
+
+    text = get_redactor().redact_str(text)
+    out = []
+    for word in text.split(" "):
+        out.append(word if len(word) <= 48 else word[:12] + "...")
+    text = " ".join(out)
+    return text if len(text) <= limit else text[:limit] + "..."
+
+
 class Compactor:
     """Writer side; holds the last full list seen for each field of one cassette."""
 
     def __init__(self) -> None:
         self._last: dict[str, tuple[int, list[Any], list[str]]] = {}
+
+    def snapshot(self) -> dict[str, tuple[int, list[Any], list[str]]]:
+        return dict(self._last)
+
+    def restore(self, snap: dict[str, tuple[int, list[Any], list[str]]]) -> None:
+        self._last = snap
 
     def compact(self, line: dict[str, Any]) -> dict[str, Any]:
         seq = line.get("seq")
@@ -96,39 +115,52 @@ def expand(lines: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]
     memo: dict[tuple[int, str], list[Any]] = {}
     problems: list[str] = []
 
-    def full_list(seq: int, name: str, stack: frozenset[tuple[int, str]]) -> list[Any]:
-        k = (seq, name)
-        if k in memo:
-            return memo[k]
-        if k in stack:
-            raise ValueError(f"reference cycle at seq {seq}")
-        ln = by_seq.get(seq)
-        if ln is None:
-            raise ValueError(f"base step {seq} is missing")
+    def resolve(seq: int, name: str) -> list[Any]:
+        """Iterative (no recursion): walk base references back to a known list, then
+        rebuild forward. Long or out-of-order chains cost O(chain) once, memoised."""
         top, key = name.split(".", 1)
-        own = _get(ln, top, key)
-        if not isinstance(own, list):
-            raise ValueError(f"step {seq} has no {name} list")
-        meta = ln.get("compact")
-        ref = meta.get(name) if isinstance(meta, dict) else None
-        if ref is None:
-            res = own
-        else:
-            if not isinstance(meta, dict) or meta.get("v") != VERSION:
-                raise ValueError(f"unsupported compact version {meta.get('v')!r}")
+        path: list[tuple[int, list[Any], dict[str, Any] | None]] = []
+        seen: set[int] = set()
+        cur = seq
+        prefix: list[Any] | None = None
+        while True:
+            if (cur, name) in memo:
+                prefix = memo[(cur, name)]
+                break
+            if cur in seen:
+                raise ValueError(f"reference cycle at seq {cur}")
+            seen.add(cur)
+            ln = by_seq.get(cur)
+            if ln is None:
+                raise ValueError(f"base step {cur} is missing")
+            own = _get(ln, top, key)
+            if not isinstance(own, list):
+                raise ValueError(f"step {cur} has no list for this field")
+            meta = ln.get("compact")
+            ref = meta.get(name) if isinstance(meta, dict) else None
+            if ref is None:
+                memo[(cur, name)] = own
+                prefix = own
+                break
+            if meta.get("v") != VERSION:
+                raise ValueError(f"unsupported compact version at seq {cur}")
             if not isinstance(ref, dict):
-                raise ValueError(f"bad compact entry for {name}")
+                raise ValueError(f"bad compact entry at seq {cur}")
             base, keep = ref.get("base"), ref.get("keep")
             if type(base) is not int or type(keep) is not int or keep < 0:
-                raise ValueError(f"bad compact entry for {name}")
-            prefix = full_list(base, name, stack | {k})
+                raise ValueError(f"bad compact entry at seq {cur}")
+            path.append((cur, own, ref))
+            cur = base
+        for cur, own, ref in reversed(path):
+            keep = ref["keep"]
             if keep > len(prefix):
-                raise ValueError(f"keep={keep} is longer than base step {base}")
+                raise ValueError(f"keep={keep} is longer than base step {ref['base']}")
             res = prefix[:keep] + own
             if ref.get("check") != digest(res):  # required: never replay a wrong list
-                raise ValueError(f"{name} digest mismatch")
-        memo[k] = res
-        return res
+                raise ValueError(f"digest mismatch at seq {cur}")
+            memo[(cur, name)] = res
+            prefix = res
+        return prefix
 
     out = []
     for ln in lines:
@@ -139,27 +171,27 @@ def expand(lines: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]
         meta = new.pop("compact")
         errors = []
         if not isinstance(meta, dict) or meta.get("v") != VERSION:
-            v = meta.get("v") if isinstance(meta, dict) else None
-            errors.append(f"unsupported compact version {v!r}")
+            errors.append("unsupported compact version")
         else:
             for name in meta:
                 if name == "v":
                     continue
                 top, _, key = name.partition(".")
                 if (top, key) not in FIELDS:
-                    errors.append(f"unknown compact field {name!r}")
+                    errors.append(f"unknown compact field {name!r}"[:80])
                     continue
                 try:
-                    res = full_list(new["seq"], name, frozenset())
-                except (ValueError, TypeError, KeyError, RecursionError) as e:
+                    res = resolve(new["seq"], name)
+                except (ValueError, TypeError, KeyError) as e:
                     errors.append(str(e))
                     continue
                 new[top] = {**new[top], key: res}
         if errors:
             attrs = new.get("attributes")
             attrs = dict(attrs) if isinstance(attrs, dict) else {}
-            attrs[UNRESOLVED_ATTR] = "; ".join(errors)
+            msg = safe_text("; ".join(errors))
+            attrs[UNRESOLVED_ATTR] = msg
             new["attributes"] = attrs
-            problems.append(f"seq {new.get('seq')}: {'; '.join(errors)}")
+            problems.append(f"seq {new.get('seq')}: {msg}")
         out.append(new)
     return out, problems
