@@ -13,6 +13,7 @@ fail. ``max_cost_usd`` stops new trials once the spend reaches it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -46,6 +47,30 @@ DEFAULT_REGRESSION_LIMIT = 10
 
 class VerifyError(ValueError):
     pass
+
+
+def patch_digest(patch: Any) -> str:
+    """Stable 12-hex digest of the applied patch payload (canonical JSON, None omitted).
+
+    Callers comparing an intended fix to a Verification should match on this digest
+    (and ``fix_id`` / ``patch_op``), not on rank alone — a higher-ranked restore can
+    otherwise be mistaken for a weaker proposal the harness meant to verify.
+    """
+    data = patch.model_dump(mode="json", exclude_none=True)
+    blob = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
+
+
+def applied_patch_fields(patch: Any) -> dict[str, str | None]:
+    """``patch_kind`` / ``patch_op`` / ``patch_digest`` / summary for a Verification."""
+    kind = getattr(patch, "kind", None)
+    op = getattr(patch, "op", None)
+    return {
+        "patch_kind": str(kind) if kind is not None else None,
+        "patch_op": str(op) if op is not None else None,
+        "patch_digest": patch_digest(patch),
+        "patch_description": patch.describe(),
+    }
 
 
 def is_infra_error(error: Any) -> bool:
@@ -301,11 +326,15 @@ def verify(
     at = _fork_step(patch, run)
     vid = new_ulid()
     tag = f"verify:{vid}"
+    prov = applied_patch_fields(patch)
     v = Verification(
         verification_id=vid,
         run_id=run.run_id,
         fix_id=f.fix_id,
-        patch_description=patch.describe(),
+        patch_description=prov["patch_description"] or "",
+        patch_kind=prov["patch_kind"],
+        patch_op=prov["patch_op"],
+        patch_digest=prov["patch_digest"],
         fix_file=f.file,
         k=k,
         fork_step=at,
@@ -417,6 +446,9 @@ def save_verification(store: Any, run: Run, v: Verification) -> Path:
             "verification_id": v.verification_id,
             "fix_id": v.fix_id,
             "patch": v.patch_description,
+            "patch_kind": v.patch_kind,
+            "patch_op": v.patch_op,
+            "patch_digest": v.patch_digest,
             "verdict": v.verdict,
             "patched": f"{v.patched.passes}/{v.patched.n}",
             "control": f"{v.control.passes}/{v.control.n}" if v.control else None,

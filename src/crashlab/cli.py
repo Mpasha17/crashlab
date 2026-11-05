@@ -690,13 +690,30 @@ def _side_effect_hint(v: Any) -> str | None:
     )
 
 
+def _verification_patch_line(v: Any) -> str:
+    """fix-id, summary, and provenance digest when present (old verifications: id+summary)."""
+    line = f"{v.fix_id}: {v.patch_description}"
+    bits = [
+        x
+        for x in (
+            getattr(v, "patch_kind", None),
+            getattr(v, "patch_op", None),
+            getattr(v, "patch_digest", None),
+        )
+        if x
+    ]
+    if bits:
+        line += f" [{' '.join(bits)}]"
+    return line
+
+
 def _verification_panel(v: Any) -> Panel:
     from rich.console import Group
 
     parts: list[Any] = [
         Text("verdict: ", style="bold")
         + Text(v.verdict, style=_VERDICT_STYLE.get(v.verdict, ""))
-        + Text(f"   {v.fix_id}: {v.patch_description}", style="dim"),
+        + Text(f"   {_verification_patch_line(v)}", style="dim"),
         Text(_arm_text(f"patched ({v.k} forks from step {v.fork_step})", v.patched)),
         Text(_arm_text("control (no patch)", v.control)),
     ]

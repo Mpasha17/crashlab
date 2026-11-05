@@ -404,3 +404,17 @@ def test_malformed_diagnosis_through_cli_report_html(tmp_path):
     paths = export_test(run.run_id, out_dir=tmp_path / "cli-malformed")
     src = next(p for p in paths if p.suffix == ".py").read_text()
     assert "TOOL_ERROR_MISHANDLED" in src and "BOGUS_LABEL" not in src
+
+
+def test_html_verification_shows_patch_provenance():
+    """HTML verification header names fix id and applied digest when present."""
+    from tests.test_verify import APPEND, PolicyModel, _setup
+
+    run, _ = _setup(APPEND)
+    v = crashlab.verify(
+        run, 1, k=1, regress="none", control=False, client=crashlab.wrap(PolicyModel())
+    )
+    html = render_html(run, [v])
+    assert v.fix_id in html
+    assert v.patch_digest and v.patch_digest in html
+    assert (v.patch_op or "") in html

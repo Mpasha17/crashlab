@@ -469,6 +469,11 @@ class Verification(_Model):
     run_id: str
     fix_id: str
     patch_description: str = ""
+    # Applied-patch provenance (loop16c): what verify actually forked with.
+    # Optional so older verification JSON / attempts without these keys still load.
+    patch_kind: str | None = None
+    patch_op: str | None = None
+    patch_digest: str | None = None  # stable short digest of the applied patch payload
     fix_file: str | None = None
     k: int
     fork_step: int = 0

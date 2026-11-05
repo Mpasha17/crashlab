@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from .oracles import CheckSpec, apply_outcome, check, checks_for, run_checks, unregister
-from .runner import VerifyError, is_infra_error, resolve_fix, verifications, verify
+from .runner import (
+    VerifyError,
+    is_infra_error,
+    patch_digest,
+    resolve_fix,
+    verifications,
+    verify,
+)
 from .stats import pass_hat_k, verdict, wilson
 
 __all__ = [
@@ -13,6 +20,7 @@ __all__ = [
     "check",
     "checks_for",
     "is_infra_error",
+    "patch_digest",
     "pass_hat_k",
     "resolve_fix",
     "run_checks",

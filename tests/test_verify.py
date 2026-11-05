@@ -857,3 +857,122 @@ def test_verified_reason_states_observed_not_causal():
     got, why = verdict(_arm(5, 0), _arm(0, 5), [], k=5)
     assert got == "VERIFIED"
     assert any("observed" in w and "causal" in w for w in why), why
+
+
+# --- loop16c: applied-patch provenance (prevent mislabeling verified fix) -------------
+
+
+def test_verify_records_applied_patch_provenance():
+    """Verification + fix_attempts name fix id, kind/op, digest, and summary of the patch
+    actually applied (not merely the caller's intended label)."""
+    from crashlab.verify.runner import patch_digest
+
+    polite = {**APPEND, "text": "4. Be polite to the customer."}
+    run, _ = _setup(polite)
+    fix = run.diagnosis.fixes[0]
+    want_digest = patch_digest(fix.as_patch)
+    v = crashlab.verify(
+        run, fix.fix_id, k=1, regress="none", control=False, client=crashlab.wrap(PolicyModel())
+    )
+    assert v.fix_id == fix.fix_id
+    assert v.patch_kind == "system_prompt"
+    assert v.patch_op == "append"
+    assert v.patch_digest == want_digest
+    assert "Be polite" in v.patch_description
+    attempt = crashlab.load(run.run_id).fix_attempts[-1]
+    assert attempt["fix_id"] == fix.fix_id
+    assert attempt.get("patch_kind") == "system_prompt"
+    assert attempt.get("patch_op") == "append"
+    assert attempt.get("patch_digest") == want_digest
+    assert "Be polite" in (attempt.get("patch") or "")
+
+
+def test_old_fix_attempts_without_provenance_remain_loadable():
+    """Backward-compatible: attempts missing digest/op/kind still round-trip and display."""
+    from rich.console import Console
+
+    from crashlab.cli import _attempts_table
+
+    run, _ = _setup(APPEND)
+    # simulate a pre-provenance attempt row
+    run.fix_attempts.append(
+        {
+            "verification_id": "old",
+            "fix_id": "fix-1",
+            "patch": 'system prompt: append "legacy"',
+            "verdict": "LIKELY",
+            "patched": "2/2",
+            "control": "0/2",
+            "regressions": 0,
+            "cost_usd": 0.0,
+            "created_at": "2026-11-01T00:00:00+00:00",
+            "file": "",
+        }
+    )
+    crashlab.store.Store().update_run(run)
+    loaded = crashlab.load(run.run_id)
+    assert "patch_digest" not in loaded.fix_attempts[-1]
+    table = _attempts_table(loaded)
+    assert table is not None
+    con = Console(width=120, record=True)
+    con.print(table)
+    out = con.export_text()
+    assert "fix-1" in out and "LIKELY" in out
+    # new verify records provenance on Verification + attempt JSON; panel shows it
+    from crashlab.cli import _verification_panel, _verification_patch_line
+
+    v = crashlab.verify(
+        loaded, 1, k=1, regress="none", control=False, client=crashlab.wrap(PolicyModel())
+    )
+    assert v.patch_digest and v.patch_op
+    attempt = crashlab.load(run.run_id).fix_attempts[-1]
+    assert attempt.get("patch_digest") == v.patch_digest
+    assert attempt.get("patch_op") == v.patch_op
+    line = _verification_patch_line(v)
+    assert v.fix_id in line and v.patch_digest in line and v.patch_op in line
+    con2 = Console(width=120, record=True)
+    con2.print(_verification_panel(v))
+    out2 = con2.export_text()
+    assert v.patch_digest in out2
+
+
+def test_explicit_fix_id_provenance_matches_applied_prompt(monkeypatch):
+    """Harness selects intended patch by id; recorded digest/op match patched prompt content.
+    Ranked restore above polite cannot be mislabeled when fix-2 is verified explicitly."""
+    from crashlab.diagnose import fixes as fixes_mod
+    from crashlab.diagnose.restore import good_runs as real_good_runs
+    from crashlab.verify.runner import patch_digest
+
+    monkeypatch.setattr(fixes_mod, "good_runs", real_good_runs)
+    _clean_run()
+    run = _diagnosed()
+    polite = {"kind": "system_prompt", "op": "append", "text": "4. Be polite to the customer."}
+    fixes = crashlab.propose_fixes(run, fn=_reply(polite), cache=False)
+    polite_fix = next(f for f in fixes if f.as_patch and "Be polite" in (f.as_patch.text or ""))
+    assert polite_fix.rank > 1
+    digest = patch_digest(polite_fix.as_patch)
+
+    v = crashlab.verify(
+        crashlab.load(run.run_id),
+        polite_fix.fix_id,
+        k=1,
+        regress="none",
+        control=False,
+        client=crashlab.wrap(PolicyModel()),
+    )
+    assert v.fix_id == polite_fix.fix_id
+    assert v.patch_op == "append"
+    assert v.patch_digest == digest
+    assert "Be polite" in v.patch_description
+    patched = next(t for t in v.trials if t.role == "patched" and t.run_id)
+    child = crashlab.load(patched.run_id)
+    sys = next(
+        s.request.get("system", "")
+        for s in child.steps
+        if s.operation == "chat" and s.request and s.request.get("system")
+    )
+    assert "Be polite" in sys
+    attempt = crashlab.load(run.run_id).fix_attempts[-1]
+    assert attempt["fix_id"] == polite_fix.fix_id
+    assert attempt["patch_digest"] == digest
+    assert attempt["patch_op"] == "append"

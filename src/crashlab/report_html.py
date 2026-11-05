@@ -178,7 +178,20 @@ def render_html(run: Run, verifications: list[Any] | None = None) -> str:
 
     for v in verifications or []:
         p.append(f"<h2>Verification of {_e(v.fix_id)}: {_cls(v.verdict)}</h2>")
-        p.append(f'<p class="muted">{_e(v.patch_description)} · {_e(_local(v.created_at))}</p>')
+        bits = [
+            x
+            for x in (
+                getattr(v, "patch_kind", None),
+                getattr(v, "patch_op", None),
+                getattr(v, "patch_digest", None),
+            )
+            if x
+        ]
+        prov = (" · " + " ".join(_e(x) for x in bits)) if bits else ""
+        p.append(
+            f'<p class="muted">{_e(v.fix_id)}: {_e(v.patch_description)}{prov} · '
+            f"{_e(_local(v.created_at))}</p>"
+        )
         rows = []
         for name, a in (("patched", v.patched), ("control (no patch)", v.control)):
             if a is None:
