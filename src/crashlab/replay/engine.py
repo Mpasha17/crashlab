@@ -624,6 +624,12 @@ def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
             module = _import_target(entrypoint, target)
     except RunAtImportError as exc:
         raise ReplayError(f"cannot import entry point {target!r}: {exc}") from exc
+    except ReplayError:
+        raise
+    except Exception as exc:  # the module itself failed at import: clear error, no traceback
+        raise ReplayError(
+            f"importing entry point module {target!r} raised {type(exc).__name__}: {exc}"
+        ) from exc
     obj: Any = module
     for part in qualname.split("."):
         if part == "<locals>":
