@@ -11,7 +11,7 @@ import crashlab
 from crashlab import rag
 from crashlab.export import export_test
 from tests.fakes import FakeOpenAI, text_response, tool_call_response
-from tests.test_export import _pytest
+from tests.test_export import ROOT, _pytest
 
 Q = "How many days do I have to return an item?"
 
@@ -38,7 +38,7 @@ GOOD = "You have 30 days from delivery to return an item [refund-policy-v2]."
 def test_clean_rag_run_passes_and_replays_offline():
     run = _run(GOOD)
     assert run.outcome == "pass", run.checks
-    assert set(_status(run).values()) == {"pass"} and len(run.checks) == 5
+    assert set(_status(run).values()) == {"pass"} and len(run.checks) == 6
     assert [d["id"] for _, d in rag.retrieved(run)][0] == "refund-policy-v2"
     assert crashlab.replay(run.run_id).outcome == "pass"
 
@@ -124,3 +124,190 @@ def test_retrieved_accepts_wrapped_results_and_custom_keys():
     assert rag.citations_were_retrieved(run, run.output, tool="lookup", id_key="doc_id") is None
     assert "13" in rag.answer_grounded(run, "It costs 13 EUR [a].", **kw)
     assert rag.retrieved_ids(run, ["a"], tool="lookup", id_key="doc_id") is None
+
+
+# --- `crashlab check` runs the RAG oracles in a fresh process --------------------------
+
+
+def _cli(*args, store):
+    import os
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if not k.endswith("API_KEY")}
+    env["CRASHLAB_DIR"] = str(store)
+    return subprocess.run([sys.executable, "-m", "crashlab", *args], cwd=ROOT, env=env,
+                          capture_output=True, text=True, timeout=120)  # fmt: skip
+
+
+def test_cli_check_imports_entrypoint_and_runs_rag_oracles(crashlab_dir):
+    import json
+
+    run = _run("You have 60 days to return an item [refund-policy-v2].")
+    res = _cli("check", run.run_id, "--json", "--no-save", store=crashlab_dir)
+    assert res.returncode != 0 or '"fail"' in res.stdout, res.stderr
+    out = json.loads(res.stdout)
+    assert out["outcome"] == "fail"
+    assert {c["name"]: c["status"] for c in out["checks"]}["answer_grounded"] == "fail"
+
+
+def test_cli_check_all_save_grades_runs_recorded_without_oracles(crashlab_dir):
+    import importlib
+    import json
+
+    from crashlab.verify.oracles import unregister
+
+    unregister("rag-qa")  # record as if the checks did not exist yet
+    try:
+        _run("You have 14 days [refund-policy-v1].", faults=["stale_docs"])
+        _run(GOOD)
+    finally:
+        importlib.reload(rag_qa)
+    assert all(not r.checks for r in (crashlab.load(r) for r in ("last",)))
+    res = _cli("check", "--all", "--save", "--name", "rag-qa", "--json", store=crashlab_dir)
+    rows = json.loads(res.stdout)
+    assert sorted(r["outcome"] for r in rows) == ["fail", "pass"], res.stdout + res.stderr
+    stored = [crashlab.load(r["run_id"]) for r in rows]
+    bad = next(r for r in stored if r.outcome == "fail")
+    assert {c.name: c.status for c in bad.checks}["no_stale_docs"] == "fail"
+
+
+# --- retriever return shapes and malformed documents ----------------------------------
+
+
+def _shape_run(result, name="shape-rag"):
+    @crashlab.tool()
+    def search_docs(q: str):
+        return result
+
+    @crashlab.agent(name=name)
+    def go() -> str:
+        search_docs("q")
+        return "ok"
+
+    go()
+    return crashlab.load("last")
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        [{"id": "a", "text": "Fee is 5 EUR."}],
+        {"documents": [{"id": "a", "text": "Fee is 5 EUR."}]},
+        {"hits": [{"id": "a", "text": "Fee is 5 EUR."}]},
+        {"matches": [{"id": "a", "text": "Fee is 5 EUR."}], "total": 1},
+        '[{"id": "a", "text": "Fee is 5 EUR."}]',  # JSON text, as many tools return
+        '{"results": [{"id": "a", "text": "Fee is 5 EUR."}]}',
+        [{"page_content": "Fee is 5 EUR.", "metadata": {"id": "a"}}],  # LangChain-like
+        [{"content": "Fee is 5 EUR.", "metadata": {"source": "x"}, "id": "a"}],
+    ],
+)
+def test_common_retriever_shapes(result):
+    run = _shape_run(result)
+    assert rag.retrieved_ids(run, ["a"]) is None
+    assert rag.answer_grounded(run, "The fee is 5 EUR [a].") is None
+    assert "6" in rag.answer_grounded(run, "The fee is 6 EUR [a].")
+    assert rag.citations_were_retrieved(run, "The fee is 5 EUR [a].") is None
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        None,
+        3,
+        "plain text, not JSON",
+        "[1, 2",
+        {"error": "boom"},
+        [None, 1, "x", []],
+        [{"id": None, "text": None}, {"text": 7}, {"id": ["weird"]}],
+    ],  # fmt: skip
+)
+def test_malformed_results_do_not_crash(result):
+    run = _shape_run(result)
+    assert rag.retrieved_ids(run, ["a"]) is not None  # nothing usable retrieved
+    for fn in (rag.answer_grounded, rag.citations_were_retrieved, rag.claims_supported,
+               rag.abstains_without_context):  # fmt: skip
+        fn(run, "It costs 5 EUR [a].")  # must not raise
+    rag.no_stale_docs(run)
+
+
+def test_plain_string_documents_are_text_without_ids():
+    run = _shape_run(["Fee is 5 EUR.", "Open 9-5."])
+    assert [d["text"] for _, d in rag.retrieved(run)] == ["Fee is 5 EUR.", "Open 9-5."]
+    assert rag.answer_grounded(run, "The fee is 5 EUR.") is None
+
+
+# --- word-overlap grounding (non-numeric claims) --------------------------------------
+
+
+@pytest.fixture
+def policy_run():
+    return _shape_run([
+        {"id": "refund", "text": "Refunds are accepted within 30 days of delivery for unused "
+                                 "items. Opened electronics are not refunded; they are repaired."},
+        {"id": "ship", "text": "Standard shipping to the EU takes 5-7 business days."},
+    ])  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Refunds are accepted within 30 days of delivery [refund].",  # verbatim
+        "Unused items can be refunded within 30 days after they are delivered [refund].",
+        "You can get a refund for unused items within 30 days of delivery [refund].",
+        "Opened electronics won't be refunded, they get repaired instead [refund].",
+        "Shipping to the EU takes 5-7 business days [ship].",
+        "I don't know.",  # abstention: nothing claimed
+        "Yes [refund].",  # too short to judge
+    ],
+)
+def test_claims_supported_accepts_paraphrases(policy_run, answer):
+    assert rag.claims_supported(policy_run, answer) is None
+
+
+@pytest.mark.parametrize(
+    ("answer", "needle"),
+    [
+        ("Shipping is free for every order above fifty euros [ship].", "free"),
+        ("Refunds are paid as store credit vouchers only [refund].", "voucher"),
+        ("Opened electronics are refunded in full [refund].", "negat"),  # flips 'not refunded'
+        ("Refunds are not accepted within 30 days of delivery [refund].", "negat"),
+        # a supported claim cited to the wrong document
+        ("Shipping to the EU takes 5-7 business days [refund].", "[refund]"),
+    ],
+)
+def test_claims_supported_flags_unsupported_and_negated(policy_run, answer, needle):
+    msg = rag.claims_supported(policy_run, answer)
+    assert msg and needle in msg.lower() and "step" in msg
+
+
+def test_claims_supported_threshold_is_configurable(policy_run):
+    answer = "Refunds need the original packaging and receipt [refund]."
+    assert rag.claims_supported(policy_run, answer) is not None
+    assert rag.claims_supported(policy_run, answer, min_overlap=0.2) is None
+
+
+def test_example_flags_non_numeric_unsupported_claim():
+    run = _run("Refunds are paid only as store credit vouchers [refund-policy-v2].")
+    st = _status(run)
+    assert st["claims_supported"] == "fail" and st["answer_grounded"] == "pass"
+
+
+# --- regressions from the live run (Groq gpt-oss-120b, 5-6 Nov 2026) ------------------
+
+
+def test_agent_give_up_message_counts_as_abstention():
+    # the model searched until max_turns; the agent's own fallback is an abstention
+    run = _run("Sorry, I could not answer.", faults=["missing_context"])
+    st = _status(run)
+    assert st["abstains_without_context"] == "pass"
+    assert st["citations_were_retrieved"] == "pass"
+
+
+def test_live_paraphrase_of_stale_doc_is_not_an_unsupported_claim():
+    run = _shape_run([{"id": "v1", "text": "Refunds are accepted within 14 days of delivery."}])
+    answer = (
+        "You have\u202f14\u202fdays from the date of delivery to return an item for a refund. [v1]"
+    )
+    assert rag.claims_supported(run, answer) is None
+    assert rag.answer_grounded(run, answer) is None

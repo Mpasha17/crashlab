@@ -169,6 +169,13 @@ def answer_grounded(run: crashlab.Run) -> str | None:
     return rag.answer_grounded(run, _answer(run))
 
 
+@crashlab.check("rag-qa")
+def claims_supported(run: crashlab.Run) -> str | None:
+    """Unsupported claim: answer sentences share enough words (same negation) with the
+    documents they cite."""
+    return rag.claims_supported(run, _answer(run))
+
+
 if __name__ == "__main__":  # pragma: no cover - live model
     print(run_agent(" ".join(sys.argv[1:]) or next(iter(GOLD))))
     print(crashlab.load("last").outcome_reason)
