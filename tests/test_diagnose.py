@@ -1611,3 +1611,157 @@ def test_honest_tool_description_is_not_blamed_for_unrelated_quantity_fail():
     rc = d.root_cause.lower()
     assert "misleading" not in rc
     assert "missing" in rc or "ignor" in rc
+
+
+def test_loop9_labelled_category_suite():
+    """Labelled stored-case shapes from loop9 (agent-tests JSON + bench extras).
+
+    Categories: recovered tool error then independent TASK_SPEC; framework run.error;
+    side-effect false success; RAG-style ungrounded citation check (prompt/check text
+    only — does not import or edit RAG modules).
+    """
+    from crashlab.models import CheckResult, ErrorInfo, Finding, Run, Step
+
+    def chat(idx, system, tool_call=None, text=None):
+        resp: dict = {}
+        if tool_call is not None:
+            resp["tool_calls"] = [tool_call]
+        if text is not None:
+            resp["messages"] = [{"role": "assistant", "parts": [{"type": "text", "content": text}]}]
+        return Step(
+            run_id="l9",
+            idx=idx,
+            span_id=f"c{idx}",
+            operation="chat",
+            name="m",
+            request_hash=f"h{idx}",
+            request={"system": system},
+            response=resp,
+        )
+
+    def tool(idx, name, args, result=None, error=None):
+        return Step(
+            run_id="l9",
+            idx=idx,
+            span_id=f"t{idx}",
+            operation="execute_tool",
+            name=name,
+            request_hash=f"h{idx}",
+            request={"args": args},
+            response=None if error is not None else {"result": result},
+            error=error,
+        )
+
+    shop = "Shop. Never order more than 5 units."
+
+    # recovered HTML lookup, then over-limit order
+    run = Run(
+        run_id="l9a",
+        name="recovered_then_task_spec",
+        status="ok",
+        outcome="fail",
+        steps=[
+            chat(0, shop, tool_call={"name": "get_price", "arguments": {"item": "w"}}),
+            tool(1, "get_price", {"item": "w"}, result="<html>502</html>"),
+            chat(2, shop, tool_call={"name": "get_price", "arguments": {"item": "w"}}),
+            tool(3, "get_price", {"item": "w"}, result={"price": 9}),
+            chat(4, shop, tool_call={"name": "place_order", "arguments": {"item": "w", "qty": 10}}),
+            tool(5, "place_order", {"item": "w", "qty": 10}, result={"ok": True}),
+        ],
+        checks=[
+            CheckResult(
+                name="order_quantity_within_limit",
+                status="fail",
+                message="ordered 10 units (limit 5)",
+            )
+        ],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_price returned an HTML page (502 Bad Gateway) instead of data",
+            )
+        ],
+    )
+    assert heuristic_raw(run)["label"] == "TASK_SPEC_VIOLATION"
+
+    # framework / agent generation error
+    run = Run(
+        run_id="l9b",
+        name="framework_error",
+        status="error",
+        outcome="fail",
+        steps=[chat(0, shop, tool_call={"name": "place_order", "arguments": {"qty": 2}})],
+        error=ErrorInfo(
+            type="smolagents.utils.AgentGenerationError",
+            message="Tool call index missing",
+        ),
+        checks=[CheckResult(name="placed_an_order", status="fail", message="no order placed")],
+        findings=[],
+    )
+    assert heuristic_raw(run)["label"] == "EXTERNAL_FAILURE"
+
+    # side-effect false success claim
+    run = Run(
+        run_id="l9c",
+        name="side_effect_false_success",
+        status="ok",
+        outcome="fail",
+        steps=[
+            chat(0, shop, tool_call={"name": "place_order", "arguments": {"item": "w", "qty": 1}}),
+            tool(1, "place_order", {"item": "w", "qty": 1}, result={"status": "rejected"}),
+            chat(2, shop, text="All set — your order for 1 widget is confirmed."),
+        ],
+        checks=[
+            CheckResult(
+                name="no_false_order_claim",
+                status="fail",
+                message="step 2: claimed an order succeeded but every place_order failed",
+            )
+        ],
+        findings=[
+            Finding(
+                kind="failed_side_effect_claim",
+                severity="error",
+                step=2,
+                steps=[1, 2],
+                message="every place_order call failed; reply claimed success",
+            )
+        ],
+    )
+    assert heuristic_raw(run)["label"] == "TOOL_ERROR_MISHANDLED"
+
+    # RAG-style ungrounded citation (check text only; no rag module import)
+    rag_sys = (
+        "Answer only from retrieved excerpts. Never cite a passage that was not "
+        "retrieved; if no supporting excerpt exists, refuse to answer."
+    )
+    run = Run(
+        run_id="l9d",
+        name="rag_style_ungrounded",
+        status="ok",
+        outcome="fail",
+        steps=[
+            chat(0, rag_sys, tool_call={"name": "retrieve", "arguments": {"q": "price"}}),
+            tool(
+                1,
+                "retrieve",
+                {"q": "price"},
+                result={"docs": [{"id": "d1", "text": "Widgets cost $10."}]},
+            ),
+            chat(2, rag_sys, text="According to [d99], widgets cost $50 on sale."),
+        ],
+        checks=[
+            CheckResult(
+                name="claims_supported",
+                status="fail",
+                message=(
+                    "cited d99 which was not retrieved; numeric claim $50 absent from context"
+                ),
+            )
+        ],
+        findings=[],
+    )
+    assert heuristic_raw(run)["label"] == "TASK_SPEC_VIOLATION"
