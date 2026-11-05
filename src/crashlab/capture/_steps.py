@@ -27,6 +27,7 @@ def error_info(exc: BaseException, *, is_tool_error: bool = False) -> ErrorInfo:
         if len(json.dumps(body, default=str)) > 4000:
             body = json.dumps(body, default=str)[:4000]
     return ErrorInfo(
+        state=_exc_state(exc),
         body=body,
         type=f"{type(exc).__module__}.{type(exc).__qualname__}".removeprefix("builtins."),
         message=str(exc)[:4000],
@@ -34,6 +35,56 @@ def error_info(exc: BaseException, *, is_tool_error: bool = False) -> ErrorInfo:
         status_code=status if isinstance(status, int) else None,
         traceback=tb[-8000:],
     )
+
+
+_SCALARS = (str, int, float, bool, type(None))
+# set by the SDKs / rebuilt from other fields; never copied
+_NOT_STATE = {"body", "response", "request", "status_code", "message", "recorded", "args"}
+
+
+def _small_json(value: Any) -> bool:
+    if isinstance(value, _SCALARS):
+        return not isinstance(value, str) or len(value) <= 1000
+    if isinstance(value, (list, tuple)) and len(value) <= 20:
+        return all(isinstance(v, _SCALARS) for v in value)
+    if isinstance(value, dict) and len(value) <= 20:
+        return all(isinstance(k, str) and isinstance(v, _SCALARS) for k, v in value.items())
+    return False
+
+
+def _exc_state(exc: BaseException) -> dict[str, Any] | None:
+    """``args`` when they are not just ``(str(exc),)``, and the exception's public
+    JSON-able attributes, so a replayed ``except E as e: e.sku`` sees the same values."""
+    state: dict[str, Any] = {}
+    args = exc.args
+    if args != (str(exc),) and all(_small_json(a) for a in args) and len(repr(args)) < 2000:
+        state["args"] = list(args)
+    try:
+        own = vars(exc)
+    except TypeError:
+        own = {}
+    attrs = {
+        k: list(v) if isinstance(v, tuple) else v
+        for k, v in own.items()
+        if isinstance(k, str) and not k.startswith("_") and k not in _NOT_STATE
+        and _small_json(v)
+    }  # fmt: skip
+    if attrs:
+        state["attrs"] = dict(list(attrs.items())[:30])
+    return state or None
+
+
+def _cancelled_from_outside(exc: BaseException) -> bool:
+    import asyncio
+
+    if not isinstance(exc, asyncio.CancelledError):
+        return False
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:  # not under asyncio (trio ...)
+        return False
+    cancelling = getattr(task, "cancelling", None)  # Python 3.11+
+    return bool(task is not None and cancelling is not None and cancelling())
 
 
 @dataclass
@@ -139,6 +190,11 @@ class PendingStep:
         attrs = {"error.type": type(exc).__qualname__}
         attrs.update(attributes or {})
         err = error_info(exc, is_tool_error=is_tool_error)
+        if _cancelled_from_outside(exc):
+            # the caller cancelled this call (wait_for timeout, a failing TaskGroup
+            # sibling): replay waits to be cancelled again (rebuild.recancel)
+            ms = round((time.perf_counter() - self.t0) * 1000, 1)
+            err.state = {**(err.state or {}), "cancelled_outside_ms": ms}
         return self._emit(response, raw_response, err, attrs, source)
 
 

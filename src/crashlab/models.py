@@ -71,6 +71,9 @@ class ErrorInfo(_Model):
     # it out: Gemini's OpenAI endpoint returns a JSON list, so the OpenAI SDK's message is
     # just "Error code: 400"
     body: Any | None = None
+    # what handlers read besides the message: small JSON ``args`` (``KeyError('b')``)
+    # and public JSON attributes (``e.sku``, ``e.retry_after``); rebuilt on replay
+    state: dict[str, Any] | None = None
 
     @property
     def detail(self) -> str:

@@ -249,8 +249,16 @@ def rebuild_exception(info: ErrorInfo) -> BaseException:
     except Exception:
         cls = _replayed_class("Exception")
         exc = Exception.__new__(cls)
-    exc.args = (info.message,)
+    state = info.state or {}
+    args = state.get("args")
+    exc.args = tuple(args) if isinstance(args, list) else (info.message,)
     exc.recorded = info  # type: ignore[attr-defined]
+    for attr, value in (state.get("attrs") or {}).items():
+        try:
+            if not isinstance(getattr(type(exc), attr, None), property):
+                setattr(exc, attr, value)
+        except (AttributeError, TypeError):
+            pass
     for attr, value in (("message", info.message), ("status_code", info.status_code)):
         try:
             if not isinstance(getattr(type(exc), attr, None), property):
@@ -260,6 +268,18 @@ def rebuild_exception(info: ErrorInfo) -> BaseException:
     if isinstance(info.status_code, int):
         _add_http_parts(exc, info)
     return exc
+
+
+async def recancel(exc: BaseException) -> None:
+    """Replaying a call its caller cancelled (``cancelled_outside_ms``): wait, a few times
+    the recorded time and at least 1 s, for the caller to cancel it again, as the live
+    ``wait_for`` timeout / TaskGroup did; the recorded error is raised if it does not."""
+    import asyncio
+
+    state = getattr(getattr(exc, "recorded", None), "state", None) or {}
+    ms = state.get("cancelled_outside_ms")
+    if isinstance(exc, asyncio.CancelledError) and isinstance(ms, (int, float)):
+        await asyncio.sleep(max(1.0, 5 * ms / 1000))
 
 
 def _http_lib(owner: type) -> Any:

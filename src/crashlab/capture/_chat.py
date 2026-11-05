@@ -279,6 +279,9 @@ def _raise(exc: BaseException) -> Any:
 
 
 async def _raise_later(exc: BaseException) -> Any:
+    from ..replay.rebuild import recancel
+
+    await recancel(exc)
     raise exc
 
 

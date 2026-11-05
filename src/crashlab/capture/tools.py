@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
 from ..replay.divergence import PatchedToolError, SideEffectBlockedError
-from ..replay.rebuild import rebuild_exception
+from ..replay.rebuild import rebuild_exception, recancel
 from ._steps import begin_step
 from ._util import bind_arguments, first_doc_line
 from .normalize import to_jsonable
@@ -360,7 +360,11 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             pending = _begin(spec, fn, args, kwargs)
             if pending is None:
                 return await fn(*args, **kwargs)
-            served, value, impl = _serve_replay(pending, spec, fn)
+            try:
+                served, value, impl = _serve_replay(pending, spec, fn)
+            except BaseException as exc:
+                await recancel(exc)
+                raise
             if served:
                 return value
             faked = impl is not fn
