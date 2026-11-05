@@ -9,6 +9,7 @@ import threading
 import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
 _importing: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "crashlab_importing_entrypoint", default=None
@@ -35,23 +36,54 @@ _hook_lock = threading.Lock()
 _hooked = False
 
 
+_task = threading.local()  # .target: a pool task submitted by tainted code is running
+
+
+def _taint_of_caller() -> str | None:
+    """The entry point whose import (transitively) started the current code, if any."""
+    target = _tainted.get(threading.current_thread()) or getattr(_task, "target", None)
+    if target is None and _process_target is not None and threading.current_thread() is _importer:
+        target = _process_target
+    return target
+
+
 def _install_start_hook() -> None:
+    """Install once, from the CLI only: ``Thread.start`` taints threads started by tainted
+    code; ``ThreadPoolExecutor.submit`` marks tasks submitted by tainted code for the time
+    they run (the worker itself stays clean), so executors created before the import are
+    covered. Untainted callers go straight to the original methods."""
     global _hooked
     with _hook_lock:
         if _hooked:
             return
-        orig = threading.Thread.start
+        from concurrent.futures import ThreadPoolExecutor
+
+        orig_start = threading.Thread.start
+        orig_submit = ThreadPoolExecutor.submit
 
         def start(self: threading.Thread) -> None:
-            parent = threading.current_thread()
-            target = _tainted.get(parent)
-            if target is None and _process_target is not None and parent is _importer:
-                target = _process_target
+            target = _taint_of_caller()
             if target is not None:
                 _tainted[self] = target
-            orig(self)
+            orig_start(self)
+
+        def submit(self: Any, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
+            target = _taint_of_caller()
+            if target is None:
+                return orig_submit(self, fn, *args, **kwargs)
+
+            def marked(*a: Any, **kw: Any) -> Any:
+                prev = getattr(_task, "target", None)
+                _task.target = target
+                try:
+                    return fn(*a, **kw)
+                finally:
+                    _task.target = prev
+
+            return orig_submit(self, marked, *args, **kwargs)
 
         threading.Thread.start = start  # type: ignore[method-assign]
+        ThreadPoolExecutor.submit = submit  # type: ignore[method-assign]
         _hooked = True
 
 
@@ -81,8 +113,13 @@ def importing_entrypoint(target: str) -> Iterator[None]:
         _importing.reset(token)
 
 
+def _taint_of_caller_after_import() -> str | None:
+    # the importing thread itself is covered by the contextvar while it imports
+    return _tainted.get(threading.current_thread()) or getattr(_task, "target", None)
+
+
 def refuse_run_at_import(name: str) -> None:
-    target = _importing.get() or _tainted.get(threading.current_thread())
+    target = _importing.get() or _taint_of_caller_after_import()
     if target is not None:
         raise RunAtImportError(
             f"crashlab was importing {target!r} (the entry point of a stored run) and the "
