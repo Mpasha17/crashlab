@@ -40,22 +40,29 @@ def _type_name(v: Any) -> str:
     return type(v).__name__
 
 
-def validate(value: Any, schema: Any, path: str = "", root: Any = None) -> list[str]:
-    """Return human-readable problems (empty list: valid)."""
+def validate(
+    value: Any, schema: Any, path: str = "", root: Any = None, _refs: tuple[str, ...] = ()
+) -> list[str]:
+    """Return human-readable problems (empty list: valid). ``_refs``: the ``$ref`` s
+    followed for this same value (a cycle that never reaches a sub-value stops there)."""
     if not isinstance(schema, dict):
         return []
     root = schema if root is None else root
     where = path or "arguments"
     ref = schema.get("$ref")
     if isinstance(ref, str) and ref.startswith("#/"):
+        if ref in _refs:
+            return []
         target: Any = root
         for part in ref[2:].split("/"):
+            part = part.replace("~1", "/").replace("~0", "~")  # JSON pointer escapes
             target = target.get(part) if isinstance(target, dict) else None
-        return validate(value, target, path, root)
+        return validate(value, target, path, root, (*_refs, ref))
     errors: list[str] = []
     types = schema.get("type")
     if types is not None:
         tlist = types if isinstance(types, list) else [types]
+        tlist = [t.lower() if isinstance(t, str) else t for t in tlist]  # Gemini: "STRING"
         if schema.get("nullable"):
             tlist = [*tlist, "null"]
         known = [t for t in tlist if t in _TYPES]
@@ -68,10 +75,14 @@ def validate(value: Any, schema: Any, path: str = "", root: Any = None) -> list[
         errors.append(f"{where}: {_short(value)} is not one of {schema['enum']}")
     for key in ("allOf",):
         for sub in schema.get(key) or []:
-            errors += validate(value, sub, path, root)
+            errors += validate(value, sub, path, root, _refs)
     for key in ("anyOf", "oneOf"):
         subs = schema.get(key)
-        if isinstance(subs, list) and subs and all(validate(value, s, path, root) for s in subs):
+        if (
+            isinstance(subs, list)
+            and subs
+            and all(validate(value, s, path, root, _refs) for s in subs)
+        ):
             errors.append(f"{where}: {_short(value)} matches none of the allowed shapes")
     if isinstance(value, dict):
         props = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
