@@ -330,7 +330,12 @@ def test_heuristic_loop_blames_the_first_repeat_not_the_budget_step():
     run = crashlab.load("last")
     assert run.outcome == "fail"  # within_step_budget
     raw = heuristic_raw(run)
-    assert raw["failing_step"] == 3 and raw["label"] in ("STEP_REPETITION", "TOOL_ERROR_MISHANDLED")
+    # Prefer the tool-error streak / first repeat over the late budget step. Error-level
+    # tool_error_streak (rank 2) may land on the first failing tool call (step 1).
+    assert raw["label"] in ("STEP_REPETITION", "TOOL_ERROR_MISHANDLED")
+    assert raw["failing_step"] in (1, 3)
+    budget_steps = [s.idx for s in run.steps if s.operation == "chat" and s.idx >= 7]
+    assert raw["failing_step"] not in budget_steps
 
 
 def test_heuristic_html_page_handled_politely_is_external():
@@ -342,6 +347,155 @@ def test_heuristic_html_page_handled_politely_is_external():
     refund.run_agent("Refund A17", client=client, model="fake-model", faults=["html_502"])
     raw = heuristic_raw(crashlab.load("last"))
     assert raw["label"] == "EXTERNAL_FAILURE" and raw["failing_step"] == 1
+
+
+def test_heuristic_prefers_tool_error_finding_over_consequence_check():
+    """Loop7 real-agent gap: agno bad-price run had tool_error_streak (502 HTML) but
+    heuristic picked TASK_SPEC from 'ordered without a valid price' (rank 2 < 4)."""
+    from crashlab.models import CheckResult, Finding, Run, Step
+
+    steps = [
+        Step(
+            run_id="t",
+            idx=0,
+            span_id="c0",
+            operation="chat",
+            name="m",
+            request_hash="h0",
+            request={"system": "Shop."},
+            response={"tool_calls": [{"name": "get_price", "arguments": {"item": "gadget"}}]},
+        ),
+        Step(
+            run_id="t",
+            idx=1,
+            span_id="t1",
+            operation="execute_tool",
+            name="get_price",
+            request_hash="h1",
+            request={"args": {"item": "gadget"}},
+            response={"result": "<html>502 Bad Gateway</html>"},
+        ),
+        Step(
+            run_id="t",
+            idx=2,
+            span_id="c2",
+            operation="chat",
+            name="m",
+            request_hash="h2",
+            request={"system": "Shop."},
+            response={
+                "tool_calls": [{"name": "place_order", "arguments": {"item": "gadget", "qty": 1}}]
+            },
+        ),
+        Step(
+            run_id="t",
+            idx=3,
+            span_id="t3",
+            operation="execute_tool",
+            name="place_order",
+            request_hash="h3",
+            request={"args": {"item": "gadget", "qty": 1}},
+            response={"result": {"ok": True}},
+        ),
+    ]
+    run = Run(
+        run_id="t",
+        name="t",
+        status="ok",
+        outcome="fail",
+        steps=steps,
+        checks=[
+            CheckResult(
+                name="no_order_without_a_price",
+                status="fail",
+                message="ordered without a valid price",
+            )
+        ],
+        findings=[
+            Finding(
+                kind="step_repetition",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message='get_price was called 3 times with the same arguments {"item": "gadget"}',
+            ),
+            Finding(
+                kind="tool_error_streak",
+                severity="error",
+                step=1,
+                steps=[1],
+                message=(
+                    "get_price failed 3 times in a row: returned an HTML page (502 Bad Gateway)"
+                ),
+            ),
+        ],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] == "TOOL_ERROR_MISHANDLED"
+    assert "tool_error_streak" in raw["root_cause"] or "502" in raw["root_cause"]
+
+
+def test_heuristic_prefers_unhandled_tool_error_over_no_order_placed_check():
+    """Loop7 real-agent gap: langgraph 504 timeout → unhandled_tool_error, but heuristic
+    blamed TASK_SPEC 'no order placed'."""
+    from crashlab.models import CheckResult, ErrorInfo, Finding, Run, Step
+
+    steps = [
+        Step(
+            run_id="e",
+            idx=0,
+            span_id="c0",
+            operation="chat",
+            name="m",
+            request_hash="h0",
+            request={"system": "Never order more than 5."},
+            response={"tool_calls": [{"name": "place_order", "arguments": {"qty": 2}}]},
+        ),
+        Step(
+            run_id="e",
+            idx=1,
+            span_id="t1",
+            operation="execute_tool",
+            name="place_order",
+            request_hash="h1",
+            request={"args": {"qty": 2}},
+            response=None,
+            error=ErrorInfo(type="TimeoutError", message="504 Gateway Timeout"),
+        ),
+        Step(
+            run_id="e",
+            idx=2,
+            span_id="c2",
+            operation="chat",
+            name="m",
+            request_hash="h2",
+            request={"system": "Never order more than 5."},
+            response={"messages": [{"role": "assistant", "content": "Could not place order."}]},
+        ),
+    ]
+    run = Run(
+        run_id="e",
+        name="e",
+        status="ok",
+        outcome="fail",
+        steps=steps,
+        checks=[CheckResult(name="placed_an_order", status="fail", message="no order placed")],
+        findings=[
+            Finding(
+                kind="unhandled_tool_error",
+                severity="error",
+                step=1,
+                steps=[1],
+                message="place_order raised TimeoutError and the exception ended the run",
+            )
+        ],
+    )
+    raw = heuristic_raw(run)
+    assert raw["label"] in ("TOOL_ERROR_MISHANDLED", "EXTERNAL_FAILURE")
+    assert (
+        "no order placed" not in raw["root_cause"].lower() or "timeout" in raw["root_cause"].lower()
+    )
+    assert raw["label"] != "TASK_SPEC_VIOLATION"
 
 
 # --- compaction ------------------------------------------------------------------------

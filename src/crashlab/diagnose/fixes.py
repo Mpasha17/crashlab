@@ -32,7 +32,7 @@ FIX_PROMPT_VERSION = "fix-v5"
 MAX_FIXES = 3
 #: version of the deterministic part (restore proposals, ask filter, ranking): a
 #: cached proposal list from another version is rebuilt
-RANKER_VERSION = "rank-v6"
+RANKER_VERSION = "rank-v7"
 MAX_PATCH_CHARS = 700  # the patch's own text (prompt lines, descriptions ...)
 MAX_PROMPT_LINES = 4
 ALLOWED_KINDS = (
@@ -108,8 +108,14 @@ _COMMUNICATE = re.compile(
     re.I,
 )
 _AUDIENCE_AWARE = re.compile(
+    # "knows the maximum" / "know about the limit" — awareness without requiring "about"
     r"\b(?:clear on|visibility into|cognizant|aware of|understand(?:s|ing)?|"
-    r"know(?:s|ing)? about)\b",
+    r"know(?:s|ing)?(?:\s+about)?)\b",
+    re.I,
+)
+_MAKE_AUDIENCE_AWARE = re.compile(
+    # "make/ensure sure the shopper knows…" without an agent-side imperative
+    r"\b(?:make sure|ensure)\b.{0,40}\b(?:user|customer|them|shopper|buyer|person|client)\b",
     re.I,
 )
 _FACT_LIMIT = re.compile(
@@ -233,12 +239,14 @@ def _passive_rule(text: str) -> str | None:
     audience_soft = bool(_AUDIENCE.search(text)) and (
         bool(_COMMUNICATE.search(text)) or bool(_AUDIENCE_AWARE.search(text))
     )
+    make_audience_aware = bool(_MAKE_AUDIENCE_AWARE.search(text))
     # "Surface the order cap in your reply" — communicate without naming the audience
     communicate_only = bool(_COMMUNICATE.search(text))
     # caution without an imperative ("Be careful about ordering more than 5")
     caution_only = bool(re.search(r"\bbe (?:careful|sure) about\b", text, re.I))
     soft = (
         audience_soft
+        or make_audience_aware
         or communicate_only
         or caution_only
         or _HEDGE.search(text)

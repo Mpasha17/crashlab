@@ -16,6 +16,21 @@ _ACTION_VIOLATION = re.compile(
     r"\bordered\b|\brefunded\b|\bplaced\b|\blimit\b|\bwindow:\b|\bexceed",
     re.I,
 )
+# Check messages that are usually consequences of a tool/upstream failure, not the
+# instruction gap. When an error-level tool finding exists, demote these so the
+# finding label (TOOL_ERROR / EXTERNAL) wins over TASK_SPEC (loop7 real-agent gaps).
+_TOOL_FAILURE_CONSEQUENCE = re.compile(
+    r"no order placed|ordered without a valid price|without a valid price",
+    re.I,
+)
+_TOOL_FAILURE_FINDINGS = frozenset(
+    {
+        "unhandled_tool_error",
+        "tool_error_streak",
+        "suspicious_tool_result",
+        "failed_side_effect_claim",
+    }
+)
 _API_ERRORS = (
     "RateLimit",
     "APIConnection",
@@ -346,6 +361,9 @@ def candidates(run: Run) -> list[Candidate]:
         label, rank = _FINDING_RULES.get(f.kind, (None, 8))
         if f.kind == "suspicious_tool_result":  # an HTML / error page, drift: upstream
             label, rank = TaxonomyLabel.EXTERNAL_FAILURE, 6 if "changed shape" in f.message else 5
+        # error-level tool streaks outrank warn-level repetition on the same failure mode
+        if f.kind == "tool_error_streak" and f.severity == "error":
+            rank = 2
         quotes = [e.quote for e in f.evidence if e.step_idx == idx][:2] or [_quote(steps[idx])]
         reason = f"runtime check {f.kind} ({f.severity}): {f.message}"
         out.append(Candidate(idx, reason, label, quotes, rank))
@@ -376,6 +394,12 @@ def candidates(run: Run) -> list[Candidate]:
             # wrong action: blame the chat that decided on the tool, not the tool itself
             idx = _decision_step(run, damage)
         rank = 2 if (refs or action) else 7
+        if _TOOL_FAILURE_CONSEQUENCE.search(msg) and any(
+            f.kind in _TOOL_FAILURE_FINDINGS and f.severity in ("error", "warn")
+            for f in run.findings
+        ):
+            # symptom of the tool failure — let the finding candidate outrank TASK_SPEC
+            rank = 7
         out.append(
             Candidate(
                 idx,
