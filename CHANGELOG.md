@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.0.2 (pre-alpha)
+
+Second public cut. Published to PyPI: `pip install crashlab`.
+
+### Record / replay
+- Generator and async-generator agents; replay under trio / non-asyncio loops
+- Stream fidelity: OpenAI chat / Responses and Anthropic keep recorded chunk boundaries and usage
+- `responses.retrieve`, `embeddings.create`, Anthropic `messages.count_tokens`
+- Unfinished recordings replay up to where they end; rebuilt SDK errors keep the provider body
+- `@crashlab.agent(env=[...])` records non-secret env the agent reads and restores it on replay/fork
+- Tool results keep richer Python types on replay (tuples/sets/datetimes/Decimals/UUIDs/paths/enums; NaN/inf)
+
+### Diagnose / fix / verify
+- Restore proposals from past good runs; drop ask-a-person patches; fix prompt v5
+- `fix --verify` tries the next fix after REJECTED (`--attempts`); `--patch` accepts a fix id
+- Provider setup errors (401/403/404, unknown model) and short 429s handled honestly in verify/diagnose
+- Heuristics name provider-rejected LLM calls (e.g. "Tool choice is required")
+
+### Runtime checks / CLI / docs
+- New checks: `tool_result_instructions`, `unhandled_tool_error`, `failed_side_effect_claim`; stronger `step_repetition`
+- CLI next-step hints when a failing run was diagnosed as no failure (try a stronger model / `--heuristic`)
+- Framework wrap one-liners in the README quickstart, linking to `examples/integrations/`
+- CI on Python 3.10–3.14; redaction ~15× faster on large strings
+
 ## 0.0.1 (pre-alpha)
 
 First public-shaped cut. Published to PyPI: `pip install crashlab`.
@@ -43,4 +67,4 @@ First public-shaped cut. Published to PyPI: `pip install crashlab`.
   correctly REJECTED for regression
 
 ### Not in 0.0.1
-- PyPI publish, LangGraph/CrewAI first-class adapters, MCP proxy, hosted UI
+- LangGraph/CrewAI first-class adapters, MCP proxy, hosted UI (PyPI publish landed with 0.0.1)
