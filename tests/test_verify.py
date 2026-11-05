@@ -95,6 +95,59 @@ def test_pass_hat_k():
     assert pass_hat_k(5, 5, 5) == 1.0 and pass_hat_k(4, 5, 5) == 0.0
     assert pass_hat_k(8, 10, 5) == pytest.approx(56 / 252)
     assert pass_hat_k(0, 0, 5) is None
+    assert pass_hat_k(5, 5, 0) is None and pass_hat_k(2, 5, 6) is None
+
+
+def test_wilson_edge_cases_and_arm_zero_trials():
+    """Wilson clamps to [0,1]; n=0 / n=1 edges; arm() ignores errored for rate/CI."""
+    from crashlab.models import Trial
+    from crashlab.verify.stats import arm
+
+    assert wilson(0, 0) == (0.0, 1.0)
+    assert wilson(1, 1)[0] > 0.0 and wilson(1, 1)[1] == 1.0
+    assert wilson(0, 1)[0] == 0.0 and wilson(0, 1)[1] < 1.0
+    # near-certain large n stays inside [0, 1]
+    lo, hi = wilson(999, 1000)
+    assert 0.0 <= lo < hi <= 1.0
+    lo0, hi0 = wilson(0, 1000)
+    assert lo0 == pytest.approx(0.0) and 0.0 < hi0 < 0.01
+    # empty arm: zero usable trials
+    empty = arm([], k=5)
+    assert empty.passes == empty.fails == empty.errored == 0
+    assert empty.rate is None and empty.ci95 is None and empty.pass_hat_k is None
+    # only errored: n=0 usable
+    only_err = arm([Trial(role="patched", source_run="s", status="errored", error="429")] * 3, k=3)
+    assert only_err.n == 0 and only_err.errored == 3 and only_err.ci95 is None
+    # mixed: errored excluded from rate
+    mixed = arm(
+        [
+            Trial(role="patched", source_run="s", status="pass"),
+            Trial(role="patched", source_run="s", status="errored", error="503"),
+            Trial(role="patched", source_run="s", status="fail"),
+        ],
+        k=3,
+    )
+    assert (mixed.passes, mixed.fails, mixed.errored, mixed.n) == (1, 1, 1, 2)
+    assert mixed.rate == 0.5 and mixed.ci95 is not None
+
+
+def test_verdict_zero_trials_and_thin_control_edges():
+    """Zero usable / thin arms stay INCONCLUSIVE; thresholds unchanged (no forced VERIFIED)."""
+    from crashlab.verify.stats import verdict
+
+    # zero patched, zero errored (nothing ran)
+    v, why = verdict(_arm(0, 0, 0), _arm(0, 5), [], k=5)
+    assert v == "INCONCLUSIVE" and "no usable patched trial" in why[0]
+    # k=1 needs only 1 usable trial — 1/1 vs 0/1 can be LIKELY/VERIFIED path, not thin
+    v1, _ = verdict(_arm(1, 0), _arm(0, 1), [], k=1)
+    assert v1 in ("VERIFIED", "LIKELY")
+    # k=5 with 1 usable each remains INCONCLUSIVE (existing semantics)
+    v5, why5 = verdict(_arm(1, 0, 4), _arm(0, 1, 4), [], k=5)
+    assert v5 == "INCONCLUSIVE" and "too few usable trials" in why5[0]
+    # clean sweep at n>=3 is VERIFIED even if CI would overlap at smaller n — do not raise bar
+    assert verdict(_arm(3, 0), _arm(0, 3), [], k=3)[0] == "VERIFIED"
+    # overlapping intervals stay LIKELY (do not tighten thresholds to force VERIFIED)
+    assert verdict(_arm(4, 1), _arm(0, 5), [], k=5)[0] == "LIKELY"
 
 
 def _arm(p, f, e=0):
@@ -644,3 +697,74 @@ def test_dual_failure_verify_verified_only_when_all_oracles_pass():
     for t in v.trials:
         if t.role == "patched" and t.status == "pass":
             assert t.failed_checks == []
+
+
+# --- loop16: intermittent faults, all-oracles, daily quota variants -------------------
+
+
+def test_intermittent_provider_errors_do_not_count_as_fails():
+    """Intermittent 503s are errored (not fails); verdict uses only graded trials."""
+    run, _ = _setup(APPEND)
+    # fail call numbers 1 and 4 (first chat of trial 1 and first chat of a later trial)
+    # PolicyModel increments per create(); with tool loop each trial uses several calls.
+    # Fail a sparse set so some trials still complete.
+    client = crashlab.wrap(PolicyModel(fail={3, 9, 15}))
+    v = crashlab.verify(run, 1, k=3, regress="none", control=True, client=client)
+    assert v.patched.errored + (v.control.errored if v.control else 0) >= 1
+    assert v.patched.fails == sum(1 for t in v.trials if t.role == "patched" and t.status == "fail")
+    # errored never inflate fails
+    for t in v.trials:
+        if t.status == "errored":
+            assert t.failed_checks == []
+    # with at least some usable patched passes and failing control, not REJECTED from errors alone
+    if v.patched.n >= 2 and v.control and v.control.n >= 2 and v.patched.rate == 1.0:
+        assert v.verdict in ("VERIFIED", "LIKELY", "INCONCLUSIVE")
+        assert v.verdict != "REJECTED"
+
+
+def test_verify_records_all_failed_oracles_not_just_primary():
+    """Patched trial failed_checks lists every non-passing oracle (not only primary)."""
+    # CAP issues amount 10.0 (≠ order total) via fake side-effect tool → amount oracle fails
+    cap = {**APPEND, "text": "4. CAP refunds outside the window at 10.00."}
+    run, _ = _setup(cap)
+    crashlab.fake_tool(
+        "issue_refund",
+        lambda order_id, amount: {"refund_id": "FAKE", "amount": amount, "status": "issued"},
+    )
+    try:
+        v = crashlab.verify(
+            run, 1, k=2, regress="none", control=False, client=crashlab.wrap(_CapsAtTen())
+        )
+    finally:
+        crashlab.clear_fakes()
+    failed_trials = [t for t in v.trials if t.role == "patched" and t.status == "fail"]
+    assert failed_trials, (v.verdict, v.trials)
+    for t in failed_trials:
+        assert t.failed_checks, t
+        assert "refund_amount_equals_order_total" in t.failed_checks
+        # full oracle list from the child run matches trial.failed_checks
+        child = crashlab.load(t.run_id)
+        expected = [c.name for c in child.checks if c.status != "pass"]
+        assert t.failed_checks == expected
+
+
+def test_daily_quota_reason_matches_tpd_and_rpd_shapes(monkeypatch):
+    """Daily-limit reason fires for TPD and RPD phrasings; blocked still not retried."""
+    from crashlab.models import Trial
+    from crashlab.verify import runner as r
+
+    run, _ = _setup()
+    variants = [
+        "429 tokens per day (TPD): Limit 1. Try again in 8h.",
+        "Rate limit: 500 requests per day (RPD) exceeded",
+        "Error 429: PerDay quota exhausted for this key",
+    ]
+    for err in variants:
+
+        def errored(role, *a, _err=err):
+            return Trial(role=role, source_run="s", status="errored", error=_err)
+
+        monkeypatch.setattr(r, "_trial", errored)
+        v = crashlab.verify(run, 1, k=1, regress="none", control=False)
+        assert v.verdict == "INCONCLUSIVE"
+        assert any("daily limit" in x for x in v.reasons), (err, v.reasons)

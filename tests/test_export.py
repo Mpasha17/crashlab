@@ -358,3 +358,49 @@ def test_export_tolerates_malformed_diagnosis_secondary(tmp_path):
     src = mod.read_text()
     assert 'EXPECTED_SECONDARY = ["EXTERNAL_FAILURE"]' in src
     assert "NOT_A_LABEL" not in src
+
+
+def test_malformed_diagnosis_through_cli_report_html(tmp_path):
+    """Corrupt secondary in store index: CLI show/report and HTML still render."""
+    import json
+
+    from typer.testing import CliRunner
+
+    from crashlab.cli import app
+    from crashlab.report_html import render_html
+    from crashlab.store import Store
+
+    run, _ = _setup()
+    store = Store()
+    path = store.run_dir(run.run_id) / "run.json"
+    data = json.loads(path.read_text())
+    data["diagnosis"]["secondary"] = ["BOGUS_LABEL", 42, "TOOL_ERROR_MISHANDLED", None]
+    # also litter notes with a secret-like token that must not break render
+    data["diagnosis"]["notes"] = list(data["diagnosis"].get("notes") or []) + ["see ticket"]
+    path.write_text(json.dumps(data, indent=2))
+    store.index.upsert_run(data)
+
+    loaded = crashlab.load(run.run_id)
+    assert loaded.diagnosis is not None
+    assert [s.value for s in loaded.diagnosis.secondary] == ["TOOL_ERROR_MISHANDLED"]
+
+    cli = CliRunner()
+    show = cli.invoke(app, ["show", run.run_id])
+    assert show.exit_code == 0, show.output
+    assert "TOOL_ERROR_MISHANDLED" in show.output
+    assert "BOGUS_LABEL" not in show.output
+
+    rep = cli.invoke(app, ["report", run.run_id], env={"COLUMNS": "100"})
+    assert rep.exit_code == 0, rep.output
+    assert "diagnosis" in rep.output.lower() or "TOOL_ERROR_MISHANDLED" in rep.output
+
+    html = render_html(loaded, [])
+    assert "TOOL_ERROR_MISHANDLED" in html
+    assert "BOGUS_LABEL" not in html
+
+    # export-test still works on the coerced diagnosis
+    from crashlab.export import export_test
+
+    paths = export_test(run.run_id, out_dir=tmp_path / "cli-malformed")
+    src = next(p for p in paths if p.suffix == ".py").read_text()
+    assert "TOOL_ERROR_MISHANDLED" in src and "BOGUS_LABEL" not in src
