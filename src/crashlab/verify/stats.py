@@ -58,7 +58,10 @@ def verdict(
       the unpatched control.
     - VERIFIED: no regression, and the patched Wilson lower bound clears the control's
       upper bound (or control failed every trial while the patched arm passed every one,
-      over at least 3 trials each).
+      over at least 3 trials each). This is **observed outcome evidence** that the arm
+      under the *applied* patch beat the unpatched control; it is not a causal proof that
+      any particular proposal text repaired the diagnosed root cause (a higher-ranked
+      restore, another fix id, or model baseline can drive the same outcomes).
     - LIKELY: better than control, no regression, not significant (or no control).
     - INCONCLUSIVE: too few non-errored trials to say anything (fewer than min(2, k) in
       the patched arm, or in a control arm that ran).
@@ -118,6 +121,10 @@ def verdict(
             0,
             f"patched {patched.passes}/{patched.n} (CI low {p_lo:.2f}) vs control "
             f"{control.passes}/{control.n} (CI high {c_hi:.2f})",
+        )
+        reasons.append(
+            "VERIFIED is observed outcomes under this patch vs control, not a causal "
+            "proof the patch text repaired the diagnosed root cause"
         )
         return "VERIFIED", reasons
     reasons.insert(

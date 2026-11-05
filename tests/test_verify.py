@@ -768,3 +768,92 @@ def test_daily_quota_reason_matches_tpd_and_rpd_shapes(monkeypatch):
         v = crashlab.verify(run, 1, k=1, regress="none", control=False)
         assert v.verdict == "INCONCLUSIVE"
         assert any("daily limit" in x for x in v.reasons), (err, v.reasons)
+
+
+# --- loop16b: restore vs weak polite asymmetry (loop16 live false attribution) ---------
+
+
+def test_restore_outranks_weak_polite_verify_rank1_is_not_polite(monkeypatch):
+    """When past good runs exist, restore ranks above a weak polite append; verify(1)
+    applies the restore — not the polite text. Loop16 live attributed VERIFIED to polite
+    after verify(run, 1) under this ranking (evidence in RESULTS-nov5-quality-loop16b)."""
+    from crashlab.diagnose import fixes as fixes_mod
+    from crashlab.diagnose.restore import good_runs as real_good_runs
+
+    # Undo the module autouse that hides restore (tests/test_verify._model_fixes_only).
+    monkeypatch.setattr(fixes_mod, "good_runs", real_good_runs)
+
+    clean = _clean_run()  # past passing refund-bot run for restore to latch onto
+    assert clean.outcome == "pass"
+    run = _diagnosed()
+    polite = {
+        "kind": "system_prompt",
+        "op": "append",
+        "text": "4. Be polite to the customer.",
+    }
+    fixes = crashlab.propose_fixes(run, fn=_reply(polite), cache=False)
+    assert len(fixes) >= 2, [f.as_patch for f in fixes]
+    top = fixes[0]
+    assert any(n.startswith("restored from") for n in top.notes), top.notes
+    assert "Be polite" not in (top.as_patch.text or "")
+    polite_fix = next(f for f in fixes if f.as_patch and "Be polite" in (f.as_patch.text or ""))
+    assert polite_fix.rank > 1
+
+    # verify(1) / verify("fix-1") applies restore, not polite
+    v1 = crashlab.verify(
+        run, 1, k=2, regress="none", control=True, client=crashlab.wrap(PolicyModel())
+    )
+    assert "Be polite" not in (v1.patch_description or "")
+    assert v1.fix_id == "fix-1"
+    # restore actually improves PolicyModel → can be VERIFIED/LIKELY
+    assert v1.verdict in ("VERIFIED", "LIKELY"), v1.reasons
+    patched_sys = crashlab.load(
+        next(t.run_id for t in v1.trials if t.role == "patched" and t.run_id)
+    )
+    sys = next(
+        s.request.get("system", "")
+        for s in patched_sys.steps
+        if s.operation == "chat" and s.request and s.request.get("system")
+    )
+    assert "Be polite" not in sys
+    assert "30 days" in sys or "30 day" in sys.lower() or "delivered" in sys.lower()
+
+    # Explicit polite fix id under identical PolicyModel: no improvement vs control
+    v_polite = crashlab.verify(
+        crashlab.load(run.run_id),
+        polite_fix.fix_id,
+        k=3,
+        regress="none",
+        control=True,
+        client=crashlab.wrap(PolicyModel()),
+    )
+    assert "Be polite" in (v_polite.patch_description or "")
+    assert v_polite.verdict != "VERIFIED", v_polite.reasons
+    # typically REJECTED (no improvement) when both arms refund out-of-window C03
+    assert v_polite.verdict in ("REJECTED", "LIKELY", "INCONCLUSIVE"), v_polite.reasons
+    if v_polite.patched.n and v_polite.control and v_polite.control.n:
+        assert (v_polite.patched.rate or 0) <= (v_polite.control.rate or 0) + 1e-9
+
+
+def test_weak_polite_alone_is_not_verified_with_policy_model():
+    """With restore disabled (autouse), polite-only fix-1 does not beat control offline."""
+    polite = {**APPEND, "text": "4. Be polite to the customer."}
+    run, _ = _setup(polite)
+    assert run.diagnosis and run.diagnosis.fixes
+    assert "Be polite" in (run.diagnosis.fixes[0].as_patch.text or "")
+    v = crashlab.verify(
+        run, 1, k=3, regress="none", control=True, client=crashlab.wrap(PolicyModel())
+    )
+    assert v.verdict != "VERIFIED", v.reasons
+    assert v.verdict == "REJECTED" or (
+        v.patched.n and v.control and (v.patched.rate or 0) <= (v.control.rate or 0) + 1e-9
+    )
+
+
+def test_verified_reason_states_observed_not_causal():
+    """VERIFIED reasons include observed-vs-causal limit (thresholds unchanged)."""
+    from crashlab.verify.stats import verdict
+
+    got, why = verdict(_arm(5, 0), _arm(0, 5), [], k=5)
+    assert got == "VERIFIED"
+    assert any("observed" in w and "causal" in w for w in why), why
