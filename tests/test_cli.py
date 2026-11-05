@@ -215,3 +215,36 @@ def test_show_honours_columns_on_a_dumb_terminal():
         out = runner.invoke(app, ["show", "last"], env={"TERM": "dumb", "COLUMNS": str(cols)})
         widths = [len(line) for line in out.output.splitlines()]
         assert max(widths) == cols, (cols, max(widths))
+
+
+def test_next_hints_when_diagnoser_misses_a_failure():
+    """A failing run diagnosed as NO_FAILURE / UNKNOWN gets 'try a stronger model' hints."""
+    from datetime import datetime, timezone
+
+    from crashlab.cli import _next_hints
+    from crashlab.models import Diagnosis, TaxonomyLabel
+
+    def make(label, *, outcome="fail", status="ok", fixes=None):
+        rid = "01HINTS0000000000000000001"
+        return crashlab.Run(
+            run_id=rid,
+            name="hint-demo",
+            status=status,
+            outcome=outcome,
+            started_at=datetime.now(timezone.utc),
+            diagnosis=Diagnosis(run_id=rid, label=label, fixes=list(fixes or [])),
+        )
+
+    miss = _next_hints(make(TaxonomyLabel.NO_FAILURE))
+    assert any("STRONGER_MODEL" in h for h in miss)
+    assert any("--heuristic" in h for h in miss)
+
+    unknown = _next_hints(make(TaxonomyLabel.UNKNOWN, status="error"))
+    assert any("STRONGER_MODEL" in h for h in unknown)
+
+    real = _next_hints(make(TaxonomyLabel.TASK_SPEC_VIOLATION))
+    assert any("propose patches" in h for h in real)
+    assert not any("STRONGER_MODEL" in h for h in real)
+
+    clean = _next_hints(make(TaxonomyLabel.NO_FAILURE, outcome="pass"))
+    assert not any("STRONGER_MODEL" in h for h in clean)

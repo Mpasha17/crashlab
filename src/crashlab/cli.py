@@ -557,6 +557,10 @@ def _next_hints(run: Run) -> list[str]:
         hints.append(f"crashlab diagnose {rid} --heuristic        # no LLM")
     elif d.is_failure and not d.fixes:
         hints.append(f"crashlab fix {rid} --model MODEL           # propose patches")
+    elif run.outcome == "fail" or run.status == "error":
+        # the diagnoser found no failure in a failing run (often a small model): no fixes
+        hints.append(f"crashlab fix {rid} --no-cache --model STRONGER_MODEL   # diagnose again")
+        hints.append(f"crashlab diagnose {rid} --heuristic   # rule-based label, then `fix`")
     for f in (d.fixes if d else [])[:1]:
         if f.file:
             at = f.as_patch.target_step() if f.as_patch is not None else None
@@ -1181,7 +1185,12 @@ def fix_cmd(
             )
             top = next((f for f in fixes if not f.test_only and f.fix_id not in tried), None)
         if top is None:
-            out_console.print("[yellow]no fix to verify[/]" if not done else
+            d = store.load_run(run.run_id).diagnosis
+            why = ""
+            if not done and d is not None and not d.is_failure:
+                why = (f": the diagnosis is {d.label.value}, so no fix was proposed (see "
+                       "'next:' below)")  # fmt: skip
+            out_console.print(f"[yellow]no fix to verify{_e(why)}[/]" if not done else
                               "[yellow]no new fix proposed[/]")  # fmt: skip
             break
         tried.add(top.fix_id)
