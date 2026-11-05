@@ -2589,3 +2589,253 @@ def test_multiple_independent_violations_secondary_lists_other():
     assert raw["label"] == "TOOL_ERROR_MISHANDLED"
     # budget is also TASK_SPEC — should appear in secondary when labelled
     assert "TASK_SPEC_VIOLATION" in (raw.get("secondary") or [])
+
+
+# --- loop13: secondary through API / JSON / validate / fix context ----------------------
+
+
+def test_secondary_dedupes_and_roundtrips_json():
+    """Deterministic secondary: drop primary/UNKNOWN/NO_FAILURE/dupes/bogus; JSON roundtrip;
+    missing field stays [] for old consumers."""
+    from crashlab.models import Diagnosis, TaxonomyLabel
+
+    d = Diagnosis(
+        run_id="r",
+        label=TaxonomyLabel.TOOL_ERROR_MISHANDLED,
+        secondary=[
+            TaxonomyLabel.TASK_SPEC_VIOLATION,
+            TaxonomyLabel.TASK_SPEC_VIOLATION,
+            TaxonomyLabel.TOOL_ERROR_MISHANDLED,  # primary echo
+            TaxonomyLabel.EXTERNAL_FAILURE,
+            TaxonomyLabel.UNKNOWN,
+            TaxonomyLabel.NO_FAILURE,
+        ],
+        root_cause="ignored error page then over-limit order",
+        confidence=0.5,
+    )
+    assert [s.value for s in d.secondary] == [
+        "TASK_SPEC_VIOLATION",
+        "EXTERNAL_FAILURE",
+    ]
+    payload = d.model_dump(mode="json")
+    assert payload["secondary"] == ["TASK_SPEC_VIOLATION", "EXTERNAL_FAILURE"]
+    again = Diagnosis.model_validate(payload)
+    assert [s.value for s in again.secondary] == payload["secondary"]
+    # old consumer: no secondary key
+    old = Diagnosis.model_validate({"run_id": "r", "label": "EXTERNAL_FAILURE"})
+    assert old.secondary == []
+
+
+def test_validate_secondary_dedupes_and_caps():
+    """validate() merges model secondary: dedupe, drop primary, cap at 3, keep order."""
+    from crashlab.models import CheckResult, Finding, Run, Step
+
+    steps = [
+        Step(
+            run_id="r",
+            idx=0,
+            span_id="c0",
+            operation="chat",
+            name="m",
+            request_hash="h0",
+            request={"system": "Shop."},
+            response={
+                "messages": [
+                    {"role": "assistant", "parts": [{"type": "text", "content": "quote-me"}]}
+                ]
+            },
+        ),
+        Step(
+            run_id="r",
+            idx=1,
+            span_id="t1",
+            operation="execute_tool",
+            name="get_price",
+            request_hash="h1",
+            request={"args": {"item": "w"}},
+            response={"result": "<html>502</html>"},
+        ),
+    ]
+    run = Run(
+        run_id="r",
+        name="r",
+        status="ok",
+        outcome="fail",
+        steps=steps,
+        checks=[CheckResult(name="qty", status="fail", message="ordered 9 units (limit 4)")],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_price returned an HTML page (502 Bad Gateway) instead of data",
+            )
+        ],
+    )
+    raw = {
+        "label": "TOOL_ERROR_MISHANDLED",
+        "failing_step": 1,
+        "root_cause": "Agent proceeded after HTML 502.",
+        "evidence": [{"step": 1, "quote": "<html>502</html>"}],
+        "secondary": [
+            "TASK_SPEC_VIOLATION",
+            "TASK_SPEC_VIOLATION",
+            "TOOL_ERROR_MISHANDLED",
+            "EXTERNAL_FAILURE",
+            "STEP_REPETITION",
+            "BAD_TOOL_ARGUMENTS",
+            "NOT_A_REAL_LABEL",
+        ],
+    }
+    d = validate(raw, run)
+    assert d.label.value == "TOOL_ERROR_MISHANDLED"
+    assert [s.value for s in d.secondary] == [
+        "TASK_SPEC_VIOLATION",
+        "EXTERNAL_FAILURE",
+        "STEP_REPETITION",
+    ]
+
+
+def test_diagnosis_with_secondary_redacts_secrets_on_save(tmp_path, monkeypatch):
+    """secondary survives save/load; secret-looking text in root_cause is redacted."""
+    from crashlab.models import Diagnosis, TaxonomyLabel
+    from crashlab.store import Store
+
+    monkeypatch.setenv("CRASHLAB_DIR", str(tmp_path / ".crashlab"))
+    store = Store(tmp_path / ".crashlab")
+    # minimal run via refund-style fake if needed — use store begin/end lightly
+    import crashlab
+
+    client = crashlab.wrap(
+        __import__("tests.fakes", fromlist=["FakeOpenAI"]).FakeOpenAI(
+            [
+                __import__("tests.fakes", fromlist=["text_response"]).text_response(
+                    1, "Sorry, system down."
+                )
+            ]
+        )
+    )
+    from examples.refund_bot import agent as refund
+
+    refund.run_agent("Refund A17", client=client, model="fake-model", faults=["html_502"])
+    run = crashlab.load("last")
+    d = Diagnosis(
+        run_id=run.run_id,
+        label=TaxonomyLabel.TOOL_ERROR_MISHANDLED,
+        secondary=[TaxonomyLabel.STEP_REPETITION],
+        failing_step=1,
+        root_cause="tool failed; api_key=sk-proj-SECRETVALUE1234567890 was in logs",
+        confidence=0.5,
+        evidence=[],
+    )
+    store = crashlab.store.Store()
+    store.save_diagnosis(run, d)
+    loaded = crashlab.load(run.run_id)
+    assert loaded.diagnosis is not None
+    assert loaded.diagnosis.label.value == "TOOL_ERROR_MISHANDLED"
+    assert [s.value for s in loaded.diagnosis.secondary] == ["STEP_REPETITION"]
+    assert "sk-proj-SECRETVALUE1234567890" not in (loaded.diagnosis.root_cause or "")
+    assert "sk-proj-SECRETVALUE1234567890" not in json.dumps(
+        loaded.diagnosis.model_dump(mode="json")
+    )
+
+
+def test_fix_diagnosis_text_lists_secondary_after_primary():
+    """Fix proposal context names LABEL first, then SECONDARY; primary is not ignored."""
+    from crashlab.diagnose.fixes import SYSTEM, _diagnosis_text
+    from crashlab.models import Diagnosis, TaxonomyLabel
+
+    d = Diagnosis(
+        run_id="r",
+        label=TaxonomyLabel.TOOL_ERROR_MISHANDLED,
+        secondary=[TaxonomyLabel.TASK_SPEC_VIOLATION],
+        failing_step=2,
+        root_cause="Proceeded after 503 then over-limit.",
+        confidence=0.5,
+    )
+    text = _diagnosis_text(d)
+    assert text.startswith("LABEL: TOOL_ERROR_MISHANDLED")
+    assert "SECONDARY: TASK_SPEC_VIOLATION" in text
+    assert text.index("LABEL:") < text.index("SECONDARY:")
+    # system prompt: fix primary first; do not silently drop secondary
+    assert "primary" in SYSTEM.lower()
+    assert "secondary" in SYSTEM.lower()
+
+
+def test_cli_diagnose_shows_secondary_also_row(tmp_path, monkeypatch):
+    """Public CLI diagnose --heuristic --json exposes secondary; show prints also."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CRASHLAB_DIR", str(tmp_path / ".crashlab"))
+    from crashlab.models import CheckResult, Finding, Run, Step
+    from crashlab.store import Store
+
+    rid = "01M6LOOP13CLI0000000000000"
+
+    def chat(idx, tool_call=None, text=None):
+        resp = {}
+        if tool_call:
+            resp["tool_calls"] = [tool_call]
+        if text:
+            resp["messages"] = [{"role": "assistant", "parts": [{"type": "text", "content": text}]}]
+        return Step(
+            run_id=rid,
+            idx=idx,
+            span_id=f"c{idx}",
+            operation="chat",
+            name="m",
+            request_hash=f"h{idx}",
+            request={"system": "Shop. Max 4 units."},
+            response=resp,
+        )
+
+    def tool(idx, name, args, result):
+        return Step(
+            run_id=rid,
+            idx=idx,
+            span_id=f"t{idx}",
+            operation="execute_tool",
+            name=name,
+            request_hash=f"h{idx}",
+            request={"args": args},
+            response={"result": result},
+        )
+
+    run = Run(
+        run_id=rid,
+        name="cli-secondary",
+        status="ok",
+        outcome="fail",
+        steps=[
+            chat(0, tool_call={"name": "get_price", "arguments": {"item": "bolt"}}),
+            tool(1, "get_price", {"item": "bolt"}, "<html><title>503</title></html>"),
+            chat(2, tool_call={"name": "place_order", "arguments": {"item": "bolt", "qty": 9}}),
+            tool(3, "place_order", {"item": "bolt", "qty": 9}, {"order_id": "OM-77"}),
+        ],
+        checks=[CheckResult(name="qty", status="fail", message="ordered 9 units (limit 4)")],
+        findings=[
+            Finding(
+                kind="suspicious_tool_result",
+                severity="warn",
+                step=1,
+                steps=[1],
+                message="get_price returned an HTML page (503 Service Unavailable) instead of data",
+            )
+        ],
+    )
+    store = Store(tmp_path / ".crashlab")
+    store.begin_run(run)
+    for s in run.steps:
+        store.add_step(s)
+    store.end_run(run)
+
+    res = runner.invoke(app, ["diagnose", rid, "--heuristic", "--json"])
+    assert res.exit_code == 0, res.output
+    data = json.loads(res.output)
+    assert data["label"] == "TOOL_ERROR_MISHANDLED"
+    assert "TASK_SPEC_VIOLATION" in data.get("secondary", [])
+
+    shown = runner.invoke(app, ["show", rid])
+    assert shown.exit_code == 0, shown.output
+    assert "also" in shown.output.lower()
+    assert "TASK_SPEC_VIOLATION" in shown.output

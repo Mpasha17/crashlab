@@ -86,6 +86,8 @@ def _render(
     about = [f"Exported by `crashlab export-test` from run {run.run_id} ({run.name})."]
     if d is not None and d.is_failure:
         about.append(f"Diagnosis: step {d.failing_step} {d.label.value}: {d.root_cause}")
+        if d.secondary:
+            about.append("Also: " + ", ".join(s.value for s in d.secondary))
     if fixed is not None:
         about.append(f"Fix: {fixed.patch_description}")
         if verdict:

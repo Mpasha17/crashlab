@@ -28,7 +28,7 @@ from .diagnoser import DiagnoseError, Messages, _ask, cache_key, parse_json
 from .heuristics import candidates
 from .restore import good_runs, restore_proposals, system_prompts
 
-FIX_PROMPT_VERSION = "fix-v5"
+FIX_PROMPT_VERSION = "fix-v6"
 MAX_FIXES = 3
 #: version of the deterministic part (restore proposals, ask filter, ranking): a
 #: cached proposal list from another version is rebuilt
@@ -66,8 +66,10 @@ of LLM step N.
 result for testing a hypothesis; it proves a cause but is not a fix.
 
 Rules:
-1. Fix the cause named in the diagnosis with the smallest change, preferably a general \
-rule in the system prompt or a tool description. No wholesale prompt rewrites.
+1. Fix the primary LABEL cause first with the smallest change, preferably a general \
+rule in the system prompt or a tool description. When SECONDARY labels are listed, do \
+not silently ignore them (cover or note them), but never swap which cause is primary. \
+No wholesale prompt rewrites.
 2. Never hard-code this run's specifics (order ids, amounts, dates, names, the expected \
 answer): the fix must generalise. If a literal is truly part of a general rule, explain \
 it in "literal_justification".
@@ -382,6 +384,8 @@ def _diagnosis_text(d: Diagnosis) -> str:
         f"FAILING STEP: {d.failing_step}",
         f"ROOT CAUSE: {d.root_cause or '(none given)'}",
     ]
+    if d.secondary:
+        lines.append("SECONDARY: " + ", ".join(s.value for s in d.secondary))
     lines += [f'EVIDENCE: step {e.step_idx} {e.field}: "{e.quote}"' for e in d.evidence]
     return "\n".join(lines)
 

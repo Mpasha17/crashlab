@@ -139,8 +139,14 @@ def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
     secondary = []
     for s in raw.get("secondary") or []:
         lbl = parse_label(s)
-        if lbl is not None and lbl not in (label, TaxonomyLabel.UNKNOWN, TaxonomyLabel.NO_FAILURE):
+        if (
+            lbl is not None
+            and lbl not in (label, TaxonomyLabel.UNKNOWN, TaxonomyLabel.NO_FAILURE)
+            and lbl not in secondary
+        ):
             secondary.append(lbl)
+            if len(secondary) >= 3:
+                break
 
     # remember the model-claimed label before evidence downgrade; root_cause upgrade
     # keys off this so a bad quote does not strand a symptom-only cause text

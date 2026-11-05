@@ -248,3 +248,38 @@ def test_exported_test_survives_a_check_added_later(tmp_path):
     test.write_text(src.replace('"refund_within_policy": "fail"', '"refund_within_policy": "pass"'))
     res = _pytest(out)
     assert res.returncode == 1 and "1 failed" in res.stdout, res.stdout
+
+
+def test_html_report_includes_secondary_labels():
+    """HTML diagnosis section lists secondary labels (also / secondary causes)."""
+    run, _ = _setup()
+    from crashlab.models import TaxonomyLabel
+
+    assert run.diagnosis is not None
+    run.diagnosis.secondary = [
+        TaxonomyLabel.TOOL_ERROR_MISHANDLED,
+        TaxonomyLabel.EXTERNAL_FAILURE,
+    ]
+    html = render_html(run, [])
+    assert "Diagnosis" in html
+    assert "TOOL_ERROR_MISHANDLED" in html
+    assert "EXTERNAL_FAILURE" in html
+    # row label for secondary (deterministic wording)
+    assert "also" in html.lower() or "secondary" in html.lower()
+
+
+def test_export_test_docstring_mentions_secondary_when_present(tmp_path):
+    """export-test about text includes secondary labels without breaking old shape."""
+    run, _ = _setup()
+    from crashlab.export import export_test
+    from crashlab.models import TaxonomyLabel
+
+    assert run.diagnosis is not None
+    run.diagnosis.secondary = [TaxonomyLabel.EXTERNAL_FAILURE]
+    # persist so export loads it
+    crashlab.store.Store().save_diagnosis(run, run.diagnosis)
+    paths = export_test(run.run_id, out_dir=tmp_path / "out")
+    mod = next(p for p in paths if p.suffix == ".py")
+    doc = mod.read_text()
+    assert run.diagnosis.label.value in doc
+    assert "EXTERNAL_FAILURE" in doc

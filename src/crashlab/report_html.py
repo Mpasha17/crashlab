@@ -136,6 +136,11 @@ def render_html(run: Run, verifications: list[Any] | None = None) -> str:
             ["root cause", _e(d.root_cause)],
             ["diagnoser", _e(d.model or "heuristic")],
         ]
+        if d.secondary:
+            rows.insert(
+                1,
+                ["also", _e(", ".join(s.value for s in d.secondary))],
+            )
         for ev in d.evidence:
             rows.append(
                 [

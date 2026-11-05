@@ -371,6 +371,25 @@ class Diagnosis(_Model):
     method: dict[str, Any] = Field(default_factory=dict)
     confirmed_by_counterfactual: bool | None = None
 
+    @model_validator(mode="after")
+    def _normalize_secondary(self) -> Diagnosis:
+        """Dedupe secondary, drop primary / UNKNOWN / NO_FAILURE, cap at 3 (loop13).
+        Empty default keeps old consumers that omit the field compatible."""
+        seen: set[TaxonomyLabel] = set()
+        out: list[TaxonomyLabel] = []
+        for lbl in self.secondary:
+            if lbl in (self.label, TaxonomyLabel.UNKNOWN, TaxonomyLabel.NO_FAILURE):
+                continue
+            if lbl in seen:
+                continue
+            seen.add(lbl)
+            out.append(lbl)
+            if len(out) >= 3:
+                break
+        if out != list(self.secondary):
+            object.__setattr__(self, "secondary", out)
+        return self
+
     @property
     def is_failure(self) -> bool:
         return self.label not in (TaxonomyLabel.NO_FAILURE, TaxonomyLabel.UNKNOWN)
