@@ -311,7 +311,10 @@ class StepRepetition(Detector):
         same = [s for s in h.tool_steps(step.name)
                 if self._cached("args", s, canonical, s.args) == key
                 and s.idx > step.idx - cfg.window and s.source != "blocked"]  # fmt: skip
-        if len(same) < cfg.threshold:
+        ok = [s for s in same if s.error is None and s.source not in ("blocked", "fake")
+              and not any(i.counts_as_failure for i in classify_result(s.result))]  # fmt: skip
+        side_effects = bool(step.attributes.get("crashlab.tool.side_effects"))
+        if len(same) < cfg.threshold and not (side_effects and len(ok) >= 2):
             return []
         outcomes = {canonical(s.error.message if s.error else s.result) for s in same}
         idxs = [s.idx for s in same]
@@ -321,9 +324,16 @@ class StepRepetition(Detector):
             sev = "warn" if len(outcomes) == 1 else "info"
         tail = ("and got the same result each time" if len(outcomes) == 1
                 else "with different results (polling?)")  # fmt: skip
-        ok = [s for s in same if s.error is None and s.source not in ("blocked", "fake")
-              and not any(i.counts_as_failure for i in classify_result(s.result))]  # fmt: skip
-        if step.attributes.get("crashlab.tool.side_effects") and len(ok) >= 2:
+        if side_effects and len(ok) >= 2 and len(same) < cfg.threshold:
+            # two identical orders / payments / emails: an error when no LLM call came in
+            # between (one model message asked for both: a parallel-call duplicate)
+            lo, hi = ok[0].idx, ok[-1].idx
+            same_turn = not any(lo < c.idx < hi for c in h.chat_steps())
+            sev = "error" if same_turn else "warn"
+            tail += f"; it has side effects and succeeded {len(ok)} times (duplicates?)"
+            if same_turn:
+                tail += " with no LLM call in between (one model message asked for both)"
+        elif side_effects and len(ok) >= 2:
             # a payment / order / email repeated with the same arguments: likely duplicates
             sev = "critical" if sev == "critical" else "error"
             tail += f"; it has side effects and succeeded {len(ok)} times (duplicates?)"
