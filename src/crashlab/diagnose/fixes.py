@@ -32,7 +32,7 @@ FIX_PROMPT_VERSION = "fix-v5"
 MAX_FIXES = 3
 #: version of the deterministic part (restore proposals, ask filter, ranking): a
 #: cached proposal list from another version is rebuilt
-RANKER_VERSION = "rank-v4"
+RANKER_VERSION = "rank-v5"
 MAX_PATCH_CHARS = 700  # the patch's own text (prompt lines, descriptions ...)
 MAX_PROMPT_LINES = 4
 ALLOWED_KINDS = (
@@ -99,41 +99,36 @@ _ASK = re.compile(
 )
 #: hedged wording ranks below an imperative rule
 _HEDGE = re.compile(r"\b(?:try to|consider|if possible|should probably|may want to)\b", re.I)
-#: soft / passive prompt rules: the unattended agent asks or stalls instead of acting
-#: (live: CrewAI / LlamaIndex / OA Gemini fix-1 "inform them of the limit" → REJECTED)
-_INFORM_ONLY = re.compile(
-    r"\b(?:inform|tell|notify)\b[\s\w]{0,40}\b(?:user|customer|them)\b"
-    r"|\b(?:inform|tell|notify) (?:the )?(?:user|customer|them)\b"
-    r"|\blet (?:the )?(?:user|customer|them) know\b",
+#: soft / passive rules: audience-directed speech without an agent action imperative
+#: (structural: audience + communicate/awareness, not an ever-growing phrase list)
+_AUDIENCE = re.compile(r"\b(?:user|customer|them|shopper|buyer|person|client)\b", re.I)
+_COMMUNICATE = re.compile(
+    r"\b(?:inform|tell|notify|explain|remind|educate|highlight|share|mention|surface|"
+    r"communicate|clarify|convey|articulate)\b",
     re.I,
 )
-_SOFT_AWARE = re.compile(
-    r"\b(?:explain|remind|educate|highlight)\b"
-    r"|\bmake (?:sure )?(?:the )?(?:user|customer|them) aware\b"
-    r"|\bbe (?:sure|careful) (?:to )?(?:mention|tell|about)\b"
-    r"|\bbe careful about\b"
-    r"|\bensure (?:the )?(?:user|customer) (?:knows|is aware)\b"
-    r"|\bplease (?:mention|explain)\b"
-    r"|\bhelp (?:the )?(?:user|customer) understand\b"
-    r"|\bfeel free to (?:share|tell|mention|explain)\b"
-    r"|\bit would be good to\b"
-    r"|\bkindly (?:educate|explain|tell|share|remind)\b"
-    r"|\bshare (?:the )?(?:limit|policy|window)\b",
+_AUDIENCE_AWARE = re.compile(
+    r"\b(?:clear on|visibility into|cognizant|aware of|understand(?:s|ing)?|"
+    r"know(?:s|ing)? about)\b",
     re.I,
 )
 _FACT_LIMIT = re.compile(
     r"^(?:note(?:\s+that)?:?\s*)?(?:the )?(?:maximum|max(?:imum)?|limit|window)\b",
     re.I,
 )
+# agent-side imperatives / tool actions (structural stems, not product phrases)
 _MUST_ACT = re.compile(
-    r"\b(?:never|always|must|do not|don't|refus(?:e|ed|ing)|reject|deny|ensure|require|"
-    r"ignor(?:e|ed|es|ing))\b"
+    r"\b(?:never|always|must|do not|don't)\b"
+    r"|\b(?:refus(?:e|ed|ing)|reject(?:ed|ing)?|deny|denies|denied|require|ignor(?:e|ed|es|ing))\b"
+    r"|\b(?:call|calls|calling|use|uses|using)\b"
     r"|\b(?:cap|limit) (?:the )?(?:orders?|quantity)\b"
     r"|\bcap (?:at|to)\b"
     r"|\bonly (?:order|refund|place|call|use|accept)\b"
     r"|\b(?:order|refund|place|call|use) (?:at most|no more|the maximum|only|up to)\b"
-    r"|\bplace an order\b|\bissue (?:a )?refund\b|\border the maximum\b|\border 5\b"
-    r"|\brefund the (?:full )?order total\b|\border at most\b",
+    r"|\bplac(?:e|ed|ing)(?:_|\s+)?an?\s*order\b|\bplace_order\b"
+    r"|\bissue (?:a )?refund\b|\border the maximum\b|\border 5\b"
+    r"|\brefund the (?:full )?order total\b|\border at most\b"
+    r"|\brun_query\b|\bcheck_stock\b",
     re.I,
 )
 _ASK_FOR_INPUT = re.compile(r"\bask (?:the )?(?:user|customer|them) for\b", re.I)
@@ -228,15 +223,22 @@ def stray_fields(patch: Any) -> list[str]:
 
 
 def _passive_rule(text: str) -> str | None:
-    """Rejection reason when a prompt rule only informs / explains / states a limit fact
-    without an imperative action the unattended agent can take."""
+    """Reject audience-only / fact-only rules; keep rules with an agent-side imperative."""
     if not text.strip() or _ASK_FOR_INPUT.search(text):
         return None
     if _MUST_ACT.search(text):
         return None
+    audience_soft = bool(_AUDIENCE.search(text)) and (
+        bool(_COMMUNICATE.search(text)) or bool(_AUDIENCE_AWARE.search(text))
+    )
+    # "Surface the order cap in your reply" — communicate without naming the audience
+    communicate_only = bool(_COMMUNICATE.search(text))
+    # caution without an imperative ("Be careful about ordering more than 5")
+    caution_only = bool(re.search(r"\bbe (?:careful|sure) about\b", text, re.I))
     soft = (
-        _INFORM_ONLY.search(text)
-        or _SOFT_AWARE.search(text)
+        audience_soft
+        or communicate_only
+        or caution_only
         or _HEDGE.search(text)
         or text.strip().lower().startswith("note")
         or _FACT_LIMIT.search(text.strip())

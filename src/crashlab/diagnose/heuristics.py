@@ -140,9 +140,20 @@ def _system_prompt(run: Run) -> str:
     return ""
 
 
-_MISLEAD_TOOL = re.compile(
-    r"restocking|never refunded|refund\s+total\s*\*\s*0\.9|withhold|\bdeduct\b.*\bfee\b|"
-    r"fee that is never refunded",
+_STEER_NUMERIC = re.compile(
+    r"divide by\s*\d+|multiply by\s*\d+|/\s*\d+|\*\s*0\.\d+|in cents|stored in cents|"
+    r"restocking|never refunded|refund\s+total\s*\*\s*0\.\d+|withhold|\bdeduct\b.*\bfee\b",
+    re.I,
+)
+_STEER_AVAIL = re.compile(
+    r"always (?:treat|report|assume).{0,40}\b(?:in stock|available)\b|"
+    r"ignore (?:zero )?availability|ignore stock|never out of stock|"
+    r"always available",
+    re.I,
+)
+_STEER_PERM = re.compile(
+    r"no auth(?:entication|orization)? needed|skip (?:permission|auth)|"
+    r"bypass permission|has admin|elevated (?:access|privileges)|without (?:auth|permission)",
     re.I,
 )
 _AMOUNT_MISMATCH = re.compile(
@@ -170,17 +181,73 @@ def _tool_descriptions(run: Run) -> list[tuple[str, str]]:
     return out
 
 
+def _steering_kinds(desc: str) -> set[str]:
+    """Kinds of misleading steer a tool description may encode."""
+    kinds: set[str] = set()
+    if _STEER_NUMERIC.search(desc):
+        kinds.add("numeric_transform")
+    if _STEER_AVAIL.search(desc):
+        kinds.add("availability")
+    if _STEER_PERM.search(desc):
+        kinds.add("permission")
+    return kinds
+
+
+def _claim_reflected(run: Run, tool_name: str, kinds: set[str], reason: str) -> bool:
+    """True when the run's tool use / check failure matches the description's steer."""
+    if "numeric_transform" in kinds:
+        if _AMOUNT_MISMATCH.search(reason):
+            return True
+        for s in run.steps:
+            if s.operation != "execute_tool":
+                continue
+            args = str(s.args)
+            if re.search(r"/\s*100|\*\s*0\.\d+", args):
+                return True
+            if s.name == tool_name and re.search(r"/\s*\d+|\*\s*0\.\d+", args):
+                return True
+        if re.search(r"answered .+ but ground truth|/100|cents", reason, re.I):
+            # wrong numeric answer after a scale steer
+            for s in run.steps:
+                if (
+                    s.operation == "execute_tool"
+                    and s.name == tool_name
+                    and re.search(r"/\s*\d+", str(s.args))
+                ):
+                    return True
+    if "availability" in kinds and re.search(r"stock|availab|out of stock", reason, re.I):
+        # a later side-effect order (or the check naming one) after a stock lookup
+        ordered = any(s.operation == "execute_tool" and s.name == "place_order" for s in run.steps)
+        if ordered or "placed an order" in reason.lower():
+            return True
+    if "permission" in kinds and re.search(r"permission|unauthoriz|admin|auth", reason, re.I):
+        for s in run.steps:
+            if s.operation == "execute_tool" and s.name == tool_name:
+                return True
+    return False
+
+
 def _misleading_tool_cause(run: Run, reason: str, decision: int) -> str | None:
-    """When an amount-oracle fails and a tool description invents a fee / haircut."""
-    if not _AMOUNT_MISMATCH.search(reason):
-        return None
+    """Blame a tool description when its steer is reflected in the failing behaviour.
+
+    Evidence relationship: (steering claim in a tool description) + (tool use / check
+    failure consistent with following that claim) → misleading description, not a
+    generic symptom restatement. Honest descriptions without a matching steer return None.
+    """
     for name, desc in _tool_descriptions(run):
-        if _MISLEAD_TOOL.search(desc):
-            return (
-                f"Heuristic: misleading tool description for {name} steered the model "
-                f"to under-refund (chat step {decision}); the description invents a fee "
-                "or haircut that contradicts refunding the order total"
-            )
+        kinds = _steering_kinds(desc)
+        if not kinds or not _claim_reflected(run, name, kinds, reason):
+            continue
+        if "numeric_transform" in kinds:
+            detail = "a numeric transform / unit claim (cents, scale, fee haircut)"
+        elif "availability" in kinds:
+            detail = "an availability claim that overrides stock"
+        else:
+            detail = "a permission / auth bypass claim"
+        return (
+            f"Heuristic: misleading tool description for {name} steered the model "
+            f"({detail}) at chat step {decision}"
+        )
     return None
 
 
