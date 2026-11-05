@@ -114,3 +114,19 @@ def test_tool_args_results_and_errors_on_disk(crashlab_dir):
     assert run.steps[0].request["args"]["api_token"] == REDACTED
     assert "postgres://app:" + REDACTED + "@db.local/db" in str(run.steps[0].response)
     crashlab.replay(run, fn=bot)  # redaction is applied the same way on replay: no divergence
+
+
+def test_recorded_env_dsn_password_redacted(crashlab_dir, monkeypatch):
+    """``@crashlab.agent(env=["DATABASE_URL"])`` passes the name check (no KEY/TOKEN)
+    but the value carries a password."""
+    import crashlab
+
+    monkeypatch.setenv("DATABASE_URL", f"postgres://app:{SECRET}@db.local/shop")
+
+    @crashlab.agent(name="env-dsn", env=["DATABASE_URL"])
+    def bot() -> int:
+        return 1
+
+    bot()
+    env = crashlab.load("last").env["vars"]
+    assert env["DATABASE_URL"] == f"postgres://app:{REDACTED}@db.local/shop"
