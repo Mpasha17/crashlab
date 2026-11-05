@@ -144,6 +144,25 @@ def export_run(store: Store, run_id: str, path: str | os.PathLike[str]) -> Path:
     return out
 
 
+def _line_hash(line: dict[str, Any]) -> str:
+    from ..capture.normalize import request_hash
+
+    request = line.get("request") or {}
+    if line.get("op") == "execute_tool":  # capture/tools.py hash_input
+        request = {"tool": line.get("name"), "args": request.get("args")}
+    return request_hash(get_redactor().redact(request))
+
+
+def rehash_line(old: dict[str, Any], new: dict[str, Any]) -> None:
+    """``new`` is ``old`` with some text rewritten (export path tokens): give it the hash
+    of its new request, if ``old``'s hash is the one its request produces (otherwise the
+    hash came from elsewhere and is left alone)."""
+    if old.get("request") == new.get("request") or not old.get("hash"):
+        return
+    if _line_hash(old) == old["hash"]:
+        new["hash"] = _line_hash(new)
+
+
 def import_run(
     store: Store, path: str | os.PathLike[str], *, replace: bool = False
 ) -> tuple[str, bool]:
@@ -154,6 +173,9 @@ def import_run(
     lines = read_lines(Path(path))
     if not lines or lines[0].get("type") != EXPORT_HEADER:
         raise ValueError("not a crashlab export (first line must be the run header)")
+    from ..export import expand_local_paths
+
+    lines = expand_local_paths(store, lines)
     if int(lines[0].get("version", 0)) > EXPORT_VERSION:
         raise ValueError(f"export version {lines[0].get('version')} is newer than supported")
     run = Run.model_validate(lines[0]["run"])

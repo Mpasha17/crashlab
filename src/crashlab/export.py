@@ -180,13 +180,68 @@ def _local_roots(store: Store) -> list[tuple[str, str]]:
 def _export(store: Store, run_id: str, path: Path) -> Path:
     """``export_run`` with this machine's store / home / cwd / install paths replaced
     (run headers carry fix-file paths; error stack traces carry local files), so the
-    cassette can be committed."""
+    cassette can be committed. The header lists the tokens introduced
+    (``local_paths``) so :func:`crashlab.store.import_run` can put the importing
+    machine's paths back; a recorded response that named a project file must still
+    produce the same tool call on replay."""
+    from .store import rehash_line
+
     out = export_run(store, run_id, path)
-    text = out.read_text("utf-8")
-    for local, token in _local_roots(store):
-        text = text.replace(json.dumps(local)[1:-1], token)
-        text = text.replace(local, token)  # raw paths inside stack traces / messages
-    out.write_text(text, "utf-8")
+    lines = [json.loads(raw) for raw in out.read_text("utf-8").splitlines() if raw.strip()]
+    original = "\n".join(json.dumps(x, ensure_ascii=False) for x in lines)
+    roots = _local_roots(store)
+    used: set[str] = set()
+    result = []
+    for n, line in enumerate(lines):
+        text = json.dumps(line, ensure_ascii=False)
+        for local, token in roots:
+            for needle in (json.dumps(local)[1:-1], local):
+                # a path prefix only: /work/app must not turn /work/app2 into $PWD2
+                pat = re.compile(re.escape(needle) + r"(?![\w.-])")
+                text, k = pat.subn(token.replace("\\", "\\\\"), text)
+                if k:
+                    used.add(token)
+        new = json.loads(text)
+        if n:
+            rehash_line(line, new)
+        result.append(new)
+    # a token the recording already contained (a shell agent's literal $PWD) is left as
+    # is on import: only tokens nobody could have typed get expanded
+    tokens = sorted(t for t in used if not _token_re(t).search(original))
+    if tokens:
+        result[0]["local_paths"] = tokens
+    out.write_text(
+        "".join(json.dumps(x, ensure_ascii=False, default=str) + "\n" for x in result), "utf-8"
+    )
+    return out
+
+
+def _token_re(token: str) -> re.Pattern[str]:
+    return re.compile(re.escape(token) + r"(?![A-Za-z0-9_])")
+
+
+def expand_local_paths(store: Store, lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Inverse of :func:`_export` for an imported cassette: the header's ``local_paths``
+    tokens become this machine's paths (``$PWD`` the current directory, ...), and step
+    hashes that were computed from the token form follow the new text."""
+    from .store import rehash_line
+
+    tokens = lines[0].get("local_paths") if lines else None
+    if not tokens:
+        return lines
+    local = {}
+    for path, token in _local_roots(store):
+        local.setdefault(token, path)
+    subs = [(_token_re(t), json.dumps(local[t])[1:-1]) for t in tokens if t in local]
+    out = []
+    for n, line in enumerate(lines):
+        text = json.dumps(line, ensure_ascii=False)
+        for pat, value in subs:
+            text = pat.sub(lambda _m, v=value: v, text)
+        new = json.loads(text)
+        if n:
+            rehash_line(line, new)
+        out.append(new)
     return out
 
 
