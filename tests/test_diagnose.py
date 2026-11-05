@@ -467,9 +467,9 @@ def test_html_502_system_apology_stays_external():
                             {
                                 "type": "text",
                                 "content": (
-                            "Sorry, our order system is having trouble right now. "
-                            "Please try again later."
-                        ),
+                                    "Sorry, our order system is having trouble right now. "
+                                    "Please try again later."
+                                ),
                             }
                         ],
                     }
