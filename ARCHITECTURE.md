@@ -242,7 +242,7 @@ the trace.
 Culprit step convention (used by the prompt and the eval): the tool step that executed a
 wrong action; if no tool ran, the chat step whose reply was wrong; for an external
 failure the step where it shows; none for `NO_FAILURE`. `bench/diagnose_eval.py` scores
-label and step accuracy on 31 hand-labelled live runs (`bench/diagnose_cases.json`).
+label and step accuracy on hand-labelled live runs (`bench/diagnose_cases.json`, 31 cases originally, 35 now).
 Prompt v3 adds two rules learned from the Day 6 misses: a tool error / HTML page is
 never `NO_FAILURE` (`EXTERNAL_FAILURE` if handled, `TOOL_ERROR_MISHANDLED` if not), and a
 loop is blamed on its first repeat, not on the step where a budget check fails.

@@ -15,6 +15,7 @@ crashlab is an open-source, framework-agnostic Python library that turns agent f
 - **Diagnose** the failing step and its root cause, backed by verbatim evidence from the trace.
 - **Verify** a proposed fix by rerunning the failure and your past good runs.
 - **Export** the failure as a pytest regression test.
+- **Test RAG apps** with deterministic oracle helpers in `crashlab.rag` ([docs/rag-testing.md](https://github.com/Mpasha17/crashlab/blob/main/docs/rag-testing.md)).
 
 ![crashlab catching the smolagents empty-:memory: bug (terminal demo, no keys)](https://raw.githubusercontent.com/Mpasha17/crashlab/main/docs/demo/smolagents-text-to-sql.gif)
 
@@ -25,7 +26,7 @@ pip install "crashlab[openai]"
 Then try it [offline with no API key](#try-it-with-no-api-key-and-no-model) or see the
 [Quickstart](#quickstart).
 
-> **Status: pre-alpha (0.0.2).** Today crashlab **records** runs, lets you inspect them,
+> **Status: pre-alpha (0.0.3).** Today crashlab **records** runs, lets you inspect them,
 > **replays** them strictly offline, grades them with **`@crashlab.check`** oracles,
 > **forks** them at any step with typed **patches** and **diffs** two runs. It also
 > **diagnoses** failed runs, **proposes fixes** and **verifies** them with repeated live
@@ -182,6 +183,17 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   edits, tool edits and appended rules. Kept fixes are stored with the
   run and saved as patch files for `crashlab fork --patch`; `--try` forks once with the
   top fix and shows the checks.
+- **Secondary causes:** when a run has more than one independent failure (e.g. an HTML
+  error page followed by an over-limit order), the diagnosis keeps a primary cause plus
+  capped, deduplicated secondary causes; they show in `--json`, `show`, HTML reports, fix
+  prompts and exported tests. Vague failures with no clear cause stay `UNKNOWN`.
+- **RAG testing:** `crashlab.rag` has small deterministic oracle helpers for wrong
+  retrieval (`retrieved_ids`), missing context (`abstains_without_context`), stale
+  documents (`no_stale_docs`), citation mismatch (`citations_were_retrieved`) and
+  numeric / claim grounding (`answer_grounded`, `claims_supported`). You wrap your own
+  retriever as a `@crashlab.tool`; there are no vector-DB integrations, and the grounding
+  checks are heuristics (number and word overlap plus negation), not semantic equivalence. See
+  [docs/rag-testing.md](https://github.com/Mpasha17/crashlab/blob/main/docs/rag-testing.md).
 - **`crashlab report RUN`:** one screen with the outcome, checks, findings, diagnosis,
   fixes with diffs and the next commands to run (`crashlab diagnose --fix` prints it too).
 - **Share runs:** `crashlab export RUN -o run.jsonl` / `crashlab import run.jsonl`
@@ -189,6 +201,19 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
 - **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab replay`, `crashlab check`,
   `crashlab diagnose`, `crashlab fix`, `crashlab report`, `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
   `crashlab.load("last")`.
+
+**Recording format and compatibility.** Runs are stored as full JSONL cassettes by default.
+crashlab can read a compact cassette format (much smaller files on long chats: about
+0.43 MB vs 54 MB in a 1,500-message test), but *writing* it is experimental and opt-in
+(`CRASHLAB_EXPERIMENTAL_COMPACT=1`); short chats can write more slowly than the full
+format, and `export-test` / `export` always write the full format. Older crashlab
+versions may not read newer runs; see
+[docs/compatibility.md](https://github.com/Mpasha17/crashlab/blob/main/docs/compatibility.md).
+
+**Start agents under `if __name__ == "__main__":`.** `crashlab check`, `replay` and
+`export-test` import your entry-point module. If an agent runs at import time, crashlab
+now blocks the stray recording (including threads that agent starts) and prints a clear
+error instead of recursing, but subprocesses and custom queues are not covered.
 
 Not yet: a live HTML viewer server. Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response, cut at the recorded chunk boundaries (OpenAI-style chat, Anthropic and
@@ -353,7 +378,12 @@ On 31 hand-labelled live runs of the demo agent (`bench/diagnose_eval.py`, detai
 [bench/README.md](https://github.com/Mpasha17/crashlab/blob/main/bench/README.md)), with prompt v3 Groq `openai/gpt-oss-120b` gets the label
 right on 90% and Gemini `gemini-flash-lite-latest` on 87% (heuristic baseline: 81%, tuned on
 the same set); exact culprit step on 71% / 76% of the failing runs, with no false alarms
-on clean runs.
+on clean runs. These LLM numbers were measured on that 31-case set with prompt v3.
+The `--heuristic` diagnoser (no LLM) was later re-measured on an expanded 35-case set:
+correct label on 35/35, exact failing step on 92%, no false alarms; on 21 held-out stored
+real-agent runs it got the expected category on 21/21, and on 13 adversarial runs it landed
+on an acceptable cause on 13/13. These are small sets used during development, not a
+general accuracy claim.
 
 ### Propose a fix and try it
 
@@ -411,6 +441,14 @@ unknown); if the fix is *supposed* to change such a call (e.g. order 5 instead o
 On Groq gpt-oss-120b: policy_drop fix-1 went 5/5 vs control 0/5, 2/2 good runs still
 pass (VERIFIED, $0.002).
 
+**What VERIFIED means.** It describes the trial outcomes observed with the patch that was
+actually applied; it is not proof that a particular wording caused the fix. Each result
+names that patch (kind, operation and a short digest) in the CLI, `--json` and HTML
+report, so check it: in one of our own tests, verifying "fix-1" by rank ran the
+top-ranked *restore* patch rather than the weaker "Be polite" proposal we meant to test.
+Selected explicitly, the no-op and "Be polite" patches were REJECTED (0/3) and the real
+policy fix VERIFIED (3/3).
+
 ### Export a regression test and an HTML report
 
 ```bash
@@ -466,7 +504,7 @@ PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... MODEL=claude-haiku-4-5 \
 
 See [examples/refund_bot](https://github.com/Mpasha17/crashlab/blob/main/examples/refund_bot/README.md) for details.
 
-See [CHANGELOG.md](https://github.com/Mpasha17/crashlab/blob/main/CHANGELOG.md) for what landed in 0.0.2.
+See [CHANGELOG.md](https://github.com/Mpasha17/crashlab/blob/main/CHANGELOG.md) for what landed in each release.
 
 ## Benchmark (seed, small n)
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.3 (pre-alpha)
+
+Third public cut; matches `main` at release. `pip install crashlab`.
+
+### Diagnose / fix / verify
+- Diagnosis blames the model's decision step (not the tool step) when that is the cause, names missing rules, and keeps vague failures `UNKNOWN`
+- Better categories for external errors, HTML error pages, recovered tool errors and false success claims
+- Secondary causes: primary + capped, deduplicated secondary causes in JSON, CLI, HTML report, fix prompts and exported tests
+- Weak or passive fix proposals (inform-only, ask-a-person) are rejected; fixes can't claim to resolve a remaining secondary failure
+- Verify records which patch actually ran (kind, operation, digest); VERIFIED reflects trial outcomes under that patch, not causal proof of a wording
+
+### RAG
+- `crashlab.rag` oracle helpers: wrong retrieval, missing context, stale documents, citation mismatch, numeric / claim grounding (heuristic; no vector-DB integrations). See `docs/rag-testing.md`
+
+### Reliability
+- Import-time guard: agents started at module import no longer recurse or record during `check` / `replay` / `export-test`; clear `__main__` hint, clean errors on import failure
+- Secret-redaction fixes (JSON output, warnings, import errors)
+- Generator tools, timeout replay (incl. Python 3.10), parallel tool calls, `export-test last` after replay
+- Crashing checks surface as warnings; storage errors don't crash your agent
+- Reads 0.0.2 recordings (compat fixtures) and the compact cassette format; writing compact is experimental opt-in (`CRASHLAB_EXPERIMENTAL_COMPACT=1`), exports stay in the full format
+
 ## 0.0.2 (pre-alpha)
 
 Second public cut. Published to PyPI: `pip install crashlab`.

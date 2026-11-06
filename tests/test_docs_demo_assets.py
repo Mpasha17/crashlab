@@ -31,7 +31,7 @@ def test_package_ships_py_typed_and_version():
     import crashlab
     from crashlab._version import __version__
 
-    assert __version__ == "0.0.2"
+    assert __version__ == "0.0.3"
     assert (Path(crashlab.__file__).parent / "py.typed").is_file()
     assert (
         '"Typing :: Typed"' in (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
