@@ -208,6 +208,14 @@ def test_help_groups_commands_in_workflow_order():
     assert -1 not in pos and pos == sorted(pos), list(zip(marks, pos, strict=True))
 
 
+def test_every_command_is_in_a_help_panel():
+    # `crashlab flakes` landed outside the panels, under a stray "Commands" heading
+    from crashlab.cli import _HELP_PANELS
+
+    grouped = {n for _, names in _HELP_PANELS for n in names}
+    assert {c.name for c in app.registered_commands} <= grouped
+
+
 def test_show_honours_columns_on_a_dumb_terminal():
     # TERM=dumb (CI logs, editors, agent shells): rich fixed the width at 80 and ignored COLUMNS
     _record_one()
