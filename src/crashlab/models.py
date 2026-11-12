@@ -241,6 +241,33 @@ def _msg_key(msg: Any) -> str:
     return json.dumps(msg, sort_keys=True, default=str)
 
 
+def _answered_calls(request: dict[str, Any] | None) -> list[str]:
+    """Tool call ids a chat request answers (tool results in its messages)."""
+    out: list[str] = []
+    for m in (request or {}).get("messages") or []:
+        if not isinstance(m, dict):
+            continue
+        if m.get("tool_call_id"):
+            out.append(str(m["tool_call_id"]))
+        for p in m.get("parts") or []:
+            if isinstance(p, dict) and p.get("type") == "tool_call_response" and p.get("id"):
+                out.append(str(p["id"]))
+    return out
+
+
+class Handoff(_Model):
+    """One agent handing the conversation to another (see :meth:`Run.handoffs`)."""
+
+    from_agent: str
+    to_agent: str
+    #: first chat step of ``to_agent`` after the handoff
+    step: int
+    #: chat step of ``from_agent`` that made the handoff tool call
+    via_step: int
+    tool: str | None = None
+    call_id: str
+
+
 def _continued_thread(threads: list[dict[str, Any]], msgs: list[str]) -> int | None:
     """The conversation ``msgs`` continues: its last request is a strict prefix of
     ``msgs``; the one whose tool calls ``msgs`` answers first, else the longest."""
@@ -393,6 +420,33 @@ class Run(_Model):
         return [
             s for s in self.tool_steps(name) if not (ok_only and s.error is not None) and match(s)
         ]
+
+    def handoffs(self) -> list[Handoff]:
+        """Handoffs between agents, in order: a chat step of agent B whose request answers a
+        tool call made by a different agent A (OpenAI Agents SDK ``transfer_to_*``,
+        LlamaIndex AgentWorkflow ``handoff``) continues A's conversation. When it answers
+        several of A's calls, the latest one is the handoff. Agents called as tools start
+        a fresh conversation and are not handoffs. Worked out from the recording, so it
+        also works on older runs; needs agent labels."""
+        calls: dict[str, tuple[int, str, str | None]] = {}
+        used: set[str] = set()
+        out: list[Handoff] = []
+        for s in sorted(self.steps, key=lambda s: s.idx):
+            if s.operation != "chat" or s.agent is None:
+                continue
+            fresh = [c for c in _answered_calls(s.request)
+                     if c in calls and c not in used and calls[c][1] != s.agent]  # fmt: skip
+            if fresh:
+                cid = max(fresh, key=lambda c: calls[c][0])
+                via, src, tool = calls[cid]
+                out.append(Handoff(from_agent=src, to_agent=s.agent, step=s.idx, via_step=via,
+                                   tool=tool, call_id=cid))  # fmt: skip
+                used.update(fresh)
+            for c in (s.response or {}).get("tool_calls") or []:
+                if isinstance(c, dict) and c.get("id"):
+                    name = c.get("name") or (c.get("function") or {}).get("name")
+                    calls.setdefault(str(c["id"]), (s.idx, s.agent, name))
+        return out
 
     @property
     def agent_labels(self) -> list[str]:

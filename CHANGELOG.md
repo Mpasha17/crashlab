@@ -43,6 +43,7 @@ On `main` only; PyPI is still at 0.0.3.
 - Concurrent runs of the same agent are told apart: `run.agent_instances()` / `run.agent_labels` label them `researcher#1`, `researcher#2` from their conversations (found live: OpenAI Agents SDK `as_tool` called twice in parallel); `chat_steps` / `tool_calls(agent="researcher#2")`, `crashlab show` and `--agent`, and the diagnoser view use the labels. Works on existing recordings; `run.agents` unchanged
 - Per-agent budgets: `within_budget(run, agent="researcher", ...)` and `summarize_usage(run, agent=...)` count only one agent's steps (or one concurrent instance, `"researcher#2"`); an agent with no steps fails; `max_seconds` is refused with `agent=`
 - Fork patches for one agent: request patches (system prompt, model, tools, ...) take `agent=` and edit only that agent's LLM calls; a fork with no call of that agent from the fork step on is refused and lists the run's agents; descriptions end with `[agent X]`. Patches without `agent=` and their JSON are unchanged
+- Handoffs: `run.handoffs()` finds where one agent handed the conversation to another (the next agent's first request answers the previous agent's handoff tool call; found live on OpenAI Agents SDK `transfer_to_*` and LlamaIndex AgentWorkflow `handoff`); `crashlab show` prints a `handoffs` row and marks the step `⇢ from X`, `show --json` adds `handoffs` when there are any, the diagnoser view notes them. Derived from the recording: no new steps, replay and step numbers unchanged, works on older runs
 
 ## 0.0.3 (pre-alpha)
 

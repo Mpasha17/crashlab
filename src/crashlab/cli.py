@@ -333,7 +333,13 @@ def show(
     if as_json:
         if filter_note is not None:
             run = run.model_copy(update={"steps": steps})
-        typer.echo(run.model_dump_json(indent=2))
+        hand = run.handoffs()
+        if hand:  # derived, so only added when there are any
+            data = run.model_dump(mode="json")
+            data["handoffs"] = [h.model_dump(mode="json") for h in hand]
+            typer.echo(json.dumps(data, indent=2, ensure_ascii=False))
+        else:
+            typer.echo(run.model_dump_json(indent=2))
         return
     console = _console()
     u = run.usage
@@ -345,6 +351,17 @@ def show(
     labels = run.agent_instances()
     if run.agents:
         meta.add_row("agents", " → ".join(run.agent_labels))
+    handoffs = run.handoffs()
+    if handoffs:
+        meta.add_row(
+            "handoffs",
+            "\n".join(
+                f"{h.from_agent} → {h.to_agent} at step {h.step} "
+                f"({h.tool or 'call'}, step {h.via_step})"
+                for h in handoffs
+            ),
+        )
+    handed = {h.step: h for h in handoffs}
     meta.add_row(
         "status",
         Text(run.status, style=_STATUS_STYLE.get(run.status, ""))
@@ -427,6 +444,8 @@ def show(
             head.append(step.name)
             if step.agent and step.operation != "invoke_agent":
                 head.append(f"\n@{labels.get(step.idx, step.agent)}", style="magenta")
+            if step.idx in handed:
+                head.append(f"\n⇢ from {handed[step.idx].from_agent}", style="magenta")
             if usd:
                 head.append(f"\n{usd}", style="dim")
             if mark:
@@ -444,6 +463,8 @@ def show(
             name = Text(step.name)
             if step.agent and step.operation != "invoke_agent":
                 name.append(f" @{labels.get(step.idx, step.agent)}", style="magenta")
+            if step.idx in handed:
+                name.append(f" ⇢ from {handed[step.idx].from_agent}", style="magenta")
             table.add_row(str(step.idx), op, name, inp, out, err, usd, flag)
     if steps:
         console.print(table)

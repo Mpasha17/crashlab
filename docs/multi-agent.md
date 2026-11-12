@@ -104,6 +104,22 @@ context is not recorded as a tool argument. Leave out other per-run arguments wi
 `within_budget(run, agent="researcher", max_llm_calls=4)` checks one agent's steps
 only; see [budgets-and-flakes.md](budgets-and-flakes.md).
 
+## Handoffs
+
+When one agent hands the conversation to another (OpenAI Agents SDK handoffs,
+`transfer_to_refunds`; LlamaIndex AgentWorkflow `handoff`), the next agent's first
+request answers the previous agent's handoff tool call. crashlab reads that from the
+recording: `run.handoffs()` returns
+`Handoff(from_agent="triage", to_agent="refunds", step=1, via_step=0,
+tool="transfer_to_refunds", call_id=...)`, `crashlab show` prints a `handoffs` row
+(`triage → refunds at step 1 (transfer_to_refunds, step 0)`) and marks the step
+`⇢ from triage`, `crashlab show --json` adds a `handoffs` list when there are any, and
+the diagnoser's view notes `(handoff from triage (transfer_to_refunds at step 0))`.
+Agents called as tools (`as_tool`, smolagents managed agents, Haystack sub-agents,
+PydanticAI delegation) start a fresh conversation and are not handoffs: they show as
+the tool call and the sub-agent's labelled steps. Needs agent labels; works on runs
+recorded before it existed.
+
 ## Fork patches for one agent
 
 Prompt-level patches (system prompt, model, temperature, tools, tool choice, any patch
@@ -156,6 +172,6 @@ the lookup that returned it. Quotes name the field they came from (a critic's re
 
 - Separate processes or services (an orchestrator calling a worker over HTTP) record
   separate runs; crashlab does not link runs across processes.
-- Framework-internal handoff events are not recorded as their own steps; a handoff is
-  visible as the handoff tool call (e.g. `transfer_to_refunds`) followed by steps of
-  the next agent.
+- Handoffs are shown, not recorded as extra steps (see "Handoffs"), so step numbers and
+  replay are unchanged. A handoff that passes no conversation (the next agent starts
+  from scratch) looks like any other agent change.

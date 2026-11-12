@@ -116,8 +116,14 @@ def compact(
     cand_steps = {c.step for c in cands}
     first_chat = True
     labels = run.agent_instances() if run.agents else {}
+    handed = {h.step: h for h in run.handoffs()} if run.agents else {}
     for s in run.steps:
         lines += _step_lines(s, first_chat, system, has_tool_steps, max_field, labels.get(s.idx))
+        if s.idx in handed:
+            h = handed[s.idx]
+            lines.append(
+                f"    (handoff from {h.from_agent} ({h.tool or 'call'} at step {h.via_step}))"
+            )
         if s.operation == "chat":
             first_chat = False
         if s.idx in by_step:
