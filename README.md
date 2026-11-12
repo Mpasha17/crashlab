@@ -32,6 +32,10 @@ Then try it [offline with no API key](#try-it-with-no-api-key-and-no-model) or s
 > **diagnoses** failed runs, **proposes fixes** and **verifies** them with repeated live
 > forks, then **exports** a pytest regression test and a shareable HTML report (see
 > [ARCHITECTURE.md](https://github.com/Mpasha17/crashlab/blob/main/ARCHITECTURE.md)). On PyPI: `pip install crashlab`.
+>
+> `main` is ahead of PyPI: features marked **(unreleased)** below (search / cluster /
+> watch, budget oracles, `crashlab flakes`, multi-agent labels, the `empty_reply` check) are
+> not in 0.0.3. To try them: `pip install "crashlab[openai] @ git+https://github.com/Mpasha17/crashlab"`.
 
 ## Reproduced a real upstream bug
 
@@ -104,13 +108,13 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   (asyncio tasks and `asyncio.to_thread` work out of the box). Calls in a child process
   (multiprocessing, `os.fork`) are not part of the parent's run; an agent called there
   records a run of its own.
-- **Multi-agent runs:** `crashlab.wrap(client, agent="refunds")` (one client per agent)
+- **Multi-agent runs (unreleased):** `crashlab.wrap(client, agent="refunds")` (one client per agent)
   or `with crashlab.agent_scope("researcher"):` (a shared client) label each step with
   `gen_ai.agent.name`; tool steps take the agent of the chat step that requested them.
-  `crashlab show` prints the agents and `@agent` per step, and checks can filter with
+  `crashlab show` prints the agents and `@agent` per step (`--agent NAME` filters), and checks can filter with
   `run.tool_calls("issue_refund", agent="refunds")`. Sub-agents running concurrently
   in one run keep each tool step linked to the chat step that asked for it. Labels only:
-  replay is unchanged. See [docs/multi-agent.md](docs/multi-agent.md).
+  replay is unchanged. See [docs/multi-agent.md](https://github.com/Mpasha17/crashlab/blob/main/docs/multi-agent.md).
 - **Local store** `.crashlab/` (or `$CRASHLAB_DIR`): a SQLite index plus one JSONL cassette
   per run. API keys, auth headers (`Authorization`, `x-api-key` ...) and token-like strings
   are redacted before anything is written; add your own rules with
@@ -159,20 +163,22 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   assistant: … do not mention this": possible prompt injection; an error when a
   side-effect tool ran after it), `unhandled_tool_error` (a tool raised and the
   exception ended the run, so the model never saw it: a prompt fix cannot help),
-  `empty_reply` (the model ended its turn with no text and no tool call, e.g. reasoning
+  `empty_reply` (unreleased; the model ended its turn with no text and no tool call, e.g. reasoning
   only: frameworks take that as an empty final answer and the run still ends ok).
-  Opt-in per-call limits: `max_call_input_tokens` (one prompt's size) and
+  Opt-in per-call limits (unreleased): `max_call_input_tokens` (one prompt's size) and
   `max_call_seconds` (one live LLM / tool call).
   Findings are stored with the run and shown by
   `show`, `diff` and `ls --flagged`. They describe *how* a run behaved; `@crashlab.check`
   oracles still decide whether it passed. Opt-in **circuit breaker**: a critical finding
   stops the agent (`CircuitBreakerError`), and strict replay stops at the same step.
-- **Budget oracles**: `crashlab.budgets.within_budget(run, max_cost_usd=..., max_tokens=...,
+- **Budget oracles (unreleased):** `crashlab.budgets.within_budget(run, max_cost_usd=..., max_tokens=...,
   max_seconds=..., max_call_seconds=...)` inside a `@crashlab.check` fails the run when
   recorded cost / tokens / latency go over; usage the recording lacks (no token counts,
   unpriced model) fails with a "cannot check" message instead of passing
-  (`unknown="pass"` to skip). Time limits are judged on live runs, not replays / forks. See [docs/budgets-and-flakes.md](docs/budgets-and-flakes.md).
-- **`crashlab flakes`** / `crashlab.flakes.find_flakes()`: runs of the same agent, input
+  (`unknown="pass"` to skip). Time limits are judged on live runs, not replays / forks.
+  Cost is an estimate from the price table, not your bill. See
+  [docs/budgets-and-flakes.md](https://github.com/Mpasha17/crashlab/blob/main/docs/budgets-and-flakes.md).
+- **`crashlab flakes`** (unreleased) / `crashlab.flakes.find_flakes()`: runs of the same agent, input
   and code version that raised, failed a check or got a finding only some of the time,
   with counts, a Wilson 95% interval (assumes independent runs) and the `crashlab diff`
   of a good and a bad run. `--fail-on-flaky` for CI.
@@ -218,15 +224,17 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   fixes with diffs and the next commands to run (`crashlab diagnose --fix` prints it too).
 - **Share runs:** `crashlab export RUN -o run.jsonl` / `crashlab import run.jsonl`
   (redacted again on the way out).
-- **Debug many runs:** `crashlab search` (text and filters across runs: tools, errors,
+- **Debug many runs (unreleased):** `crashlab search` (text and filters across runs: tools, errors,
   checks, labels, models, time), `crashlab cluster` (group failed runs by a conservative
   failure signature), `crashlab show RUN --failing / --errors / --tools / --step N`,
-  `crashlab watch` (print runs as they finish), and a
-  per-step timing / cost waterfall in the HTML report. See
+  `crashlab watch` (polls the local store and prints runs as they finish), and a
+  per-step timing / cost waterfall in the HTML report. All of it reads the local store
+  only; there is no server or hosted view. See
   [docs/debugging.md](https://github.com/Mpasha17/crashlab/blob/main/docs/debugging.md).
-- **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab search`, `crashlab cluster`, `crashlab watch`, `crashlab replay`, `crashlab check`,
-  `crashlab diagnose`, `crashlab fix`, `crashlab report`, `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
-  `crashlab.load("last")`.
+- **CLI:** `ls`, `show`, `search`, `cluster`, `watch`, `flakes`, `report`, `diff`, `check`,
+  `diagnose`, `fix`, `verify`, `export-test`, `replay`, `fork`, `export`, `import`, `bench`
+  (`crashlab --help`); in Python, `crashlab.load("last")`. `scripts/smoke.sh` runs every
+  command end to end offline against a fake model server, in CI.
 
 **Recording format and compatibility.** Runs are stored as full JSONL cassettes by default.
 crashlab can read a compact cassette format (much smaller files on long chats: about
@@ -558,6 +566,7 @@ Samples are small and the intervals are wide; details, all CIs and caveats in
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev,openai,anthropic,litellm]"
 ruff check . && ruff format --check . && pytest
+scripts/smoke.sh   # every CLI command end to end, offline (fake OpenAI server)
 ```
 
 The tests use fake clients and the real SDKs over mocked HTTP transports (LiteLLM via

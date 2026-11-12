@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+On `main` only; PyPI is still at 0.0.3.
+
 ### Debugging many runs (see `docs/debugging.md`)
 - `crashlab search` / `crashlab.search.search_runs`: offline text search across runs (messages, tool names / args / results, errors, models, checks, findings, diagnosis labels, run ids) with `--tool`, `--model`, `--check`, `--label`, `--errors`, `--since`, `--run`, `--in`, regex and JSON output; exits 1 when nothing matched
 - `crashlab cluster` / `crashlab.cluster.cluster_runs`: group failed runs by a conservative signature (agent, normalized exception, first failing step, failing checks, diagnosis label, serious findings); `--by` to loosen, stable cluster ids, JSON output
@@ -22,7 +24,10 @@
 - Experimental compact writer (`CRASHLAB_EXPERIMENTAL_COMPACT=1`): the shared prefix is now found by comparing the JSON text of the whole list (one encode per step), not per-message encodes or fingerprints. A 1,500-message chat records in about 3.4 s instead of 5.5 s through the store (full format: 3.0 s), and typical chats now cost about the same as the full format. Same on-disk format, byte-identical to 0.0.3 for the same input. Writing stays opt-in; measured numbers are in `docs/compatibility.md`
 - `crashlab check` import guard: tasks an entry point submits to a `ProcessPoolExecutor` at import time (or from threads it started) are now refused in the worker for fork, spawn and forkserver. Before, spawn and forkserver workers recorded a run, and fork workers created inside that `submit` stayed tainted and refused later legitimate tasks. `multiprocessing.Process`/`Pool` with spawn and custom queues are still not covered (pinned by tests)
 - `crashlab fork` (and `verify --patch`-style flags) failed with "None is not a valid string" on typer 0.29+; tuple options now default to `None`
-
+- Dependency floors raised to `typer>=0.16` and `pydantic>=2.6`: versions inside the old bounds broke on Python 3.10 (typer < 0.12.4: every command; typer < 0.16 with click 8.2+: "Secondary flag"; pydantic < 2.6: nested dataclass tool results came back as dicts on replay). CI now also tests the floors on Python 3.10
+- Python 3.10: `crashlab ls` / `show` / `search` / `report` crashed with "Invalid isoformat string" on timestamps with other than 3 or 6 fraction digits (written by pydantic < 2.3, about one run in ten) or a trailing `Z`
+- `crashlab flakes` is listed under "Inspect" in `crashlab --help`
+- `scripts/smoke.sh`: every CLI command end to end, offline (fake OpenAI server), run in CI
 - Diagnose: a `@crashlab.check` that crashed on a bug in its own code (`'Step' object has no attribute ...`, `NameError`, a missing import) is no longer blamed on the agent; the heuristic verdict is UNKNOWN with "the check itself is broken", and the LLM diagnoser's view marks it
 
 ### Multi-agent
