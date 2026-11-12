@@ -665,11 +665,28 @@ def _print_report(console: Console, run: Run) -> None:
     attempts = _attempts_table(run)
     if attempts is not None:
         console.print(attempts)
-    hints = _next_hints(run)
+    _print_hints(console, _next_hints(run))
+
+
+def _print_hints(console: Console, hints: list[str]) -> None:
     if hints:
         console.print(Text("next:", style="bold"))
         for h in hints:
             console.print(Text("  " + h, style="dim"))
+
+
+def _verify_hints(v: Any) -> list[str]:
+    rid = v.run_id[:10]
+    fix = v.fix_id
+    if v.verdict in ("VERIFIED", "LIKELY"):
+        hints = [f"crashlab export-test {rid} --fix {fix}   # pin it as a pytest regression test"]
+        if v.verdict == "LIKELY":
+            hints.append(f"crashlab verify {rid} --fix {fix} -k 10   # more trials, narrower CI")
+        hints.append(f"crashlab report {rid}   # the patch to copy into your agent's code")
+        return hints
+    if v.verdict == "REJECTED":
+        return [f"crashlab fix {rid} --model MODEL   # propose another fix (told {fix} failed)"]
+    return [f"crashlab verify {rid} --fix {fix} -k 10   # more trials"]
 
 
 _VERDICT_STYLE = {
@@ -942,6 +959,7 @@ def verify_cmd(
         typer.echo(json.dumps(v.model_dump(mode="json"), indent=2, ensure_ascii=False))
         return
     console.print(_verification_panel(v))
+    _print_hints(console, _verify_hints(v))
 
 
 @app.command("report")
@@ -1143,6 +1161,8 @@ def diagnose_cmd(
         else:
             console.print(f"[bold]{_e(run.run_id)}[/] {_e(run.name)} · outcome {_e(run.outcome)}")
             console.print(_diagnosis_panel(d, run))
+            if len(run_refs or ["last"]) == 1:
+                _print_hints(console, [h for h in _next_hints(run) if "diagnose" not in h])
     if as_json:
         typer.echo(json.dumps(out[0] if len(out) == 1 else out, indent=2, ensure_ascii=False))
 

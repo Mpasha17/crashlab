@@ -948,6 +948,14 @@ def test_cli_diagnose_json_and_show():
     assert as_json["diagnosis"]["label"] == "TASK_SPEC_VIOLATION"
 
 
+def test_cli_diagnose_says_what_to_run_next():
+    # new-user run: diagnose printed the verdict and stopped; `fix` was not mentioned
+    run = _policy_run()
+    res = runner.invoke(app, ["diagnose", run.run_id, "--heuristic"])
+    assert res.exit_code == 0, res.output
+    assert "next:" in res.output and f"crashlab fix {run.run_id[:10]}" in res.output
+
+
 def test_cli_show_prompt_makes_no_call():
     _policy_run()
     res = runner.invoke(app, ["diagnose", "last", "--show-prompt", "--hide-input", "faults"])

@@ -292,6 +292,9 @@ def test_cli_verify_and_report(policy_client):
     assert res.exit_code == 0, res.output
     assert "VERIFIED" not in res.output or "patched" in res.output
     assert "2/2" in res.output and "0/2" in res.output and "regression" in res.output.lower()
+    # new-user run: verify ended at the verdict; pinning the fix as a test was not mentioned
+    assert "next:" in res.output
+    assert f"crashlab export-test {run.run_id[:10]} --fix fix-1" in res.output
     res = runner.invoke(app, ["report", run.run_id])
     assert res.exit_code == 0 and "Fix attempts" in res.output and "2/2" in res.output
 
