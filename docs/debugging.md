@@ -192,7 +192,8 @@ The line names whichever of these exist: the first failing step, the run's excep
 type (`raised TimeoutError`), the checks that did not pass and the diagnosis. "First
 failing step" means the first step that recorded an error; if none did, the first step
 an error/critical runtime finding fired on (`first budget finding: step 2 ...`); `--failing` falls back to the
-diagnosis's step when neither exists. A passing run's output is unchanged.
+diagnosis's step when neither exists, then to the step a failed check's message starts
+with (`step 3: refunded C03 ...`). A passing run's output is unchanged.
 
 ## `crashlab watch`
 

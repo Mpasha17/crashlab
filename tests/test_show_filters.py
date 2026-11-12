@@ -95,6 +95,19 @@ def test_failing_falls_back_to_the_diagnosis_step(crashlab_dir):
     assert "around step 2" in out and _idx_column(out) == [0, 1, 2]
 
 
+def test_failing_uses_the_step_a_failed_check_cites(crashlab_dir):
+    # new-user run: a check-only failure ("step 1: search_docs returned ...") showed every
+    # step with "no failing step recorded" although the check names the step
+    make_run(Store(), 1, outcome="fail", checks=[
+        CheckResult(name="ok_check", status="pass", message="step 6: fine"),
+        CheckResult(name="refund_within_policy", status="fail",
+                    message="step 2: refunded C03, delivered 45 days ago"),
+    ], steps=[chat(rid := run_id(1), i, "hi", "ok") for i in range(8)])  # fmt: skip
+    code, out = invoke(["show", rid, "--failing"])
+    assert "around step 2 (cited by check refund_within_policy)" in out, out
+    assert _idx_column(out) == [0, 1, 2, 3, 4]
+
+
 def test_failure_line_names_a_finding_and_the_exception(crashlab_dir):
     from crashlab.models import Finding
 

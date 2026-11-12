@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 from typing import Any
 
 import typer
@@ -448,6 +449,18 @@ def watch_cmd(
 # --- crashlab show helpers ----------------------------------------------------------
 
 
+_CITED_STEP = re.compile(r"^\s*step (\d+)\b")
+
+
+def _check_cited_step(run: Run) -> tuple[int | None, str | None]:
+    """The step a failed ``@crashlab.check`` message starts with (``"step 3: ..."``)."""
+    for c in run.checks:
+        m = _CITED_STEP.match(c.message or "") if c.status != "pass" else None
+        if m and int(m.group(1)) < len(run.steps):
+            return int(m.group(1)), c.name
+    return None, None
+
+
 def select_steps(
     run: Run,
     *,
@@ -486,12 +499,16 @@ def select_steps(
 
         fp = failure_point(run)
         centre = fp.step if fp.step is not None else fp.diagnosis_step
+        cited = ""
+        if centre is None:  # a check-only failure: the step its message starts with
+            centre, check = _check_cited_step(run)
+            cited = f" (cited by check {check})" if check else ""
         if centre is None:
             notes.append("no failing step recorded")
         else:
             lo, hi = centre - context, centre + context
             steps = [s for s in steps if lo <= s.idx <= hi]
-            notes.append(f"steps {max(lo, 0)}–{hi} around step {centre}")
+            notes.append(f"steps {max(lo, 0)}–{hi} around step {centre}{cited}")
     if not notes:
         return steps, None
     return steps, f"showing {len(steps)} of {len(run.steps)} steps: " + "; ".join(notes)
