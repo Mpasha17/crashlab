@@ -12,6 +12,7 @@ from rich.text import Text
 
 from .cli import (
     _OUTCOME_STYLE,
+    _STATUS_STYLE,
     Table,
     _console,
     _cost_text,
@@ -114,7 +115,7 @@ def search_cmd(
         _unreadable_note(console, result.unreadable)
         raise typer.Exit(code=1)
     narrow = console.width < 110
-    id_len = _unique_prefix_len(m.run_id for m in result.matches)
+    id_len = _unique_prefix_len(Store().index.find_run_ids(""))  # unique store-wide
     table = Table(show_lines=False, pad_edge=not narrow)
     table.add_column("run", style="cyan", no_wrap=True)
     if not narrow:
@@ -244,8 +245,7 @@ def cluster_cmd(
         )
         _unreadable_note(console, result.unreadable)
         return
-    all_ids = [r for c in result.clusters for r in c.run_ids]
-    id_len = _unique_prefix_len(all_ids)
+    id_len = _unique_prefix_len(Store().index.find_run_ids(""))  # unique store-wide
     table = Table(show_lines=True)
     table.add_column("#", justify="right", no_wrap=True)
     table.add_column("runs", justify="right", no_wrap=True, style="bold")
@@ -278,6 +278,69 @@ def cluster_cmd(
         f"[dim]inspect one: crashlab show {result.clusters[0].representative[:id_len]} --failing[/]"
     )
     _unreadable_note(console, result.unreadable)
+
+
+# --- crashlab watch -----------------------------------------------------------------
+
+
+@app.command("watch")
+def watch_cmd(
+    interval: float = typer.Option(1.0, "--interval", help="Seconds between polls."),
+    include_existing: bool = typer.Option(
+        False, "--existing", help="Also print runs already in the store."
+    ),
+    failed_only: bool = typer.Option(False, "--failed", help="Only print failed runs."),
+    name: str | None = typer.Option(None, "--name", help="Only runs of this agent name."),
+    timeout: float = typer.Option(
+        0, "--timeout", help="Stop after this many seconds (0 = until Ctrl-C)."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="One JSON object per event."),
+) -> None:
+    """Print runs as they start and finish (polls the store; Ctrl-C to stop).
+
+    For a local debug loop: run your agent in one terminal and `crashlab watch` in
+    another. A finished run that failed gets a pointer to its first failure.
+    """
+    import time
+
+    from .watch import watch_runs
+
+    console = _console()
+    if interval <= 0:
+        console.print("[red]--interval must be > 0[/]")
+        raise typer.Exit(code=2)
+    polls = None if timeout <= 0 else max(int(timeout / interval), 0) + 1
+    store = Store()
+    if not as_json:
+        console.print(f"[dim]watching {_e(store.root)} every {interval:g}s (Ctrl-C to stop)[/]")
+    try:
+        for ev in watch_runs(
+            store,
+            interval=interval,
+            include_existing=include_existing,
+            failed_only=failed_only,
+            name=name,
+            polls=polls,
+            sleep=time.sleep,
+        ):
+            if as_json:
+                typer.echo(json.dumps(ev.to_dict(), ensure_ascii=False))
+                continue
+            line = Text(_local_time(ev.started_at)[11:] + "  ", style="dim")
+            line.append(ev.run_id, style="cyan").append(f"  {ev.name}  ")
+            if ev.kind == "started":
+                line.append("started", style="yellow")
+            else:
+                line.append(ev.status, style=_STATUS_STYLE.get(ev.status, "")).append(" ")
+                line.append(ev.outcome, style=_OUTCOME_STYLE.get(ev.outcome, ""))
+                line.append(f"  {ev.steps} steps")
+                if ev.cost_usd is not None:
+                    line.append(f"  {_cost_text(ev.cost_usd)}")
+                if ev.failure:
+                    line.append("\n  → " + " · ".join(ev.failure), style="red")
+            console.print(line)
+    except KeyboardInterrupt:
+        pass
 
 
 # --- crashlab show helpers ----------------------------------------------------------

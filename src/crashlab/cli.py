@@ -444,7 +444,7 @@ def show(
         console.print("[dim]No steps recorded.[/]")
     if filter_note:
         console.print(f"[dim]{_e(filter_note)}[/]")
-    jump = failure_line(run, run_ref if run_ref not in ("last", "latest") else run.run_id[:12])
+    jump = failure_line(run, run.run_id)
     if jump is not None:
         console.print(jump)
     if any(s.source != "live" for s in run.steps):
@@ -2058,7 +2058,7 @@ def _first_sentence(text: str, limit: int = 60) -> str:
 
 # `crashlab --help`: the commands grouped in the order a failing run is handled
 _HELP_PANELS = (
-    ("Inspect", ("ls", "show", "search", "cluster", "report", "diff", "check")),
+    ("Inspect", ("ls", "show", "search", "cluster", "watch", "report", "diff", "check")),
     ("Diagnose and fix", ("diagnose", "fix", "verify", "export-test")),
     ("Replay and fork", ("replay", "fork")),
     ("Share and benchmark", ("export", "import", "bench")),
@@ -2083,7 +2083,7 @@ def _tidy_help(typer_app: typer.Typer) -> None:
             info.short_help = _first_sentence(info.help)
 
 
-from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster
+from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
 
 _tidy_help(app)
 

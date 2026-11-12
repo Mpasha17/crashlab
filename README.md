@@ -200,10 +200,11 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   (redacted again on the way out).
 - **Debug many runs:** `crashlab search` (text and filters across runs: tools, errors,
   checks, labels, models, time), `crashlab cluster` (group failed runs by a conservative
-  failure signature), `crashlab show RUN --failing / --errors / --tools / --step N`, and a
+  failure signature), `crashlab show RUN --failing / --errors / --tools / --step N`,
+  `crashlab watch` (print runs as they finish), and a
   per-step timing / cost waterfall in the HTML report. See
   [docs/debugging.md](https://github.com/Mpasha17/crashlab/blob/main/docs/debugging.md).
-- **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab search`, `crashlab cluster`, `crashlab replay`, `crashlab check`,
+- **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab search`, `crashlab cluster`, `crashlab watch`, `crashlab replay`, `crashlab check`,
   `crashlab diagnose`, `crashlab fix`, `crashlab report`, `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
   `crashlab.load("last")`.
 
@@ -315,6 +316,7 @@ crashlab show last --failing      # steps around the first failure (--errors, --
 crashlab show last --step 3       # full request / response / traceback for one step
 crashlab search "timed out" --since 1d   # text + filters (--tool, --check, --errors ...)
 crashlab cluster       # group failed runs by failure signature, largest first
+crashlab watch --failed           # second terminal: print failures as runs finish
 crashlab replay last   # offline re-run from the cassette; exit 1 + diff on divergence
 crashlab check last    # re-run the oracles and the runtime checks (--save to store them)
 crashlab check --all --findings-only --max-cost 0.05 --fail-on error   # e.g. in CI

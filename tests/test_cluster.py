@@ -197,7 +197,7 @@ def test_cli_table_and_json(crashlab_dir):
     code, out = invoke(["cluster"])
     assert code == 0, out
     assert "4 failed run(s) in 2 cluster(s)" in out and "checks failed: policy" in out
-    assert "TimeoutError" in out and run_id(3)[:10] in out
+    assert "TimeoutError" in out and run_id(3) in out  # store-unique prefix
     assert "crashlab show" in out and "--failing" in out
     code, out = invoke(["cluster", "--json", "--by", "name,checks"])
     data = json.loads(out)

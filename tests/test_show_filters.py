@@ -70,7 +70,7 @@ def test_failure_line_jumps_to_step_and_names_checks(crashlab_dir):
     assert "first error: step 3 (tool issue_refund, called by chat step 2)" in line
     assert "checks failed: refund_within_policy" in line
     assert "diagnosis: step 2 BAD_TOOL_ARGUMENTS" in line
-    assert f"open it: crashlab show {run_id(1)[:12]} --step 3" in out
+    assert f"open it: crashlab show {run_id(1)} --step 3" in out
 
 
 def test_passing_run_has_no_failure_line_and_output_is_unchanged(crashlab_dir):

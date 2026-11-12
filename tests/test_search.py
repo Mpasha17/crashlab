@@ -169,6 +169,8 @@ def test_cli_table_json_and_exit_codes(store):
     assert code == 0, out
     assert run_id(2)[:10] in out and "step.error" in out
     assert "gateway timed out after 30s" in out and "1 run(s), 1 hit(s)" in out
+    # fixture ids share 25 characters: the shown id must still resolve to one run
+    assert run_id(2) in out
 
     code, out = invoke(["search", "--errors", "--json"])
     assert code == 0

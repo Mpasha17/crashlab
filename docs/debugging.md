@@ -11,6 +11,7 @@ crashlab show 01M7... --failing         # the steps around the first failure
 crashlab show 01M7... --step 3          # everything recorded for that step
 crashlab search "timed out" --since 1d  # every run where it happened today
 crashlab report 01M7... --html r.html   # share it, with a timing / cost waterfall
+crashlab watch --failed                 # print failures as new runs finish
 ```
 
 ## `crashlab search`
@@ -133,7 +134,7 @@ A failed run's `show` ends with a line pointing at the failure, for example:
 
 ```
 → first error: step 3 (tool issue_refund, called by chat step 2) · checks failed: refund_within_policy · diagnosis: step 2 BAD_TOOL_ARGUMENTS
-  open it: crashlab show 01M7ABCDEFGH --step 3
+  open it: crashlab show 01M7ABCDEFGHJKMNPQRSTVWXYZ --step 3
 ```
 
 The line names whichever of these exist: the first failing step, the run's exception
@@ -141,6 +142,24 @@ type (`raised TimeoutError`), the checks that did not pass and the diagnosis. "F
 failing step" means the first step that recorded an error; if none did, the first step
 an error/critical runtime finding fired on (`first budget finding: step 2 ...`); `--failing` falls back to the
 diagnosis's step when neither exists. A passing run's output is unchanged.
+
+## `crashlab watch`
+
+```bash
+crashlab watch                 # in a second terminal while you run your agent
+crashlab watch --failed        # only finished runs that failed
+crashlab watch --existing --json --timeout 60   # JSON lines, stop after 60 s
+```
+
+Prints a line when a run starts (status `running` in the store) and when it finishes,
+with status, outcome, steps and cost; a failed run gets the same first-failure pointer as
+`crashlab show`. Runs already in the store are skipped unless `--existing`. Ctrl-C stops
+it (exit 0).
+
+**Limits.** It polls the store index every `--interval` seconds (default 1); there is no
+file-system watching. Each poll looks at the newest 200 runs, so if more than 200 runs
+start within one interval some are not printed. A run that starts and finishes between
+two polls is printed once, as finished. `--timeout` is approximate (polls x interval).
 
 ## Timing and cost in the HTML report
 
