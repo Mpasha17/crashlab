@@ -331,3 +331,17 @@ def test_exported_rag_failures_pass_in_fresh_process(tmp_path, answer, faults, f
     assert f'"{failing}": "fail"' in next(p for p in paths if p.suffix == ".py").read_text()
     res = _pytest(out)
     assert res.returncode == 0 and "passed" in res.stdout, res.stdout + res.stderr
+
+
+def test_example_cli_selects_faults(capsys):
+    # new-user friction: the docs offered no way to try a RAG fault without editing code
+    pytest.importorskip("openai")
+    script = [
+        tool_call_response(1, "search_docs", {"query": "return policy days"}),
+        text_response(2, "You have 14 days [refund-policy-v1]."),
+    ]
+    rag_qa.main(["--fault", "stale_docs", Q], client=crashlab.wrap(FakeOpenAI(script)))
+    run = crashlab.load("last")
+    assert run.input["faults"] == ["stale_docs"] and run.outcome == "fail"
+    out = capsys.readouterr().out
+    assert "outcome: fail" in out and "crashlab show last --failing" in out

@@ -13,7 +13,8 @@ Faults (``faults=[...]``), recorded in the run input so replay reproduces them:
 - ``retrieval_error``: the retriever returns an error object instead of documents
 
 Run against a real model: ``python -m examples.rag_qa.agent "How many days ...?"``
-(``OPENAI_BASE_URL`` / ``OPENAI_API_KEY`` / ``MODEL``).
+(``OPENAI_BASE_URL`` / ``OPENAI_API_KEY`` / ``MODEL``); add ``--fault stale_docs`` (etc.)
+to inject a failure.
 """
 
 from __future__ import annotations
@@ -21,7 +22,6 @@ from __future__ import annotations
 import contextvars
 import json
 import os
-import sys
 from typing import Any
 
 import crashlab
@@ -197,6 +197,22 @@ def claims_supported(run: crashlab.Run) -> str | None:
     return rag.claims_supported(run, _answer(run))
 
 
+def main(argv: list[str] | None = None, *, client: Any = None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="rag-qa crashlab demo")
+    parser.add_argument("question", nargs="*", help=f"default: {next(iter(GOLD))!r}")
+    parser.add_argument("--fault", action="append", choices=FAULTS, default=[],
+                        help="inject a RAG failure (repeatable)")  # fmt: skip
+    parser.add_argument("--model", default=None, help="model name (default: $MODEL)")
+    ns = parser.parse_args(argv)
+    question = " ".join(ns.question) or next(iter(GOLD))
+    print(run_agent(question, client=client, model=ns.model, faults=ns.fault))
+    run = crashlab.load("last")
+    print(f"[outcome: {run.outcome}" + (f" - {run.outcome_reason}]" if run.outcome_reason else "]"))
+    if run.outcome == "fail":
+        print("next: crashlab show last --failing    crashlab diagnose last --heuristic")
+
+
 if __name__ == "__main__":  # pragma: no cover - live model
-    print(run_agent(" ".join(sys.argv[1:]) or next(iter(GOLD))))
-    print(crashlab.load("last").outcome_reason)
+    main()

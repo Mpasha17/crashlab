@@ -156,7 +156,16 @@ crashlab.replay(run.run_id)                 # offline, same outcome
 crashlab export-test last                  # writes tests/crashlab/test_<agent>_<id>.py
 ```
 
-A complete offline example is `examples/rag_qa/agent.py`. It has an in-memory corpus, the
+Try it from a checkout against any OpenAI-compatible endpoint (`OPENAI_BASE_URL`,
+`OPENAI_API_KEY`, `MODEL`):
+
+```bash
+python -m examples.rag_qa.agent "How many days do I have to return an item?"
+python -m examples.rag_qa.agent --fault stale_docs   # no_stale_docs fails
+crashlab show last --failing
+```
+
+The complete example is `examples/rag_qa/agent.py`. It has an in-memory corpus, the
 faults `wrong_retrieval`, `missing_context`, `stale_docs`, `retrieval_timeout` and
 `retrieval_error`, and seven checks, including `grounded_in_current_docs`
 (`exclude_stale=True`). `tests/test_rag_integration.py` takes every failure mode, with a
