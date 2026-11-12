@@ -42,6 +42,7 @@ On `main` only; PyPI is still at 0.0.3.
 - Fix (heuristic diagnose): a failing check whose message quotes a reply now blames the chat step that first wrote that text (and names its agent), not a tool whose result shares its numbers (Haystack: the orchestrator turned "7 October" into "July 7" and the lookup was blamed); an `empty_reply` outranks a vague end-of-run check; heuristic evidence names the field the quote came from (a critic's "APPROVE" was attributed to its system prompt). An LLM diagnoser's `field` is honoured when the quote is really there
 - Concurrent runs of the same agent are told apart: `run.agent_instances()` / `run.agent_labels` label them `researcher#1`, `researcher#2` from their conversations (found live: OpenAI Agents SDK `as_tool` called twice in parallel); `chat_steps` / `tool_calls(agent="researcher#2")`, `crashlab show` and `--agent`, and the diagnoser view use the labels. Works on existing recordings; `run.agents` unchanged
 - Per-agent budgets: `within_budget(run, agent="researcher", ...)` and `summarize_usage(run, agent=...)` count only one agent's steps (or one concurrent instance, `"researcher#2"`); an agent with no steps fails; `max_seconds` is refused with `agent=`
+- Fork patches for one agent: request patches (system prompt, model, tools, ...) take `agent=` and edit only that agent's LLM calls; a fork with no call of that agent from the fork step on is refused and lists the run's agents; descriptions end with `[agent X]`. Patches without `agent=` and their JSON are unchanged
 
 ## 0.0.3 (pre-alpha)
 

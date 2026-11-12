@@ -233,8 +233,34 @@ class _Patch(BaseModel):
     #: "step": bound to one step (``step``)
     scope: ClassVar[str] = "request"
 
+    #: only the LLM calls of this agent (``gen_ai.agent.name``: ``crashlab.wrap(client,
+    #: agent=...)``, ``agent_scope``) are edited; request patches only
+    agent: str | None = None
+
+    @model_validator(mode="after")
+    def _check_agent(self) -> _Patch:
+        if self.agent is None:
+            return self
+        if not self.agent.strip():
+            raise ValueError("agent must be a non-empty agent name")
+        if "#" in self.agent:
+            raise ValueError(
+                f"agent={self.agent!r}: instance labels such as researcher#2 are worked out "
+                "after a run; patch by agent name"
+            )
+        if self.scope == "step":
+            raise ValueError(
+                "agent= scopes patches that apply to every LLM call; this one is bound to "
+                "one step already"
+            )
+        return self
+
     def describe(self) -> str:  # pragma: no cover - overridden
         raise NotImplementedError
+
+    def label(self) -> str:
+        """:meth:`describe` plus the agent the patch is limited to."""
+        return self.describe() + (f" [agent {self.agent}]" if self.agent else "")
 
     def target_step(self) -> int | None:
         """The step this patch is bound to, or ``from_step`` (None = the fork step)."""
@@ -613,10 +639,10 @@ class PatchSet(BaseModel):
     def describe(self) -> str:
         if not self.patches:
             return "no patch"
-        return "; ".join(p.describe() for p in self.patches)
+        return "; ".join(p.label() for p in self.patches)
 
     def describe_lines(self) -> list[str]:
-        return [p.describe() for p in self.patches]
+        return [p.label() for p in self.patches]
 
     def bound_steps(self) -> list[int]:
         """Steps that step-bound patches target (message / inject / tool result)."""
@@ -641,18 +667,21 @@ class PatchSet(BaseModel):
         *,
         fork_step: int = 0,
         state: dict[int, dict] | None = None,
+        agent: str | None = None,
     ) -> tuple[dict[str, Any], list[int]]:
         """Patch one chat request. Returns ``(kwargs, indexes of the patches applied)``.
 
         ``state`` carries per-patch memory across the calls of one forked run (where a
-        message patch was applied, so later requests get the same edit).
+        message patch was applied, so later requests get the same edit). ``agent`` is the
+        agent making the call; a patch with ``agent=`` set skips the other agents' calls.
         """
         state = {} if state is None else state
         ed = RequestEditor(api, kwargs)
         applied = [
             i
             for i, p in enumerate(self.patches)
-            if p.apply_chat(ed, idx, fork_step, state.setdefault(i, {}))
+            if (p.agent is None or p.agent == agent)
+            and p.apply_chat(ed, idx, fork_step, state.setdefault(i, {}))
         ]
         return (ed.kwargs if applied else kwargs), applied
 
@@ -702,6 +731,16 @@ def preview_patches(patches: PatchSet, run: Run, *, fork_step: int = 0) -> list[
                 _, diff = diff_values(before, after, fromfile=f"recorded step {p.step}",
                                       tofile=f"patched step {p.step}")  # fmt: skip
                 out.append((f"step {p.step} {src.name} result", diff))
+    for p in patches.patches:
+        if p.agent is None:
+            continue
+        later = [s for s in run.steps if s.operation == "chat" and s.idx >= fork_step]
+        if not any(s.agent == p.agent for s in later):
+            known = ", ".join(run.agents) or "none labelled"
+            raise PatchError(
+                f"{p.label()}: run {run.run_id} has no LLM call of agent {p.agent!r} from "
+                f"step {fork_step} on (agents: {known})"
+            )
     state: dict[int, dict] = {}
     seen: set[int] = set()
     for step in sorted(run.steps, key=lambda s: s.idx):
@@ -709,7 +748,7 @@ def preview_patches(patches: PatchSet, run: Run, *, fork_step: int = 0) -> list[
             continue
         api = str(step.attributes.get("crashlab.api") or "openai.chat.completions")
         kwargs, applied = patches.apply_chat(
-            api, step.idx, step.raw_request, fork_step=fork_step, state=state
+            api, step.idx, step.raw_request, fork_step=fork_step, state=state, agent=step.agent
         )
         new = [i for i in applied if i not in seen]
         if not new:

@@ -104,6 +104,29 @@ context is not recorded as a tool argument. Leave out other per-run arguments wi
 `within_budget(run, agent="researcher", max_llm_calls=4)` checks one agent's steps
 only; see [budgets-and-flakes.md](budgets-and-flakes.md).
 
+## Fork patches for one agent
+
+Prompt-level patches (system prompt, model, temperature, tools, tool choice, any patch
+that applies to every LLM call from the fork step on) take `agent=` to edit only that
+agent's calls:
+
+```python
+branch = crashlab.fork(run, at_step=0, patch=crashlab.SystemPromptPatch(
+    op="append", agent="orchestrator",
+    text="Copy dates exactly as the research tool gives them.",
+))
+```
+
+or `{"kind": "system_prompt", "op": "append", "agent": "orchestrator", "text": "..."}`
+in a `--patch` file. The agent of a forked call is the one it is recorded under
+(`wrap(client, agent=...)`, `agent_scope`, `@crashlab.agent`). The fork is refused
+before anything runs when the run has no LLM call of that agent from the fork step on
+(a typo, or an agent that only ran earlier); the error lists the run's agents. Patch
+descriptions end with `[agent orchestrator]`. Use the agent name, not an instance
+label (`researcher#2`); step-bound patches (tool results, messages) already name their
+step and do not take `agent=`. Two agents that share one wrapped client and no
+`agent_scope` cannot be told apart, as when recording.
+
 ## The same agent running twice at once
 
 When one agent runs twice in parallel (a manager calls `researcher.as_tool()` for two
@@ -136,4 +159,3 @@ the lookup that returned it. Quotes name the field they came from (a critic's re
 - Framework-internal handoff events are not recorded as their own steps; a handoff is
   visible as the handoff tool call (e.g. `transfer_to_refunds`) followed by steps of
   the next agent.
-- Fork patches still target steps by index, not by agent.

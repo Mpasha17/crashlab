@@ -96,7 +96,7 @@ class Replayer:
         return "cassette", pending.replay_source()
 
     def patch_chat(
-        self, idx: int, api: str, kwargs: dict[str, Any]
+        self, idx: int, api: str, kwargs: dict[str, Any], agent: str | None = None
     ) -> tuple[dict[str, Any], list[str]]:
         return kwargs, []
 
@@ -311,14 +311,14 @@ class PatchedReplayer(Replayer):
         run.fork_step = self.at_step
 
     def patch_chat(
-        self, idx: int, api: str, kwargs: dict[str, Any]
+        self, idx: int, api: str, kwargs: dict[str, Any], agent: str | None = None
     ) -> tuple[dict[str, Any], list[str]]:
         if idx < self.at_step:
             return kwargs, []
         new, applied = self.patches.apply_chat(
-            api, idx, kwargs, fork_step=self.at_step, state=self._patch_state
+            api, idx, kwargs, fork_step=self.at_step, state=self._patch_state, agent=agent
         )
-        return new, [self.patches.patches[i].describe() for i in applied]
+        return new, [self.patches.patches[i].label() for i in applied]
 
 
 class Forker(Replayer):
@@ -425,18 +425,18 @@ class Forker(Replayer):
         )
 
     def patch_chat(
-        self, idx: int, api: str, kwargs: dict[str, Any]
+        self, idx: int, api: str, kwargs: dict[str, Any], agent: str | None = None
     ) -> tuple[dict[str, Any], list[str]]:
         self._seen(idx)
         if idx < self.at_step:
             return kwargs, []
         new, applied = self.patches.apply_chat(
-            api, idx, kwargs, fork_step=self.at_step, state=self._patch_state
+            api, idx, kwargs, fork_step=self.at_step, state=self._patch_state, agent=agent
         )
         with self._lock:
             for i in applied:
                 self.applied[i] = self.applied.get(i, 0) + 1
-        return new, [self.patches.patches[i].describe() for i in applied]
+        return new, [self.patches.patches[i].label() for i in applied]
 
     def finalize(self, run: Run, exc: BaseException | None) -> DivergenceError | None:
         """Only the replayed prefix must match; what happens from the fork step on is the
@@ -452,7 +452,7 @@ class Forker(Replayer):
             if not self.applied.get(i):
                 self.flags.append(Finding(
                     kind="fork", step=p.target_step(), severity="warn",
-                    message=f"patch {i + 1} was never applied: {p.describe()}",
+                    message=f"patch {i + 1} was never applied: {p.label()}",
                 ))  # fmt: skip
         blocked = sorted(self.blocked_calls)
         # the agent caught SideEffectBlockedError and carried on (frameworks hand tool

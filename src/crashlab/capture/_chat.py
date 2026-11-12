@@ -307,7 +307,9 @@ def prepare_request(
     if rp is None or not rp.edits_requests:
         return kwargs, None, []
     idx = ctx.next_idx()  # type: ignore[union-attr]
-    new, applied = rp.patch_chat(idx, adapter.api, kwargs)
+    from ..context import current_agent
+
+    new, applied = rp.patch_chat(idx, adapter.api, kwargs, adapter.agent or current_agent())
     return new, idx, applied
 
 
