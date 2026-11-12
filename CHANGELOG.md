@@ -33,6 +33,7 @@
 - Fix: concurrent sub-agents in one run no longer lose tool-call ids; `describe_step` / diagnose blame the chat step that requested a tool call (`run.caller_chat`), not just the nearest one
 - New runtime check `empty_reply` (warn): a chat turn that ended with no text and no tool call (e.g. reasoning only). Found live: a LlamaIndex AgentWorkflow agent on gpt-oss-120b "decided" to hand off in its reasoning but emitted no handoff call, and the workflow returned "" with status ok. Disable with `checks={"empty_reply": False}`
 - Fix: replaying an agent used as a tool whose result holds models / dataclasses inside a plain dict or list (Haystack `AgentTool` returns `{"messages": [ChatMessage, ...]}`) served plain dicts, so the framework code reading `messages[-1].text` failed and the replay diverged; their paths and types are recorded (`crashlab.result.types`) and revived on replay. Older recordings replay as before
+- Fix: parallel tool calls streamed under one index (Gemini's OpenAI endpoint sends them without an index) are merged by clients into one broken call (`researchresearch`, `{..}{..}`); the record keeps what the client saw, adds `crashlab.stream.tool_calls_merged`, `bad_tool_args` says why the call is broken, and replay now streams each delta with its own id (it reused the last id). Found live with the OpenAI Agents SDK `as_tool` + `Runner.run_streamed` on Gemini
 
 ## 0.0.3 (pre-alpha)
 

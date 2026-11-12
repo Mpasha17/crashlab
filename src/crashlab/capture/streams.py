@@ -67,6 +67,9 @@ class OpenAIChatAssembler(Assembler):
         # index; replay must send them the same way, or a client that chokes on it
         # (smolagents) passes in replay and the recorded failure is not reproduced
         self.tool_index_missing = False
+        # parallel calls streamed under one index (or none) with different ids: clients
+        # merge them into one call ("researchresearch", '{..}{..}'), and so does the record
+        self.tool_calls_merged: dict[tuple[int, int], int] = {}
         self.plan: list[list[list[Any]]] = []
         self.plan_ok = True
         self._last_extras: dict[str, Any] = {}
@@ -114,15 +117,20 @@ class OpenAIChatAssembler(Assembler):
                 break
         if delta.get("tool_calls"):
             # per call piece: [index, has id, has type, name length, arguments length]
-            # (None when the key was absent), so argument fragments replay as streamed
+            # (None when the key was absent), so argument fragments replay as streamed;
+            # a 6th item is the delta's id when it is not the call's recorded (last) id:
+            # parallel calls streamed under one index (see ``tool_calls_merged``)
             pieces = []
             for tc in delta["tool_calls"]:
                 fn = tc.get("function") or {}
                 name, args = fn.get("name"), fn.get("arguments")
-                pieces.append([tc.get("index") or 0, int(bool(tc.get("id"))),
-                               int(bool(tc.get("type"))),
-                               len(name) if isinstance(name, str) else None,
-                               len(args) if isinstance(args, str) else None])  # fmt: skip
+                piece = [tc.get("index") or 0, int(bool(tc.get("id"))),
+                         int(bool(tc.get("type"))),
+                         len(name) if isinstance(name, str) else None,
+                         len(args) if isinstance(args, str) else None]  # fmt: skip
+                if tc.get("id"):
+                    piece.append(tc["id"])  # kept only if it differs (stream_plan)
+                pieces.append(piece)
             ops.append(["t", pieces])
         if delta.get("refusal"):
             self.plan_ok = False
@@ -175,6 +183,9 @@ class OpenAIChatAssembler(Assembler):
                     tidx, {"id": None, "type": "function", "name": [], "arguments": []}
                 )
                 if tc.get("id"):
+                    if call["id"] and call["id"] != tc["id"]:
+                        key = (idx, tidx)
+                        self.tool_calls_merged[key] = self.tool_calls_merged.get(key, 1) + 1
                     call["id"] = tc["id"]
                 for k, v in tc.items():  # provider extras, e.g. Gemini extra_content
                     if k not in ("index", "id", "type", "function") and v is not None:
@@ -225,7 +236,16 @@ class OpenAIChatAssembler(Assembler):
         ``["U"]`` usage on this chunk, ``["x", fields]`` other fields from here on), so
         replay re-chunks the stream as it arrived: a generator agent that yields chunk by
         chunk reproduces. None for multi-choice streams."""
-        return self.plan if self.plan_ok and len(self.plan) > 1 else None
+        if not (self.plan_ok and len(self.plan) > 1):
+            return None
+        calls = (self.choices.get(0) or {}).get("tool_calls") or {}
+        final = {i: c.get("id") for i, c in calls.items()}
+
+        def piece(p: list[Any]) -> list[Any]:
+            return p if len(p) > 5 and p[5] != final.get(p[0]) else p[:5]
+
+        return [[["t", [piece(p) for p in op[1]]] if op and op[0] == "t" else op
+                 for op in entry] for entry in self.plan]  # fmt: skip
 
 
 class AnthropicAssembler(Assembler):

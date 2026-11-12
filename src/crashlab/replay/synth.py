@@ -75,12 +75,14 @@ def _planned_chunks(
             elif op[0] == "t" and pieces_ok:
                 tools_sent = True
                 calls = []
-                for tidx, has_id, has_type, nlen, alen in op[1]:
+                for p in op[1]:
+                    tidx, has_id, has_type, nlen, alen = p[:5]
                     tc = calls_raw[tidx]
                     fn = tc.get("function") or {}
                     call: dict[str, Any] = {"index": tidx} if tool_index else {}
                     if has_id:
-                        call["id"] = tc.get("id")
+                        # a 6th item: this delta's own id (calls merged under one index)
+                        call["id"] = p[5] if len(p) > 5 and isinstance(p[5], str) else tc.get("id")
                         call.update({k: v for k, v in tc.items()
                                      if k not in ("id", "type", "function")})  # fmt: skip
                     if has_type:
@@ -131,7 +133,8 @@ def _tool_pieces_fit(ops: list[Any], calls: list[dict[str, Any]]) -> bool:
         if not tops or any(len(op) < 2 for op in tops):
             return False
         for op in tops:
-            for tidx, _id, _type, nlen, alen in op[1]:
+            for p in op[1]:
+                tidx, _id, _type, nlen, alen = p[:5]
                 if not 0 <= tidx < len(calls):
                     return False
                 names[tidx] += nlen or 0

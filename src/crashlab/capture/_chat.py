@@ -101,6 +101,8 @@ def _response_attributes(norm: dict[str, Any]) -> dict[str, Any]:
 
 
 USAGE_MISSING = "crashlab.usage.missing"
+# how many streamed tool calls (different ids) arrived under one index and were merged
+TOOL_CALLS_MERGED = "crashlab.stream.tool_calls_merged"
 _warned_stream_usage = False
 
 
@@ -231,6 +233,9 @@ class ChatCall:
         attrs["crashlab.stream.complete"] = bool(complete and error is None)
         if getattr(asm, "tool_index_missing", False):
             attrs["crashlab.stream.tool_call_index_missing"] = True
+        merged = getattr(asm, "tool_calls_merged", None)
+        if merged:
+            attrs[TOOL_CALLS_MERGED] = max(merged.values())
         plan = getattr(asm, "stream_plan", None)
         if plan:
             attrs["crashlab.stream.plan"] = plan

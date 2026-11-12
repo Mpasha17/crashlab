@@ -498,9 +498,14 @@ class BadToolArgs(Detector):
                 sev = "warn"
             if not problems:
                 continue
+            merged = step.attributes.get("crashlab.stream.tool_calls_merged")
+            why = (f"; {merged} parallel tool calls were streamed under one index and merged "
+                   "into this one (a provider quirk: clients merge deltas by index)"
+                   if isinstance(merged, int) and merged > 1 else "")  # fmt: skip
             out.append(self.finding(
                 severity=sev, step=step.idx, steps=[step.idx], key=f"{step.idx}:{i}",
-                message=f"the model called {name} with bad arguments: {'; '.join(problems[:4])}",
+                message=f"the model called {name} with bad arguments: "
+                        f"{'; '.join(problems[:4])}{why}",
                 evidence=[_ev(step, fld, args)],
             ))  # fmt: skip
         return out
