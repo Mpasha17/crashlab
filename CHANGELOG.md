@@ -10,7 +10,7 @@
 - HTML report: per-step timing / cost waterfall from recorded durations, tokens and prices; unknown prices shown as `?`, no chart when no durations were recorded
 
 ### Budgets and flakes
-- `crashlab.budgets.within_budget()`: `@crashlab.check` budget oracle for cost, tokens (total / input / output / largest prompt), wall time, slowest call and step counts, from recorded usage. Missing usage, unpriced models and replay / fork wall time fail with "cannot check" unless `unknown="pass"`. `summarize_usage()` exposes the numbers
+- `crashlab.budgets.within_budget()`: `@crashlab.check` budget oracle for cost, tokens (total / input / output / largest prompt), wall time, slowest call and step counts, from recorded usage. Missing usage and unpriced models fail with "cannot check" unless `unknown="pass"`; time limits are not evaluated on replays / forks (`replay_time`). `summarize_usage()` exposes the numbers
 - Runtime `budget` check: opt-in `max_call_input_tokens` and `max_call_seconds` per-call limits; an `info` finding when a token limit is set but some LLM calls reported no usage (the limit is then a lower bound)
 - `crashlab flakes` / `crashlab.flakes.find_flakes()`: same agent + canonical input + code version, signals (raised, outcome, checks, findings) that differ between runs, with counts and a Wilson 95% interval; `--json`, `--fail-on-flaky`. See `docs/budgets-and-flakes.md`
 

@@ -56,17 +56,21 @@ says so (`cannot check: ...`):
   `stream_options={"include_usage": True}`) — failed requests that report nothing are
   treated as using nothing, not as missing;
 - the model is not in the price table (the message names the model);
-- wall time of a strict replay or a fork (cassette-served steps take no real time), or a
-  run that has not ended; per-call latency only looks at live steps.
+- a run that has not ended (no wall time), or no live call to time.
 
 Pass `unknown="pass"` to skip such limits instead. A limit already exceeded by the known
 part still fails either way.
 
-`crashlab verify` and `crashlab fork` trials are forks, so `max_seconds` always reports
-"cannot check" there (and `max_call_seconds` only times the live steps after the fork
-point). If a check that is also used for verify sets time limits, pass
-`unknown="pass"` or keep time limits in a separate check; otherwise every trial of both
-arms fails and verify cannot tell the patch from the control.
+### Replays, forks, exported tests and verify
+
+A strict replay (`crashlab replay`, exported regression tests) and a fork (`crashlab
+fork`, `crashlab verify` trials) serve recorded steps from the cassette, which takes no
+real time. By default (`replay_time="pass"`) `max_seconds` is not evaluated on them and
+`max_call_seconds` only times their live steps (the steps after a fork point; none in a
+strict replay): time is judged on the live recording. That keeps an exported test of a
+run that met its time budget passing on replay. `replay_time="fail"` reports "cannot
+check" instead. Tokens and cost are still checked on replays and forks, from the usage
+recorded on each step.
 
 ## Runtime budget detector: per-call limits
 

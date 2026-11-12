@@ -21,7 +21,8 @@ a non-empty string fails with that message).
 (a chat call that reported no token usage, e.g. a stream without
 ``stream_options={"include_usage": True}``; a model that is not in the price table; the
 wall time of a replay or fork, whose cassette-served steps take no real time) fails with
-a message that says what is missing, unless you pass ``unknown="pass"``.
+a message that says what is missing, unless you pass ``unknown="pass"``. (Replays and
+forks are the one exception, for time only: see ``replay_time``.)
 
 Scope: tokens and cost come from chat (LLM) steps; embeddings calls are not counted.
 """
@@ -68,6 +69,7 @@ class UsageSummary:
     first_call_input: int | None = None  # input tokens of the first chat call with usage
     served: list[int] = field(default_factory=list)  # steps served from a cassette
     wall_note: str | None = None  # why wall_seconds is None
+    replayed: bool = False  # a strict replay or fork: recorded steps took no live time
 
 
 def _chat_tokens(step: Step) -> tuple[int, int, int] | None:
@@ -151,6 +153,7 @@ def _from_stored_totals(run: Run, u: UsageSummary) -> UsageSummary:
 
 def _wall(run: Run, u: UsageSummary) -> None:
     if run.replay_of is not None or run.forked_from is not None or u.served:
+        u.replayed = True
         u.wall_note = "replays and forks serve recorded steps instantly: not live time"
         return
     if run.usage.wall_time_ms is not None:
@@ -187,6 +190,7 @@ def within_budget(
     max_llm_calls: int | None = None,
     max_tool_calls: int | None = None,
     unknown: Unknown = "fail",
+    replay_time: Unknown = "pass",
 ) -> str | None:
     """``None`` when every given limit holds, else a message naming each one exceeded.
 
@@ -200,9 +204,16 @@ def within_budget(
 
     ``unknown="fail"`` (default): a limit whose number is missing from the recording
     fails and says why. ``unknown="pass"``: such limits are skipped.
+
+    ``replay_time="pass"`` (default): on a strict replay or a fork (``crashlab replay``,
+    exported tests, ``fork``, ``verify`` trials), whose recorded steps take no live time,
+    ``max_seconds`` is not evaluated and ``max_call_seconds`` only times the live steps
+    (none in a strict replay). Time is judged on the live recording. ``"fail"``: report
+    "cannot check" there instead.
     """
-    if unknown not in ("fail", "pass"):
-        raise ValueError(f"unknown= must be 'fail' or 'pass', not {unknown!r}")
+    for arg, val in (("unknown", unknown), ("replay_time", replay_time)):
+        if val not in ("fail", "pass"):
+            raise ValueError(f"{arg}= must be 'fail' or 'pass', not {val!r}")
     limits = {
         "max_cost_usd": max_cost_usd,
         "max_tokens": max_tokens,
@@ -252,12 +263,13 @@ def within_budget(
                            f"model not in the price table{models})")  # fmt: skip
         else:
             cmp("max_cost_usd", u.cost_usd, "${:.4f}")
-    if max_seconds is not None:
+    skip_time = u.replayed and replay_time == "pass"
+    if max_seconds is not None and not skip_time:
         if u.wall_seconds is None:
             missing.append(f"wall time not measurable: {u.wall_note}")
         else:
             cmp("max_seconds", u.wall_seconds, "{:.1f}s")
-    if max_call_seconds is not None:
+    if max_call_seconds is not None and not (skip_time and u.slowest_call is None):
         if u.slowest_call is None:
             missing.append("no live LLM or tool call to time")
         else:
