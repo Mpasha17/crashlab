@@ -317,6 +317,9 @@ def show(
     failing: bool = typer.Option(
         False, "--failing", help="Only the steps around the first failing step."
     ),
+    agent: str | None = typer.Option(
+        None, "--agent", help="Only steps of one agent (multi-agent runs, see step @labels)."
+    ),
 ) -> None:
     """Show a run's metadata and step table."""
     from .cli_debug import failure_line, print_step_detail, select_steps
@@ -327,7 +330,7 @@ def show(
         print_step_detail(_console(), run, step_idx, as_json=as_json)
         return
     steps, filter_note = select_steps(
-        run, errors=errors_only, tools=tools_only, llm=llm_only, failing=failing
+        run, errors=errors_only, tools=tools_only, llm=llm_only, failing=failing, agent=agent
     )
     if as_json:
         if filter_note is not None:
@@ -341,6 +344,8 @@ def show(
     meta.add_column()
     meta.add_row("run", run.run_id)
     meta.add_row("name", run.name)
+    if run.agents:
+        meta.add_row("agents", " → ".join(run.agents))
     meta.add_row(
         "status",
         Text(run.status, style=_STATUS_STYLE.get(run.status, ""))
@@ -421,6 +426,8 @@ def show(
             kind = _SHORT_OP.get(step.operation, step.operation)
             head = Text(f"{kind}{_SOURCE_MARK.get(step.source, '')} ", style="bold")
             head.append(step.name)
+            if step.agent and step.operation != "invoke_agent":
+                head.append(f"\n@{step.agent}", style="magenta")
             if usd:
                 head.append(f"\n{usd}", style="dim")
             if mark:
@@ -435,7 +442,10 @@ def show(
                 body.append(("\n" if body.plain else "") + "✗ " + err, style="red")
             table.add_row(str(step.idx), head, body)
         else:
-            table.add_row(str(step.idx), op, step.name, inp, out, err, usd, flag)
+            name = Text(step.name)
+            if step.agent and step.operation != "invoke_agent":
+                name.append(f" @{step.agent}", style="magenta")
+            table.add_row(str(step.idx), op, name, inp, out, err, usd, flag)
     if steps:
         console.print(table)
     elif run.steps:

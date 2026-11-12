@@ -9,6 +9,7 @@ replayed ``parse()`` result, so any object with the same shape works.
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import warnings
 from typing import Any
@@ -76,17 +77,10 @@ def _retrieve(inner: Any, server: str | None, adapter: ChatAdapter = RESPONSES_R
     return retrieve
 
 
-def _adapter(base: ChatAdapter, provider: str) -> ChatAdapter:
-    if provider == base.provider:
+def _adapter(base: ChatAdapter, provider: str, agent: str | None = None) -> ChatAdapter:
+    if provider == base.provider and agent == base.agent:
         return base
-    return ChatAdapter(
-        provider,
-        base.api,
-        base.normalize_request,
-        base.normalize_response,
-        base.new_assembler,
-        base.operation,
-    )
+    return dataclasses.replace(base, provider=provider, agent=agent)
 
 
 def _is_async(resource: Any) -> bool:
@@ -247,10 +241,10 @@ def _wrap_resource(inner: Any, adapter: ChatAdapter, server: str | None, **extra
 class WrappedOpenAI(WrappedClient):
     """Thin proxy around ``openai.OpenAI`` / ``openai.AsyncOpenAI`` (or compatible)."""
 
-    def __init__(self, client: Any, *, provider: str = "openai") -> None:
+    def __init__(self, client: Any, *, provider: str = "openai", agent: str | None = None) -> None:
         server = server_address(client)
-        overrides: dict[str, Any] = {"_crashlab_provider": provider}
-        adapter = _adapter(CHAT, provider)
+        overrides: dict[str, Any] = {"_crashlab_provider": provider, "_crashlab_agent": agent}
+        adapter = _adapter(CHAT, provider, agent)
         chat = getattr(client, "chat", None)
         if chat is not None and getattr(chat, "completions", None) is not None:
             completions = _wrap_resource(chat.completions, adapter, server)
@@ -263,23 +257,23 @@ class WrappedOpenAI(WrappedClient):
             overrides["beta"] = Proxy(beta, chat=Proxy(beta_chat, completions=beta_completions))
         responses = getattr(client, "responses", None)
         if responses is not None and callable(getattr(responses, "create", None)):
-            resp_adapter = _adapter(RESPONSES, provider)
+            resp_adapter = _adapter(RESPONSES, provider, agent)
             extra = {}
             if callable(getattr(responses, "retrieve", None)):
                 extra["retrieve"] = _retrieve(
-                    responses, server, _adapter(RESPONSES_RETRIEVE, provider)
+                    responses, server, _adapter(RESPONSES_RETRIEVE, provider, agent)
                 )
             overrides["responses"] = _wrap_resource(responses, resp_adapter, server, **extra)
         embeddings = getattr(client, "embeddings", None)
         if embeddings is not None and callable(getattr(embeddings, "create", None)):
             emb_kw: dict[str, Any] = {
-                "create": _create(embeddings, _adapter(EMBEDDINGS, provider), server)
+                "create": _create(embeddings, _adapter(EMBEDDINGS, provider, agent), server)
             }
             overrides["embeddings"] = Proxy(embeddings, **emb_kw)
         super().__init__(client, **overrides)
 
     def _rewrap(self, client: Any) -> WrappedOpenAI:
-        return WrappedOpenAI(client, provider=self._crashlab_provider)
+        return WrappedOpenAI(client, provider=self._crashlab_provider, agent=self._crashlab_agent)
 
 
 def looks_like_openai(client: Any) -> bool:
@@ -290,13 +284,15 @@ def looks_like_openai(client: Any) -> bool:
     return callable(getattr(getattr(client, "responses", None), "create", None))
 
 
-def wrap_openai(client: Any, *, provider: str = "openai") -> WrappedOpenAI:
+def wrap_openai(
+    client: Any, *, provider: str = "openai", agent: str | None = None
+) -> WrappedOpenAI:
     if not looks_like_openai(client):
         raise TypeError(
             f"{type(client).__name__} has neither chat.completions.create nor responses.create"
         )
     _warn_unrecorded_chat(client)
-    return WrappedOpenAI(client, provider=provider)
+    return WrappedOpenAI(client, provider=provider, agent=agent)
 
 
 def _warn_unrecorded_chat(client: Any) -> None:

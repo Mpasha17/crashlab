@@ -37,6 +37,7 @@ from .checks import ChecksConfig, CircuitBreakerError
 from .compare import RunDiff, diff
 from .context import (
     ContextThreadPoolExecutor,
+    agent_scope,
     bind_context,
     copy_context_to_thread,
     is_replaying,
@@ -124,6 +125,7 @@ __all__ = [
     "Verification",
     "__version__",
     "agent",
+    "agent_scope",
     "bind_context",
     "budgets",
     "check",

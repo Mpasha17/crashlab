@@ -347,7 +347,14 @@ def watch_cmd(
 
 
 def select_steps(
-    run: Run, *, errors: bool, tools: bool, llm: bool, failing: bool, context: int = 2
+    run: Run,
+    *,
+    errors: bool,
+    tools: bool,
+    llm: bool,
+    failing: bool,
+    context: int = 2,
+    agent: str | None = None,
 ) -> tuple[list[Step], str | None]:
     """Steps for `crashlab show` filters, plus a one-line note describing the filter
     (None when nothing is filtered). ``tools`` / ``llm`` combine as a union; ``errors``
@@ -362,6 +369,10 @@ def select_steps(
             ops |= {"chat", "embeddings"}
         steps = [s for s in steps if s.operation in ops]
         notes.append(" + ".join(n for n, on in (("tool", tools), ("llm", llm)) if on) + " steps")
+    if agent is not None:
+        steps = [s for s in steps if s.agent == agent]
+        known = ", ".join(run.agents) or "none labelled"
+        notes.append(f"agent {agent}" + ("" if agent in run.agents else f" (agents: {known})"))
     if errors:
         steps = [s for s in steps if s.error is not None]
         notes.append("steps with an error")

@@ -9,6 +9,7 @@ Also ``count_tokens`` (a ``custom`` step). Not intercepted yet: ``messages.batch
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 from typing import Any
 
@@ -54,19 +55,21 @@ def _is_async_messages(messages: Any) -> bool:
     return inspect.iscoroutinefunction(getattr(messages, "create", None))
 
 
-def _wrap_messages(messages: Any, server: str | None) -> Proxy:
+def _wrap_messages(messages: Any, server: str | None, agent: str | None = None) -> Proxy:
     """``messages`` (or ``beta.messages``) with create / stream / parse /
     with_raw_response.create recorded."""
     is_async = _is_async_messages(messages)
+    msg_adapter = MESSAGES if agent is None else dataclasses.replace(MESSAGES, agent=agent)
+    ct_adapter = COUNT_TOKENS if agent is None else dataclasses.replace(COUNT_TOKENS, agent=agent)
 
     def create(*args: Any, **kwargs: Any) -> Any:
-        return invoke(MESSAGES, messages.create, args, kwargs, server=server, is_async=is_async)
+        return invoke(msg_adapter, messages.create, args, kwargs, server=server, is_async=is_async)
 
     def stream(*args: Any, **kwargs: Any) -> Any:
-        patched, idx, applied = prepare_request(MESSAGES, dict(kwargs))
+        patched, idx, applied = prepare_request(msg_adapter, dict(kwargs))
         if applied:
             args, kwargs = (), patched
-        call = ChatCall(MESSAGES, kwargs, server=server, stream=True, idx=idx,
+        call = ChatCall(msg_adapter, kwargs, server=server, stream=True, idx=idx,
                         patches=applied)  # fmt: skip
         src = call.replay_source()
         if src is not None:
@@ -86,7 +89,7 @@ def _wrap_messages(messages: Any, server: str | None) -> Proxy:
     if callable(getattr(messages, "parse", None)):
 
         def parse(*args: Any, **kwargs: Any) -> Any:
-            out = invoke(MESSAGES, messages.parse, args, kwargs, server=server,
+            out = invoke(msg_adapter, messages.parse, args, kwargs, server=server,
                          is_async=is_async)  # fmt: skip
             if is_async:
 
@@ -101,7 +104,7 @@ def _wrap_messages(messages: Any, server: str | None) -> Proxy:
     if callable(getattr(messages, "count_tokens", None)):
 
         def count_tokens(*args: Any, **kwargs: Any) -> Any:
-            return invoke(COUNT_TOKENS, messages.count_tokens, args, kwargs, server=server,
+            return invoke(ct_adapter, messages.count_tokens, args, kwargs, server=server,
                           is_async=is_async)  # fmt: skip
 
         count_tokens.__doc__ = getattr(messages.count_tokens, "__doc__", None)
@@ -111,7 +114,7 @@ def _wrap_messages(messages: Any, server: str | None) -> Proxy:
 
         def raw_create(*args: Any, **kwargs: Any) -> Any:
             return invoke(
-                MESSAGES, raw.create, args, kwargs, server=server, is_async=is_async, raw=True
+                msg_adapter, raw.create, args, kwargs, server=server, is_async=is_async, raw=True
             )
 
         raw_create.__doc__ = getattr(raw.create, "__doc__", None)
@@ -120,17 +123,20 @@ def _wrap_messages(messages: Any, server: str | None) -> Proxy:
 
 
 class WrappedAnthropic(WrappedClient):
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, *, agent: str | None = None) -> None:
         server = server_address(client)
-        overrides: dict[str, Any] = {"messages": _wrap_messages(client.messages, server)}
+        overrides: dict[str, Any] = {
+            "messages": _wrap_messages(client.messages, server, agent),
+            "_crashlab_agent": agent,
+        }
         beta = getattr(client, "beta", None)
         beta_messages = getattr(beta, "messages", None)
         if callable(getattr(beta_messages, "create", None)):
-            overrides["beta"] = Proxy(beta, messages=_wrap_messages(beta_messages, server))
+            overrides["beta"] = Proxy(beta, messages=_wrap_messages(beta_messages, server, agent))
         super().__init__(client, **overrides)
 
     def _rewrap(self, client: Any) -> WrappedAnthropic:
-        return WrappedAnthropic(client)
+        return WrappedAnthropic(client, agent=self._crashlab_agent)
 
 
 def _already_parsed(obj: Any) -> bool:
@@ -187,7 +193,7 @@ def looks_like_anthropic(client: Any) -> bool:
     return callable(getattr(getattr(client, "messages", None), "create", None))
 
 
-def wrap_anthropic(client: Any) -> WrappedAnthropic:
+def wrap_anthropic(client: Any, *, agent: str | None = None) -> WrappedAnthropic:
     if not looks_like_anthropic(client):
         raise TypeError(f"{type(client).__name__} has no messages.create method")
-    return WrappedAnthropic(client)
+    return WrappedAnthropic(client, agent=agent)

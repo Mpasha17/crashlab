@@ -33,6 +33,12 @@ Mode = Literal["record", "replay", "fork"]
 SUPPORTED_MODES: tuple[Mode, ...] = ("record", "replay", "fork")
 
 
+# unclaimed tool calls kept per run (calls a framework never runs as a @crashlab.tool
+# would otherwise pile up in a long run)
+_MAX_PENDING_TOOL_CALLS = 64
+_PENDING_AGENT = "_crashlab_agent"  # agent of the chat step that requested a pending call
+
+
 @dataclass
 class RunContext:
     run: Run
@@ -142,7 +148,18 @@ class RunContext:
                 u.output_tokens += out
                 u.total_tokens += int(total) if total is not None else inp + out
                 if step.response:
-                    self.pending_tool_calls = list(step.response.get("tool_calls") or [])
+                    # keep earlier unclaimed calls: concurrent sub-agents in one run each
+                    # wait for their own tool calls (claimed newest first, bounded)
+                    agent = step.attributes.get(AGENT_ATTR)
+                    calls = [
+                        {**c, _PENDING_AGENT: agent} if agent else c
+                        for c in step.response.get("tool_calls") or []
+                        if isinstance(c, dict)
+                    ]
+                    if calls:
+                        self.pending_tool_calls = (self.pending_tool_calls + calls)[
+                            -_MAX_PENDING_TOOL_CALLS:
+                        ]
             elif step.operation == "embeddings":
                 # tokens count toward the run; cost stays chat-only (no embedding prices)
                 inp = int(step.attributes.get("gen_ai.usage.input_tokens") or 0)
@@ -196,10 +213,16 @@ class RunContext:
         self.add_findings([flag])
 
     def claim_tool_call_id(self, tool_name: str, args: dict[str, Any]) -> str | None:
-        """Pop the pending tool call that best matches this tool execution."""
+        call = self.claim_tool_call(tool_name, args)
+        return call.get("id") if call is not None else None
+
+    def claim_tool_call(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any] | None:
+        """Pop the pending tool call that best matches this tool execution: the newest
+        call with the same name and arguments, else the newest with the same name."""
         with self._lock:
             fallback = None
-            for i, call in enumerate(self.pending_tool_calls):
+            for i in range(len(self.pending_tool_calls) - 1, -1, -1):
+                call = self.pending_tool_calls[i]
                 if call.get("name") != tool_name:
                     continue
                 if fallback is None:
@@ -211,9 +234,9 @@ class RunContext:
                     except ValueError:
                         continue
                 if isinstance(parsed, dict) and all(args.get(k) == v for k, v in parsed.items()):
-                    return self.pending_tool_calls.pop(i).get("id")
+                    return self.pending_tool_calls.pop(i)
             if fallback is not None:
-                return self.pending_tool_calls.pop(fallback).get("id")
+                return self.pending_tool_calls.pop(fallback)
         return None
 
 
@@ -223,6 +246,40 @@ _current_run: contextvars.ContextVar[RunContext | None] = contextvars.ContextVar
 _current_span: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "crashlab_current_span", default=None
 )
+
+_current_agent: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "crashlab_current_agent", default=None
+)
+
+AGENT_ATTR = "gen_ai.agent.name"
+
+
+def current_agent() -> str | None:
+    """The agent name set by the innermost :func:`agent_scope` (None outside one)."""
+    return _current_agent.get()
+
+
+@contextmanager
+def agent_scope(name: str) -> Iterator[None]:
+    """Attribute every step recorded inside the block to the agent ``name``
+    (``gen_ai.agent.name``), for multi-agent apps that share one LLM client::
+
+        with crashlab.agent_scope("researcher"):
+            reply = client.chat.completions.create(...)
+
+    Works in sync and async code (a ``with`` around ``await`` calls) and nests: the
+    innermost name wins. ``crashlab.wrap(client, agent=...)`` names a client's calls
+    regardless of the scope, and tool steps take the agent of the chat step that
+    requested them when no scope is active. Labels only: recording, replay and request
+    hashes are unchanged, so runs recorded with and without labels replay the same.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("crashlab.agent_scope(): name must be a non-empty string")
+    token = _current_agent.set(name)
+    try:
+        yield
+    finally:
+        _current_agent.reset(token)
 
 
 # Runs being recorded in this process, with the thread that started each. Frameworks that

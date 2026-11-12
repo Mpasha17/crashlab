@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
+from ..context import _PENDING_AGENT, AGENT_ATTR
 from ..replay.divergence import PatchedToolError, SideEffectBlockedError
 from ..replay.rebuild import rebuild_exception, recancel
 from ._steps import begin_step
@@ -76,9 +77,13 @@ def _begin(spec: ToolSpec, fn: Callable[..., Any], args: tuple, kwargs: dict):
         hash_input={"tool": spec.name, "args": call_args},
     )
     if pending is not None:
-        call_id = pending.ctx.claim_tool_call_id(spec.name, call_args)
-        if call_id:
-            pending.attributes["gen_ai.tool.call.id"] = call_id
+        call = pending.ctx.claim_tool_call(spec.name, call_args)
+        if call is not None:
+            if call.get("id"):
+                pending.attributes["gen_ai.tool.call.id"] = call["id"]
+            # the agent whose chat step requested this call, unless a scope names one
+            if call.get(_PENDING_AGENT) and AGENT_ATTR not in pending.attributes:
+                pending.attributes[AGENT_ATTR] = call[_PENDING_AGENT]
     return pending
 
 

@@ -129,11 +129,7 @@ def _finding_step(f: Any) -> int | None:
 
 def _caller_chat(run: Run, idx: int) -> int | None:
     """The chat step that decided on tool step ``idx``, if any."""
-    return next(
-        (s.idx for s in sorted(run.steps, key=lambda s: -s.idx)
-         if s.idx < idx and s.operation == "chat"),
-        None,
-    )  # fmt: skip
+    return run.caller_chat(idx)
 
 
 def _decision_step(run: Run, idx: int) -> int:

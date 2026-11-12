@@ -10,7 +10,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..context import RunContext, active_span, current, current_span_id
+from ..context import (
+    AGENT_ATTR,
+    RunContext,
+    active_span,
+    current,
+    current_agent,
+    current_span_id,
+)
 from ..models import ErrorInfo, Operation, Step, StepSource, utcnow
 from ..store.redact import get_redactor
 from .normalize import request_hash, to_jsonable
@@ -231,6 +238,10 @@ def begin_step(
     redactor = get_redactor()
     attrs = {"gen_ai.operation.name": operation}
     attrs.update(attributes or {})
+    if AGENT_ATTR not in attrs:
+        scoped = current_agent()
+        if scoped is not None:
+            attrs[AGENT_ATTR] = scoped
     return PendingStep(
         ctx=ctx,
         idx=ctx.next_idx() if idx is None else idx,

@@ -21,6 +21,7 @@ from .._ids import new_span_id, new_ulid
 from .._version import __version__
 from ..context import (
     RunContext,
+    agent_scope,
     bound_current,
     check_mode,
     register_live,
@@ -528,7 +529,7 @@ def agent(
                 if bound_current() is not None:
                     pending = _nested(args, kwargs)
                     try:
-                        with pending.activate():  # type: ignore[union-attr]
+                        with pending.activate(), agent_scope(agent_name):  # type: ignore[union-attr]
                             out = await f(*args, **kwargs)
                     except BaseException as exc:
                         pending.fail(exc)  # type: ignore[union-attr]
@@ -550,7 +551,7 @@ def agent(
                 if bound_current() is not None:
                     pending = _nested(args, kwargs)
                     try:
-                        with pending.activate():  # type: ignore[union-attr]
+                        with pending.activate(), agent_scope(agent_name):  # type: ignore[union-attr]
                             out = f(*args, **kwargs)
                     except BaseException as exc:
                         pending.fail(exc)  # type: ignore[union-attr]

@@ -104,6 +104,13 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   (asyncio tasks and `asyncio.to_thread` work out of the box). Calls in a child process
   (multiprocessing, `os.fork`) are not part of the parent's run; an agent called there
   records a run of its own.
+- **Multi-agent runs:** `crashlab.wrap(client, agent="refunds")` (one client per agent)
+  or `with crashlab.agent_scope("researcher"):` (a shared client) label each step with
+  `gen_ai.agent.name`; tool steps take the agent of the chat step that requested them.
+  `crashlab show` prints the agents and `@agent` per step, and checks can filter with
+  `run.tool_calls("issue_refund", agent="refunds")`. Sub-agents running concurrently
+  in one run keep each tool step linked to the chat step that asked for it. Labels only:
+  replay is unchanged. See [docs/multi-agent.md](docs/multi-agent.md).
 - **Local store** `.crashlab/` (or `$CRASHLAB_DIR`): a SQLite index plus one JSONL cassette
   per run. API keys, auth headers (`Authorization`, `x-api-key` ...) and token-like strings
   are redacted before anything is written; add your own rules with

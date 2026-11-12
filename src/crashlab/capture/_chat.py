@@ -47,6 +47,7 @@ class ChatAdapter:
     normalize_response: Callable[[Any], tuple[dict[str, Any], dict[str, Any]]]
     new_assembler: Callable[[], Assembler]
     operation: str = "chat"  # gen_ai.operation.name; "embeddings" for embeddings.create
+    agent: str | None = None  # gen_ai.agent.name, from crashlab.wrap(client, agent=...)
 
 
 _PARAM_ATTRS = (
@@ -65,6 +66,8 @@ def _request_attributes(
 ) -> dict[str, Any]:
     params = normalized.get("params") or {}
     attrs: dict[str, Any] = {"gen_ai.provider.name": adapter.provider, "crashlab.api": adapter.api}
+    if adapter.agent:
+        attrs["gen_ai.agent.name"] = adapter.agent
     if server:
         attrs["server.address"] = server
     if isinstance(params.get("model"), str):

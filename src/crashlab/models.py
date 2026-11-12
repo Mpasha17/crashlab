@@ -223,6 +223,14 @@ class Step(_Model):
         return self.request.get("args", {})
 
     @property
+    def agent(self) -> str | None:
+        """The agent this step belongs to in a multi-agent run (``gen_ai.agent.name``,
+        set by ``crashlab.wrap(client, agent=...)``, ``crashlab.agent_scope`` or a nested
+        ``@crashlab.agent``); None when not labelled."""
+        name = self.attributes.get("gen_ai.agent.name")
+        return name if isinstance(name, str) else None
+
+    @property
     def result(self) -> Any:
         return (self.response or {}).get("result")
 
@@ -269,13 +277,26 @@ class Run(_Model):
             return f"step {idx}"
         if step.operation != "execute_tool":
             return f"step {idx} ({step.operation} {step.name})"
-        caller = next(
-            (s for s in sorted(self.steps, key=lambda s: -s.idx)
-             if s.idx < idx and s.operation == "chat"),
-            None,
-        )  # fmt: skip
-        by = f", called by chat step {caller.idx}" if caller is not None else ""
+        caller = self.caller_chat(idx)
+        by = f", called by chat step {caller}" if caller is not None else ""
         return f"step {idx} (tool {step.name}{by})"
+
+    def caller_chat(self, idx: int) -> int | None:
+        """The chat step that requested tool step ``idx``: the latest earlier chat step
+        whose response holds the tool step's ``gen_ai.tool.call.id`` (exact even when
+        sub-agents run concurrently), else the nearest earlier chat step."""
+        step = next((s for s in self.steps if s.idx == idx), None)
+        chats = sorted(
+            (s for s in self.steps if s.idx < idx and s.operation == "chat"),
+            key=lambda s: -s.idx,
+        )
+        call_id = step.attributes.get("gen_ai.tool.call.id") if step is not None else None
+        if call_id:
+            for chat in chats:
+                calls = (chat.response or {}).get("tool_calls") or []
+                if any(isinstance(c, dict) and c.get("id") == call_id for c in calls):
+                    return chat.idx
+        return chats[0].idx if chats else None
 
     @model_validator(mode="before")
     @classmethod
@@ -318,12 +339,31 @@ class Run(_Model):
             if s.operation == "execute_tool" and (name is None or s.name == name)
         ]
 
-    def chat_steps(self) -> list[Step]:
-        return [s for s in self.steps if s.operation == "chat"]
+    def chat_steps(self, *, agent: str | None = None) -> list[Step]:
+        """Chat steps (optionally only those of one agent, see :attr:`Step.agent`)."""
+        return [
+            s for s in self.steps if s.operation == "chat" and (agent is None or s.agent == agent)
+        ]
 
-    def tool_calls(self, name: str | None = None, *, ok_only: bool = False) -> list[Step]:
-        """Tool steps (optionally only one tool / only those that did not raise)."""
-        return [s for s in self.tool_steps(name) if not (ok_only and s.error is not None)]
+    def tool_calls(
+        self, name: str | None = None, *, ok_only: bool = False, agent: str | None = None
+    ) -> list[Step]:
+        """Tool steps (optionally only one tool / only those that did not raise / only
+        those of one agent)."""
+        return [
+            s
+            for s in self.tool_steps(name)
+            if not (ok_only and s.error is not None) and (agent is None or s.agent == agent)
+        ]
+
+    @property
+    def agents(self) -> list[str]:
+        """Agent names labelled on this run's steps, in order of first appearance."""
+        seen: dict[str, None] = {}
+        for s in sorted(self.steps, key=lambda s: s.idx):
+            if s.agent is not None:
+                seen.setdefault(s.agent, None)
+        return list(seen)
 
     def tool_results(self, name: str | None = None) -> list[Any]:
         """Results of the tool calls that succeeded, in order."""

@@ -203,6 +203,9 @@ def _fix_and_verify(run, model, base_url, api_key, store, k, regress, pace_s, lo
 
 def _caller_chat_idx(run: Any, idx: int) -> int | None:
     """Chat step that decided on tool step ``idx``, if any (diagnose-v4 convention)."""
+    caller_chat = getattr(run, "caller_chat", None)
+    if callable(caller_chat):  # links by tool call id (concurrent sub-agents)
+        return caller_chat(idx)
     steps = getattr(run, "steps", None) or []
     return next(
         (s.idx for s in sorted(steps, key=lambda s: -s.idx)
