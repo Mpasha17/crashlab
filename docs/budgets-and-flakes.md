@@ -34,6 +34,15 @@ pytest plugin, exported tests and `crashlab verify` (a fix must also stay in bud
 `crashlab.budgets.summarize_usage(run)` returns the numbers it uses (tokens, cost, wall
 time, slowest call, largest prompt, and which steps are missing data).
 
+### One agent of a multi-agent run
+
+`within_budget(run, agent="researcher", max_llm_calls=4, max_cost_usd=0.01)` counts only
+that agent's steps (its label, see [multi-agent.md](multi-agent.md); `"researcher#2"` for
+one of two concurrent runs of it). The message then starts `budget (agent researcher):`.
+An agent with no steps fails (naming the agents the run has). `max_seconds` is the run's
+wall time and is refused with `agent=`; `max_call_seconds` works.
+`summarize_usage(run, agent=...)` gives the numbers.
+
 ### Where the numbers come from
 
 - Tokens: the usage each chat step's provider reported (`gen_ai.usage.*` attributes).

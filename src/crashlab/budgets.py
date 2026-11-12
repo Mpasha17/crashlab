@@ -83,15 +83,27 @@ def _chat_tokens(step: Step) -> tuple[int, int, int] | None:
     return inp, out, total if total is not None else inp + out
 
 
-def summarize_usage(run: Run) -> UsageSummary:
+def _agent_steps(run: Run, agent: str) -> list[Step]:
+    """Steps of one agent (a name, or a concurrent instance such as ``researcher#2``)."""
+    mine = {s.idx for s in run.chat_steps(agent=agent) + run.tool_calls(agent=agent)}
+    if "#" not in agent:
+        mine |= {s.idx for s in run.steps if s.agent == agent}
+    return [s for s in run.steps if s.idx in mine]
+
+
+def summarize_usage(run: Run, *, agent: str | None = None) -> UsageSummary:
     """Sum a run's usage from its steps (``run.steps``; falls back to the stored
-    ``run.usage`` totals when the run was loaded without steps)."""
+    ``run.usage`` totals when the run was loaded without steps). ``agent`` sums only the
+    steps of that agent (see :attr:`crashlab.Step.agent`; ``"researcher#2"`` for one
+    concurrent instance, see :meth:`crashlab.Run.agent_instances`); the run's wall time
+    is then not filled in."""
     from .pricing import step_cost
 
     u = UsageSummary()
-    steps = sorted(run.steps, key=lambda s: s.idx)
+    steps = sorted(run.steps if agent is None else _agent_steps(run, agent),
+                   key=lambda s: s.idx)  # fmt: skip
     if not steps:
-        return _from_stored_totals(run, u)
+        return u if agent is not None else _from_stored_totals(run, u)
     cost = 0.0
     for s in steps:
         u.steps += 1
@@ -133,7 +145,11 @@ def summarize_usage(run: Run) -> UsageSummary:
         else:
             cost += float(c)
     u.cost_usd = None if u.cost_missing else round(cost, 8)
-    _wall(run, u)
+    if agent is None:
+        _wall(run, u)
+    else:
+        u.replayed = run.replay_of is not None or run.forked_from is not None or bool(u.served)
+        u.wall_note = "wall time is per run, not per agent"
     return u
 
 
@@ -191,6 +207,7 @@ def within_budget(
     max_tool_calls: int | None = None,
     unknown: Unknown = "fail",
     replay_time: Unknown = "pass",
+    agent: str | None = None,
 ) -> str | None:
     """``None`` when every given limit holds, else a message naming each one exceeded.
 
@@ -210,6 +227,11 @@ def within_budget(
     ``max_seconds`` is not evaluated and ``max_call_seconds`` only times the live steps
     (none in a strict replay). Time is judged on the live recording. ``"fail"``: report
     "cannot check" there instead.
+
+    ``agent``: only count the steps of that agent in a multi-agent run (its label, see
+    :attr:`crashlab.Step.agent`, or one concurrent instance such as ``"researcher#2"``).
+    An agent with no steps fails. ``max_seconds`` (the run's wall time) cannot be given
+    with ``agent``; ``max_call_seconds`` can.
     """
     for arg, val in (("unknown", unknown), ("replay_time", replay_time)):
         if val not in ("fail", "pass"):
@@ -229,7 +251,14 @@ def within_budget(
     for name, value in limits.items():
         if value is not None and (isinstance(value, bool) or value < 0):
             raise ValueError(f"{name} must be a non-negative number, not {value!r}")
-    u = summarize_usage(run)
+    head = "budget: " if agent is None else f"budget (agent {agent}): "
+    if agent is not None:
+        if max_seconds is not None:
+            raise ValueError("max_seconds is the run's wall time; with agent= use max_call_seconds")
+        if not _agent_steps(run, agent):
+            known = ", ".join(run.agent_labels) or "none labelled"
+            return f"{head}no steps of agent {agent} (agents: {known})"
+    u = summarize_usage(run, agent=agent)
     over: list[str] = []
     missing: list[str] = []
 
@@ -279,4 +308,4 @@ def within_budget(
         over += [f"cannot check: {m}" for m in missing]
     if not over:
         return None
-    return "budget: " + "; ".join(over)
+    return head + "; ".join(over)

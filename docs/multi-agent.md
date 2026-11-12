@@ -99,6 +99,11 @@ Tools that take a framework context (PydanticAI `ctx: RunContext[...]`) work: th
 context is not recorded as a tool argument. Leave out other per-run arguments with
 `@crashlab.tool(ignore_args=("request_id",))`.
 
+## Budgets per agent
+
+`within_budget(run, agent="researcher", max_llm_calls=4)` checks one agent's steps
+only; see [budgets-and-flakes.md](budgets-and-flakes.md).
+
 ## The same agent running twice at once
 
 When one agent runs twice in parallel (a manager calls `researcher.as_tool()` for two
