@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,11 @@ class RunNotFoundError(LookupError):
     pass
 
 
+# generated ids are 26-char ULIDs; tests and older tools use short names. Letters, digits,
+# ".", "_" and "-", starting with a letter or digit (so never "." / ".." / "-x").
+_SAFE_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+
+
 def crashlab_dir() -> Path:
     """Resolve the store directory (``$CRASHLAB_DIR`` or ``./.crashlab``)."""
     return Path(os.environ.get(ENV_DIR) or ".crashlab").expanduser().resolve()
@@ -38,6 +44,13 @@ class Store:
 
     # paths ---------------------------------------------------------------------------
     def run_dir(self, run_id: str) -> Path:
+        """``<root>/runs/<run_id>``. A run id is one plain path component: an id taken
+        from a file (``crashlab import`` of a shared export) can never point outside the
+        store (``../x``, ``/abs``, ``C:x``, NUL)."""
+        if not isinstance(run_id, str) or not _SAFE_RUN_ID.fullmatch(run_id):
+            from .compact import safe_text
+
+            raise ValueError(f"not a valid run id: {safe_text(repr(run_id), 80)}")
         return self.root / "runs" / run_id
 
     def cassette_path(self, run_id: str) -> Path:
@@ -193,7 +206,11 @@ def import_run(
             RuntimeWarning,
             stacklevel=2,
         )
+    store.run_dir(run.run_id)  # rejects an id that is not a plain path component
     steps = [line_to_step(line, unknown) for line in body]
+    # every step is stored under the run's own directory, whatever its line claims
+    steps = [s if s.run_id == run.run_id else s.model_copy(update={"run_id": run.run_id})
+             for s in steps]  # fmt: skip
     if unknown:
         import warnings
 

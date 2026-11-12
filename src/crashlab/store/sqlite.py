@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import sqlite3
 import threading
 import time
@@ -82,12 +83,52 @@ CREATE TABLE IF NOT EXISTS diagnoses (
 _RANK = {"info": 0, "warn": 1, "error": 2, "critical": 3}
 
 
+_I64_MIN, _I64_MAX = -(2**63), 2**63 - 1
+
+
+def _sql_int(v: Any, default: int | None = None) -> int | None:
+    """A value for an INTEGER index column. The index only summarises a run (the cassette
+    and run.json keep the exact value), so a value SQLite cannot store must not stop the
+    recording: out-of-range ints are clamped, other types become ``default``."""
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, int):
+        return min(max(v, _I64_MIN), _I64_MAX)
+    if isinstance(v, float) and v.is_integer():
+        return min(max(int(v), _I64_MIN), _I64_MAX)
+    return default
+
+
+def _sql_text(v: Any) -> str | None:
+    """A value for a TEXT index column: lists or dicts (a malformed provider field or a
+    damaged import) are stored as JSON text instead of failing the insert."""
+    if v is None or isinstance(v, str):
+        return v
+    try:
+        return json.dumps(v, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _sql_real(v: Any, default: float | None = 0.0) -> float | None:
+    if isinstance(v, bool):
+        return float(v)
+    if isinstance(v, (int, float)):
+        try:
+            f = float(v)
+        except OverflowError:
+            return default
+        return f if math.isfinite(f) else default  # SQLite stores NaN as NULL
+    return default
+
+
 def _flag_row(f: dict[str, Any]) -> tuple[Any, ...]:
     """A finding (or a pre-v3 flag) as a flags-table row (the column names predate
     findings: detector = kind, step_idx = step)."""
     step = f.get("step", f.get("step_idx"))
-    return (step, f.get("kind") or f.get("detector") or "?", f.get("severity", "warn"),
-            f.get("message", ""))  # fmt: skip
+    kind = _sql_text(f.get("kind") or f.get("detector") or "?")
+    severity = _sql_text(f.get("severity", "warn"))
+    return (_sql_int(step), kind, severity, _sql_text(f.get("message", "")) or "")
 
 
 # Serialises schema setup across SQLiteIndex instances in this process; other processes
@@ -197,20 +238,20 @@ class SQLiteIndex:
             "outcome_reason": run.get("outcome_reason"),
             # index columns predate the Run field names forked_from / fork_step
             "parent_run_id": run.get("forked_from"),
-            "fork_at": run.get("fork_step"),
+            "fork_at": _sql_int(run.get("fork_step")),
             "replay_of": run.get("replay_of"),
             "started_at": run["started_at"],
             "ended_at": run.get("ended_at"),
             "code_version": run.get("code_version"),
-            "steps": usage.get("steps", 0),
-            "llm_calls": usage.get("llm_calls", 0),
-            "tool_calls": usage.get("tool_calls", 0),
-            "errors": usage.get("errors", 0),
-            "input_tokens": usage.get("input_tokens", 0),
-            "output_tokens": usage.get("output_tokens", 0),
-            "total_tokens": usage.get("total_tokens", 0),
+            "steps": _sql_int(usage.get("steps", 0), 0),
+            "llm_calls": _sql_int(usage.get("llm_calls", 0), 0),
+            "tool_calls": _sql_int(usage.get("tool_calls", 0), 0),
+            "errors": _sql_int(usage.get("errors", 0), 0),
+            "input_tokens": _sql_int(usage.get("input_tokens", 0), 0),
+            "output_tokens": _sql_int(usage.get("output_tokens", 0), 0),
+            "total_tokens": _sql_int(usage.get("total_tokens", 0), 0),
             "flag_count": len(findings),
-            "cost_usd": usage.get("cost_usd"),
+            "cost_usd": _sql_real(usage.get("cost_usd"), None),
             "max_severity": max(
                 (f.get("severity", "info") for f in findings),
                 key=lambda sev: _RANK.get(sev, 0),
@@ -240,20 +281,22 @@ class SQLiteIndex:
         reasons = attrs.get("gen_ai.response.finish_reasons") or []
         row = {
             "run_id": step["run_id"],
-            "idx": step["idx"],
+            "idx": _sql_int(step["idx"], 0),
             "span_id": step["span_id"],
             "parent_span_id": step.get("parent_span_id"),
             "operation": step["operation"],
             "name": step["name"],
             "request_hash": step["request_hash"],
-            "tool_call_id": attrs.get("gen_ai.tool.call.id"),
-            "finish_reason": reasons[0] if reasons else None,
-            "input_tokens": attrs.get("gen_ai.usage.input_tokens"),
-            "output_tokens": attrs.get("gen_ai.usage.output_tokens"),
-            "error_type": err.get("type"),
-            "error_message": err.get("message"),
+            "tool_call_id": _sql_text(attrs.get("gen_ai.tool.call.id")),
+            "finish_reason": _sql_text(
+                reasons[0] if isinstance(reasons, list) and reasons else None
+            ),
+            "input_tokens": _sql_int(attrs.get("gen_ai.usage.input_tokens")),
+            "output_tokens": _sql_int(attrs.get("gen_ai.usage.output_tokens")),
+            "error_type": _sql_text(err.get("type")),
+            "error_message": _sql_text(err.get("message")),
             "started_at": step["started_at"],
-            "duration_ms": step.get("duration_ms", 0.0),
+            "duration_ms": _sql_real(step.get("duration_ms", 0.0)),
             "source": step.get("source", "live"),
         }
         cols = ", ".join(row)
