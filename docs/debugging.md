@@ -6,6 +6,7 @@ deterministic: it reads the local store (`.crashlab/` or `$CRASHLAB_DIR`) and ca
 model.
 
 ```bash
+crashlab triage                         # failures grouped, diagnosed offline, ranked
 crashlab cluster                        # which failures keep happening?
 crashlab show 01M7... --failing         # the steps around the first failure
 crashlab show 01M7... --step 3          # everything recorded for that step
@@ -117,6 +118,56 @@ exception with the same message at the same tool share a cluster, and one bug th
 produces differently worded errors is split. A diagnosis label only takes part for runs
 you diagnosed, so a diagnosed and an undiagnosed run of the same failure land in
 different clusters by default (`--by name,error,step,checks` leaves the label out).
+
+## `crashlab triage`
+
+One command for a store full of failures: `crashlab cluster`, then a diagnosis of each
+cluster's newest run, ranked largest cluster first.
+
+```bash
+crashlab triage                           # top 10 clusters
+crashlab triage --since 1d --name refund-bot --limit 0   # all clusters of today's runs
+crashlab triage --rediagnose              # replace stored diagnoses with new heuristic ones
+crashlab triage --no-save --json          # read-only, machine-readable
+```
+
+```
+┏━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ # ┃ runs ┃ failure                             ┃ diagnosis                                ┃
+┡━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ 2 │    1 │ hs-orchestrator                     │ EXTERNAL_FAILURE (heuristic, new)        │
+│   │      │ first failure: execute_tool research│ step 4 (chat qwen/qwen3.8-27b) @research │
+│   │      │ → openai.RateLimitError [429] ...   │ Heuristic: the LLM call failed: ...      │
+│   │      │ latest 01M78TDG4H · 11-13 02:55     │ step 4 error: openai.RateLimitError ...  │
+│   │      │                                     │ crashlab show 01M78TDG4H --failing       │
+│   │      │                                     │ crashlab fix 01M78TDG4H                  │
+│   │      │                                     │ crashlab export-test 01M78TDG4H          │
+└───┴──────┴─────────────────────────────────────┴──────────────────────────────────────────┘
+```
+
+For each cluster: its size and signature, the diagnosis label, the step it blames (and
+that step's agent in a multi-agent run), the root cause, one line of evidence (`step N
+field: quote`), and the next commands: `show --failing` to read the steps, `fix` to get
+proposed patches (an LLM call), `export-test` to turn the run into a regression test.
+
+- **Offline.** New diagnoses are `crashlab diagnose --heuristic`: rules over checks,
+  findings and errors, no LLM and no keys. They are labelled `heuristic`; a diagnosis
+  already stored with the run (e.g. from `crashlab diagnose` with a model) is reused and
+  labelled with its model and `stored`. `--rediagnose` replaces stored diagnoses with new
+  heuristic ones. For a second opinion on one cluster, run `crashlab diagnose RUN` with a
+  model.
+- **Only representatives are diagnosed** (the top `--limit` clusters, default 10), and
+  the diagnosis is saved with that run (`--no-save` keeps the store untouched).
+- **Signature.** Same as `crashlab cluster` but without `label` by default, so a
+  diagnosis saved by triage does not split its cluster next time; `--by` overrides.
+- In Python: `from crashlab.triage import triage_runs; triage_runs(since=..., name=...)`
+  returns ranked `TriageItem`s (`label`, `failing_step`, `agent`, `evidence`,
+  `diagnoser`, `diagnosis_source`, `commands`, ...).
+
+**Limits.** Heuristic labels are rule-based guesses: right on the bundled diagnose
+benchmark, but they read checks, findings and errors, not intent. A cluster's diagnosis
+is its newest run's; other runs in it may have failed for a different reason the
+signature does not see.
 
 ## `crashlab show` filters
 

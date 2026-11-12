@@ -226,12 +226,12 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   (redacted again on the way out).
 - **Debug many runs (unreleased):** `crashlab search` (text and filters across runs: tools, errors,
   checks, labels, models, time), `crashlab cluster` (group failed runs by a conservative
-  failure signature), `crashlab show RUN --failing / --errors / --tools / --step N`,
+  failure signature), `crashlab triage` (clusters, each diagnosed offline and ranked), `crashlab show RUN --failing / --errors / --tools / --step N`,
   `crashlab watch` (polls the local store and prints runs as they finish), and a
   per-step timing / cost waterfall in the HTML report. All of it reads the local store
   only; there is no server or hosted view. See
   [docs/debugging.md](https://github.com/Mpasha17/crashlab/blob/main/docs/debugging.md).
-- **CLI:** `ls`, `show`, `search`, `cluster`, `watch`, `flakes`, `report`, `diff`, `check`,
+- **CLI:** `ls`, `show`, `search`, `cluster`, `triage`, `watch`, `flakes`, `report`, `diff`, `check`,
   `diagnose`, `fix`, `verify`, `export-test`, `replay`, `fork`, `export`, `import`, `bench`
   (`crashlab --help`); in Python, `crashlab.load("last")`. `scripts/smoke.sh` runs every
   command end to end offline against a fake model server, in CI.
@@ -346,6 +346,7 @@ crashlab show last --failing      # steps around the first failure (--errors, --
 crashlab show last --step 3       # full request / response / traceback for one step
 crashlab search "timed out" --since 1d   # text + filters (--tool, --check, --errors ...)
 crashlab cluster       # group failed runs by failure signature, largest first
+crashlab triage        # clusters + an offline (heuristic) diagnosis of each, ranked
 crashlab watch --failed           # second terminal: print failures as runs finish
 crashlab replay last   # offline re-run from the cassette; exit 1 + diff on divergence
 crashlab check last    # re-run the oracles and the runtime checks (--save to store them)

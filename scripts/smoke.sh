@@ -61,6 +61,8 @@ step 0 "refund-bot"            -- watch --existing --timeout 1
 step 0 "outcome: pass"         -- check "$GOOD"
 step 1 "fail"                  -- check --all --fail-on error
 step 0 "TASK_SPEC_VIOLATION"   -- diagnose "$BAD" --heuristic --save
+step 0 "reused 1 stored"       -- triage
+step 0 '"diagnoser": "heuristic"' -- triage --json --since 1d --name refund-bot
 step 0 "TASK_SPEC_VIOLATION"   -- report "$BAD"
 step 0 "wrote"                 -- report "$BAD" --html "$TMP/report.html"
 grep -q "timing and cost" "$TMP/report.html"

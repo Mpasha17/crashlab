@@ -24,6 +24,14 @@ from .cli import (
 from .models import Run, Step
 from .store import Store
 
+_TRIAGE_BY = ("name", "error", "step", "checks", "findings")
+
+
+def _clip(text: str, width: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
 # --- crashlab search ----------------------------------------------------------------
 
 
@@ -280,6 +288,100 @@ def cluster_cmd(
     _unreadable_note(console, result.unreadable)
 
 
+# --- crashlab triage ----------------------------------------------------------------
+
+
+@app.command("triage")
+def triage_cmd(
+    name: str | None = typer.Option(None, "--name", help="Only runs of this agent name."),
+    since: str | None = typer.Option(
+        None, "--since", help="Started within 30m / 2h / 7d / 1w, or after an ISO date."
+    ),
+    limit: int = typer.Option(
+        10, "--limit", "-n", help="Diagnose and show the top N clusters (0 = all)."
+    ),
+    by: str = typer.Option(
+        ",".join(_TRIAGE_BY),
+        "--by",
+        help="Signature components (see crashlab cluster); default leaves out the label.",
+    ),
+    flagged: bool = typer.Option(
+        False, "--flagged", help="Also runs that passed with an error/critical finding."
+    ),
+    rediagnose: bool = typer.Option(
+        False, "--rediagnose", help="Replace stored diagnoses with new heuristic ones."
+    ),
+    save: bool = typer.Option(
+        True, "--save/--no-save", help="Store new diagnoses with the representative runs."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the triage as JSON."),
+) -> None:
+    """Triage the store's failures: cluster failed runs, diagnose each cluster's newest
+    run offline (heuristic, no LLM or keys; a diagnosis already stored is reused) and
+    print them ranked with the commands to go further."""
+    from .triage import triage_runs
+
+    console = _console()
+    parts = tuple(p.strip() for p in by.split(",") if p.strip())
+    try:
+        r = triage_runs(
+            store=Store(), by=parts, name=name, since=_since(since), flagged=flagged,
+            limit=limit or None, rediagnose=rediagnose, save=save,
+        )  # fmt: skip
+    except ValueError as exc:
+        console.print(f"[red]{_e(exc)}[/]")
+        raise typer.Exit(code=2) from None
+    if as_json:
+        typer.echo(json.dumps(r.to_dict(), indent=2, ensure_ascii=False, default=str))
+        return
+    if not r.items:
+        console.print(f"No failed runs to triage ({r.scanned} scanned).")
+        _unreadable_note(console, r.unreadable)
+        return
+    id_len = _unique_prefix_len(Store().index.find_run_ids(""))
+    table = Table(show_lines=True)
+    table.add_column("#", justify="right", no_wrap=True)
+    table.add_column("runs", justify="right", no_wrap=True, style="bold")
+    table.add_column("failure", overflow="fold", ratio=2)
+    table.add_column("diagnosis", overflow="fold", ratio=3)
+    for it in r.items:
+        fail = Text()
+        if it.signature.get("name"):
+            fail.append(it.signature["name"], style="bold").append("\n")
+        fail.append(_clip(it.summary, 240))
+        rep = it.representative[:id_len]
+        fail.append(f"\nlatest {rep} · {_local_time(it.last_seen)[5:16]}", style="dim")
+        diag = Text()
+        if it.diagnosis_error:
+            diag.append(f"diagnosis failed: {it.diagnosis_error}", style="red")
+        elif it.label:
+            diag.append(it.label, style="bold")
+            src = "heuristic" if it.diagnoser == "heuristic" else f"model {it.diagnoser}"
+            diag.append(f" ({src}, {it.diagnosis_source})", style="dim")
+            if it.failing_step is not None:
+                diag.append(f"\nstep {it.failing_step}")
+                if it.step_description:
+                    diag.append(f" {it.step_description.split(' ', 2)[-1]}")
+                if it.agent:
+                    diag.append(f" @{it.agent}", style="magenta")
+            if it.root_cause:
+                diag.append("\n" + _clip(it.root_cause, 200))
+            if it.evidence:
+                diag.append("\n" + it.evidence, style="italic")
+        cmds = [c.replace(it.representative, rep) for c in it.commands]
+        diag.append("\n" + "\n".join(cmds), style="cyan")
+        table.add_row(str(it.rank), str(it.size), fail, diag)
+    console.print(table)
+    more = r.clusters_total - len(r.items)
+    console.print(
+        f"[dim]{r.failed} failed run(s) in {r.clusters_total} cluster(s)"
+        + (f" ({more} more: --limit 0)" if more else "")
+        + f" · {r.scanned} scanned · diagnosed {r.diagnosed} new, reused {r.reused} stored · "
+        "heuristic labels are rule-based guesses; `crashlab diagnose RUN` asks an LLM[/]"
+    )
+    _unreadable_note(console, r.unreadable)
+
+
 # --- crashlab watch -----------------------------------------------------------------
 
 
@@ -495,4 +597,11 @@ def print_step_detail(console: Any, run: Run, idx: int, *, as_json: bool) -> Non
         console.print(Text(step.error.traceback.rstrip()))
 
 
-__all__ = ["cluster_cmd", "failure_line", "print_step_detail", "search_cmd", "select_steps"]
+__all__ = [
+    "cluster_cmd",
+    "triage_cmd",
+    "failure_line",
+    "print_step_detail",
+    "search_cmd",
+    "select_steps",
+]

@@ -2125,7 +2125,7 @@ def _first_sentence(text: str, limit: int = 60) -> str:
 # `crashlab --help`: the commands grouped in the order a failing run is handled
 _HELP_PANELS = (
     ("Inspect", ("ls", "show", "search", "cluster", "watch", "report", "diff", "check", "flakes")),
-    ("Diagnose and fix", ("diagnose", "fix", "verify", "export-test")),
+    ("Diagnose and fix", ("triage", "diagnose", "fix", "verify", "export-test")),
     ("Replay and fork", ("replay", "fork")),
     ("Share and benchmark", ("export", "import", "bench")),
 )
