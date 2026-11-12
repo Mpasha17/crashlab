@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..models import Run, Step, TaxonomyLabel
-from .fields import step_fields
+from .fields import normalize, output_field, step_fields
 
 # A check that crashed on a programming error in the check itself (a typo'd attribute
 # of a crashlab object, an undefined name, a missing import): not evidence about the run.
@@ -100,6 +100,9 @@ _FINDING_RULES: dict[str, tuple[TaxonomyLabel | None, int]] = {
     "tool_result_instructions": (TaxonomyLabel.TASK_SPEC_VIOLATION, 2),
     # the agent code let a tool exception end the run; the model never saw it
     "unhandled_tool_error": (TaxonomyLabel.TOOL_ERROR_MISHANDLED, 4),
+    # the turn ended with no text and no tool call (a handoff only "thought about"):
+    # stronger than a check that only says what is missing at the end
+    "empty_reply": (TaxonomyLabel.TASK_SPEC_VIOLATION, 5),
 }
 
 
@@ -174,6 +177,37 @@ def _step_for_check(run: Run, message: str, steps: dict[int, Step]) -> int | Non
     if tools:
         return tools[-1].idx
     return run.steps[-1].idx if run.steps else None
+
+
+def _ev(run: Run, idx: int, quote: str) -> dict[str, Any]:
+    """An evidence item naming the field the quote was taken from (the step's output
+    before its input), so it is not attributed to a prompt that repeats it."""
+    item: dict[str, Any] = {"step": idx, "quote": quote}
+    step = next((s for s in run.steps if s.idx == idx), None)
+    fld = output_field(step, quote) if step is not None else None
+    if fld:
+        item["field"] = fld
+    return item
+
+
+# A check message that quotes a reply ("assert ... , out[:200]") points at the chat step
+# that first wrote it, not at a tool whose result shares its numbers (nov13 Haystack: the
+# orchestrator turned the tool's "7 October" into "July 7"; the lookup was blamed).
+_MIN_QUOTED_REPLY = 24
+
+
+def _reply_quoted_by(run: Run, message: str) -> Step | None:
+    m = normalize(message or "").strip(" '\"")
+    if len(m) < _MIN_QUOTED_REPLY:
+        return None
+    probe = m[:120]
+    for s in run.steps:
+        if s.operation != "chat":
+            continue
+        text = normalize(step_fields(s).get("response.text", ""))
+        if len(text) >= _MIN_QUOTED_REPLY and (probe in text or text[:120] in m):
+            return s
+    return None
 
 
 def _walk_nums(value: Any) -> list[str]:
@@ -522,6 +556,15 @@ def candidates(run: Run) -> list[Candidate]:
         if damage is None:
             continue
         reason = f"check {c.name} failed: {c.message or ''}".strip()
+        quoted = (
+            None
+            if refs or _ACTION_VIOLATION.search(c.message or "")
+            else _reply_quoted_by(run, c.message or "")
+        )
+        if quoted is not None:
+            damage = quoted.idx
+            who = f"agent {quoted.agent}'s" if quoted.agent else "the"
+            reason += f" (the check quotes {who} reply at step {quoted.idx})"
         label = TaxonomyLabel.TASK_SPEC_VIOLATION
         if _NOT_CALLED.search(c.message or ""):  # "... but issue_refund was never called"
             label = TaxonomyLabel.WRONG_TOOL_SELECTION
@@ -670,7 +713,7 @@ def heuristic_raw(run: Run, cands: list[Candidate] | None = None) -> dict[str, A
             "failing_step": primary.step,
             "confidence": 0.5,
             "root_cause": cause,
-            "evidence": [{"step": ev_step, "quote": q} for q in primary.quotes if q],
+            "evidence": [_ev(run, ev_step, q) for q in primary.quotes if q],
         }
         if secondary:
             out["secondary"] = secondary
@@ -681,7 +724,5 @@ def heuristic_raw(run: Run, cands: list[Candidate] | None = None) -> dict[str, A
         "confidence": 0.0,
         "root_cause": "No rule gives a label"
         + (f"; strongest signal: {cands[0].reason}" if cands else " (no signal in the run)."),
-        "evidence": [{"step": cands[0].step, "quote": q} for q in cands[0].quotes if q]
-        if cands
-        else [],
+        "evidence": [_ev(run, cands[0].step, q) for q in cands[0].quotes if q] if cands else [],
     }

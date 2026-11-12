@@ -111,14 +111,34 @@ def normalize(text: str) -> str:
     return " ".join(_ESCAPES.sub(" ", text).split())
 
 
-def find_quote(step: Step, quote: str) -> str | None:
+def find_quote(step: Step, quote: str, prefer: Any = None) -> str | None:
     """The field of ``step`` that contains ``quote`` verbatim (after normalization), or
-    None. Leading / trailing ellipses in the quote are ignored."""
+    None. Leading / trailing ellipses in the quote are ignored. ``prefer`` (a field name
+    the diagnoser gave) wins when the quote is really there: a critic's reply "APPROVE"
+    is also in its system prompt ("reply APPROVE if ..."), which is listed first."""
     q = normalize(_ELLIPSIS.sub("", normalize(_LABEL.sub("", quote))).strip())
     if len(q) < 3:
         return None
-    for name, text in step_fields(step).items():
+    fields = step_fields(step)
+    if isinstance(prefer, str) and prefer in fields and q in normalize(fields[prefer]):
+        return prefer
+    for name, text in fields.items():
         if q in normalize(text):
+            return name
+    return None
+
+
+# what the step did before what it was given: a heuristic quote names the step's action
+_OUTPUT_FIRST = ("error", "response.text", "response.reasoning", "result", "args", "call")
+
+
+def output_field(step: Step, quote: str) -> str | None:
+    """The field of ``step`` holding ``quote``, looking at the step's own output first."""
+    q = normalize(_ELLIPSIS.sub("", normalize(_LABEL.sub("", quote))).strip())
+    fields = step_fields(step)
+    order = [*_OUTPUT_FIRST, *(k for k in fields if k.startswith("response.tool_calls"))]
+    for name in order:
+        if name in fields and q and q in normalize(fields[name]):
             return name
     return None
 

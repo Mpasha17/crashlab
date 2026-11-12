@@ -127,7 +127,7 @@ def validate(raw: Any, run: Run, **extra: Any) -> Diagnosis:
         if idx is None or idx not in steps:
             notes.append(f"dropped quote {short!r}: step {item.get('step')!r} does not exist")
             continue
-        fld = find_quote(steps[idx], quote)
+        fld = find_quote(steps[idx], quote, prefer=item.get("field"))
         if fld is None and quote_in_run_error(run, quote):
             fld = "run.error"  # the run's exception, which surfaced after this step
         if fld is None:

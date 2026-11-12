@@ -99,6 +99,16 @@ Tools that take a framework context (PydanticAI `ctx: RunContext[...]`) work: th
 context is not recorded as a tool argument. Leave out other per-run arguments with
 `@crashlab.tool(ignore_args=("request_id",))`.
 
+## Diagnosing a multi-agent run
+
+The diagnoser's view tags each step with its agent (`[agent: critic]`). The
+`--heuristic` diagnoser uses the labels too: a failing check whose message quotes a
+reply (`assert ..., out[:200]`) blames the chat step that first wrote that text and names
+its agent, so a sub-agent that invented a fact is blamed rather than the orchestrator
+that repeated it, and an orchestrator that changed a correct fact is blamed rather than
+the lookup that returned it. Quotes name the field they came from (a critic's reply
+"APPROVE" is `response.text`, not its system prompt that also says "reply APPROVE").
+
 ## Not covered
 
 - Separate processes or services (an orchestrator calling a worker over HTTP) record
