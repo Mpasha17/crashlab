@@ -9,10 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from openai.types.chat import ChatCompletion
-from openai.types.chat.chat_completion import Choice
-from openai.types.chat.chat_completion_message import ChatCompletionMessage as Message
-from openai.types.completion_usage import CompletionUsage
 
 import crashlab
 from crashlab.checks import ChecksConfig, evaluate, resolve_config
@@ -101,6 +97,13 @@ def test_can_be_disabled():
 
 
 def test_live_wrapped_client_empty_completion_is_flagged():
+    # only this test needs the SDK; CI's first pass runs without provider SDKs
+    pytest.importorskip("openai")
+    from openai.types.chat import ChatCompletion
+    from openai.types.chat.chat_completion import Choice
+    from openai.types.chat.chat_completion_message import ChatCompletionMessage as Message
+    from openai.types.completion_usage import CompletionUsage
+
     empty = ChatCompletion(
         id="chatcmpl-1", model="m", object="chat.completion", created=0,
         choices=[Choice(index=0, message=Message(role="assistant", content=""),
