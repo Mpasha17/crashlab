@@ -235,7 +235,72 @@ def _result_type(result: Any) -> dict[str, Any] | None:
     if _is_rich(result) or _is_typed_scalar(result):
         cls = type(result)
         attrs[RESULT_TYPE] = f"{cls.__module__}:{cls.__qualname__}"
+    if not _is_rich(result):
+        nested = _nested_types(result)
+        if nested:
+            attrs[RESULT_TYPES] = nested
     return attrs or None
+
+
+# Models / dataclasses inside a plain dict / list / tuple result (``{"messages":
+# [ChatMessage, ...]}`` from an agent used as a tool): their paths and types, so replay
+# validates each back into its type. Not descended into: pydantic rebuilds their insides.
+RESULT_TYPES = "crashlab.result.types"
+_MAX_TYPED = 1000
+
+
+def _nested_types(obj: Any) -> list[list[Any]]:
+    out: list[list[Any]] = []
+    path: list[Any] = []
+
+    def walk(o: Any) -> None:
+        if len(out) >= _MAX_TYPED or len(path) > 50:
+            return
+        if isinstance(o, dict):
+            items: Any = ((str(k), v) for k, v in o.items())
+        elif isinstance(o, (list, tuple)) and not hasattr(o, "_fields"):
+            items = enumerate(o)
+        else:
+            return
+        for key, v in items:
+            path.append(key)
+            if _is_rich(v):
+                cls = type(v)
+                if "<locals>" not in cls.__qualname__:
+                    out.append([list(path), f"{cls.__module__}:{cls.__qualname__}"])
+            elif isinstance(v, (dict, list, tuple)):
+                walk(v)
+            path.pop()
+
+    walk(obj)
+    return out
+
+
+def _restore_types(value: Any, typed: Any) -> Any:
+    """Validate the recorded JSON at each path of ``typed`` back into its type; a path or
+    type that no longer fits is left as the recorded JSON."""
+    if not isinstance(typed, list) or not typed:
+        return value
+    import copy
+
+    from pydantic import TypeAdapter
+
+    value = copy.deepcopy(value)  # never change the source run's recorded step
+    adapters: dict[str, Any] = {}
+    for entry in typed:
+        try:
+            path, ref = entry
+            if not path or not isinstance(ref, str) or ":" not in ref:
+                continue
+            if ref not in adapters:
+                adapters[ref] = TypeAdapter(_import_type(ref))
+            parent = value
+            for key in path[:-1]:
+                parent = parent[key]
+            parent[path[-1]] = adapters[ref].validate_python(parent[path[-1]])
+        except Exception:
+            continue
+    return value
 
 
 # Numbers strict JSON cannot hold: NaN / inf are stored as "nan" / "inf" strings and
@@ -361,6 +426,7 @@ def _revive(value: Any, src: Any, fn: Callable[..., Any]) -> Any:
     if value is None:
         return value
     value = _restore_numbers(value, src.attributes.get(RESULT_NUMBERS))
+    value = _restore_types(value, src.attributes.get(RESULT_TYPES))
     target: Any = None
     ref = src.attributes.get(RESULT_TYPE)
     if isinstance(ref, str) and ":" in ref and "<locals>" not in ref:

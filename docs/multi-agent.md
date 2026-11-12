@@ -86,6 +86,15 @@ and copies the sub-agent's recorded steps into the replay (`source="cassette"`,
 attribute `crashlab.replay.served_inside` = the tool step), so checks, usage and
 exported tests see the same steps as the recording.
 
+A served tool result keeps its types: pydantic models and dataclasses, also inside a
+plain dict / list (Haystack's `AgentTool` returns `{"messages": [ChatMessage, ...]}`),
+come back as those types, so the framework's code that reads `messages[-1].text`
+works the same on replay. Each is rebuilt from its recorded fields with pydantic; a
+type that cannot be imported or rebuilt (or a recording made before this) is served
+as the recorded JSON. To record the delegation itself as a tool step, wrap the
+framework tool's function, e.g. Haystack: `tool.function =
+crashlab.tool(name="research")(tool.function)`.
+
 Tools that take a framework context (PydanticAI `ctx: RunContext[...]`) work: the
 context is not recorded as a tool argument. Leave out other per-run arguments with
 `@crashlab.tool(ignore_args=("request_id",))`.
