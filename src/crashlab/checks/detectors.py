@@ -218,6 +218,7 @@ class History:
     tokens: int = 0
     cost_usd: float = 0.0
     cost_unknown: bool = False
+    tokens_missing: list[int] = field(default_factory=list)  # chat steps without usage
     elapsed_s: float = 0.0
     baseline: Callable[[str], list[dict[str, str]]] | None = None  # tool -> result shapes
 
@@ -599,9 +600,45 @@ class Budget(Detector):
     def __init__(self, cfg: Any) -> None:
         super().__init__(cfg)
         self.noted_unknown_cost = False
+        self.noted_missing_tokens = False
+
+    def _per_call(self, step: Step) -> list[Finding]:
+        out = []
+        limit = self.cfg.max_call_input_tokens
+        if limit is not None and step.operation == "chat":
+            inp = step.attributes.get("gen_ai.usage.input_tokens")
+            if isinstance(inp, (int, float)) and not isinstance(inp, bool) and inp > limit:
+                out.append(self.finding(
+                    severity="critical", step=step.idx, steps=[step.idx],
+                    key="max_call_input_tokens:exceeded",
+                    message=f"one LLM call's prompt is too large: {int(inp):,} input tokens "
+                            f"> max_call_input_tokens {limit:,}",
+                ))  # fmt: skip
+        limit_s = self.cfg.max_call_seconds
+        if (limit_s is not None and step.source == "live"
+                and step.operation in ("chat", "execute_tool")):  # fmt: skip
+            secs = (step.duration_ms or 0.0) / 1000
+            if secs > limit_s:
+                what = "LLM call" if step.operation == "chat" else f"tool {step.name}"
+                out.append(self.finding(
+                    severity="critical", step=step.idx, steps=[step.idx],
+                    key="max_call_seconds:exceeded",
+                    message=f"slow {what}: {secs:.2f}s > max_call_seconds {limit_s:.2f}s",
+                ))  # fmt: skip
+        return out
 
     def _check(self, step_idx: int | None, h: History) -> list[Finding]:
         out = []
+        if (h.tokens_missing and not self.noted_missing_tokens
+                and (self.cfg.max_tokens is not None
+                     or self.cfg.max_call_input_tokens is not None)):  # fmt: skip
+            self.noted_missing_tokens = True
+            out.append(self.finding(
+                severity="info", step=h.tokens_missing[0], key="max_tokens:missing",
+                message="a token limit is set but some LLM calls reported no token usage "
+                        "(e.g. a stream without include_usage); they count as 0, so the "
+                        "limit is only a lower bound",
+            ))  # fmt: skip
         for name, what, get, fmt in _LIMITS:
             limit = getattr(self.cfg, name)
             if limit is None:
@@ -632,7 +669,7 @@ class Budget(Detector):
         return out
 
     def on_step(self, step: Step, h: History) -> list[Finding]:
-        return self._check(step.idx, h)
+        return self._per_call(step) + self._check(step.idx, h)
 
     def on_end(self, run: Run, h: History) -> list[Finding]:
         if run.usage.wall_time_ms is not None:

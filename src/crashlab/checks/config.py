@@ -77,7 +77,11 @@ class SuspiciousToolResultConfig(_Cfg):
 
 
 class BudgetConfig(_Cfg):
-    """Limits on steps / tokens / cost / wall time. Exceeding one is critical."""
+    """Limits on steps / tokens / cost / wall time. Exceeding one is critical.
+
+    ``max_call_input_tokens`` caps one LLM call's prompt (context size; growing history
+    shows up here) and ``max_call_seconds`` one live LLM / tool call's latency. Both are
+    off by default and have no early warning (``warn_at`` covers the run totals)."""
 
     max_steps: int | None = None
     max_llm_calls: int | None = None
@@ -85,6 +89,8 @@ class BudgetConfig(_Cfg):
     max_tokens: int | None = None
     max_cost_usd: float | None = None
     max_seconds: float | None = None
+    max_call_input_tokens: int | None = None
+    max_call_seconds: float | None = None
     warn_at: float | None = 0.8  # warn when a limit is this far used; None: no warning
 
 

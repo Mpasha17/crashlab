@@ -152,10 +152,21 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   assistant: … do not mention this": possible prompt injection; an error when a
   side-effect tool ran after it), `unhandled_tool_error` (a tool raised and the
   exception ended the run, so the model never saw it: a prompt fix cannot help).
+  Opt-in per-call limits: `max_call_input_tokens` (one prompt's size) and
+  `max_call_seconds` (one live LLM / tool call).
   Findings are stored with the run and shown by
   `show`, `diff` and `ls --flagged`. They describe *how* a run behaved; `@crashlab.check`
   oracles still decide whether it passed. Opt-in **circuit breaker**: a critical finding
   stops the agent (`CircuitBreakerError`), and strict replay stops at the same step.
+- **Budget oracles**: `crashlab.budgets.within_budget(run, max_cost_usd=..., max_tokens=...,
+  max_seconds=..., max_call_seconds=...)` inside a `@crashlab.check` fails the run when
+  recorded cost / tokens / latency go over; usage the recording lacks (no token counts,
+  unpriced model, replay wall time) fails with a "cannot check" message instead of
+  passing (`unknown="pass"` to skip). See [docs/budgets-and-flakes.md](docs/budgets-and-flakes.md).
+- **`crashlab flakes`** / `crashlab.flakes.find_flakes()`: runs of the same agent, input
+  and code version that raised, failed a check or got a finding only some of the time,
+  with counts, a Wilson 95% interval (assumes independent runs) and the `crashlab diff`
+  of a good and a bad run. `--fail-on-flaky` for CI.
 - **Cost estimates** per step and per run in USD, from a small built-in price table
   (OpenAI, Anthropic, Groq, Gemini; dated prices) plus LiteLLM's cost map when LiteLLM is
   installed. Local servers (Ollama, localhost) cost $0. Unknown models show no cost; prices

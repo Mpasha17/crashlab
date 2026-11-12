@@ -99,6 +99,10 @@ class CheckEngine:
         if step.operation == "chat":
             h.llm_calls += 1
             a = step.attributes
+            if (step.error is None and a.get("gen_ai.usage.input_tokens") is None
+                    and a.get("gen_ai.usage.output_tokens") is None
+                    and a.get("crashlab.usage.total_tokens") is None):  # fmt: skip
+                h.tokens_missing.append(step.idx)
             inp = int(a.get("gen_ai.usage.input_tokens") or 0)
             out = int(a.get("gen_ai.usage.output_tokens") or 0)
             total = a.get("crashlab.usage.total_tokens")
