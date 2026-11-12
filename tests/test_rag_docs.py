@@ -6,6 +6,7 @@ from __future__ import annotations
 import inspect
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -105,7 +106,14 @@ def test_documented_commands_and_snippets_run_in_clean_processes(tmp_path):
     rec = sh([sys.executable, "-c", RECORD])
     assert rec.returncode == 0, rec.stderr
     lines = [ln.split("#")[0].strip() for b in _blocks("bash") for ln in b.splitlines()]
-    cmds = [ln for ln in lines if ln]
+    example = "python -m examples.rag_qa.agent"
+    live = [ln for ln in lines if ln.startswith(example)]  # needs a model: parse args only
+    for ln in live:
+        args = shlex.split(ln)[3:]
+        res = subprocess.run([sys.executable, "-m", "examples.rag_qa.agent", *args, "--help"],
+                             cwd=ROOT, capture_output=True, text=True, timeout=60)  # fmt: skip
+        assert res.returncode == 0, (ln, res.stderr)
+    cmds = [ln for ln in lines if ln and ln not in live]
     assert cmds and all(c.startswith("crashlab ") for c in cmds), cmds
     for cmd in cmds:
         res = sh([exe, *cmd.split()[1:]])
