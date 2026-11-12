@@ -352,8 +352,9 @@ class StepRepetition(Detector):
 
     def _requests(self, step: Step, h: History) -> list[Finding]:
         key = self._cached("req", step, near_identical_key, step.request)
-        chats = [s for s in h.chat_steps()
-                 if self._cached("req", s, near_identical_key, s.request) == key]  # fmt: skip
+        # multi-agent runs: two agents sending the same request is not a loop
+        chats = [s for s in h.chat_steps() if s.agent == step.agent
+                 and self._cached("req", s, near_identical_key, s.request) == key]  # fmt: skip
         if len(chats) < self.cfg.request_threshold:
             return []
         prev = chats[-2]
@@ -397,7 +398,9 @@ class StepRepetition(Detector):
         if not text.strip() or step.error is not None:
             return []
         run: list[Step] = []
-        for s in reversed(h.chat_steps()):
+        # multi-agent runs: one agent repeating another's reply (a hand-over) is not a loop;
+        # unlabelled steps (agent None) compare with each other as before
+        for s in reversed([s for s in h.chat_steps() if s.agent == step.agent]):
             if s.error is None and response_text(s) == text:
                 run.append(s)
             else:
