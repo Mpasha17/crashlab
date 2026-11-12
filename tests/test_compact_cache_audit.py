@@ -257,8 +257,8 @@ def test_cache_memory_bounded_over_many_runs(monkeypatch, tmp_path):
             w.append(_line(run * 100 + i, msgs))
         # after each run-sized chunk, only one entry per field, length == last msgs
         assert list(w._compactor._last) <= ["request.messages"]
-        _, full, enc, fps = w._compactor._last["request.messages"]
-        assert len(full) == 30 and len(enc) == 30
+        _, text, ends = w._compactor._last["request.messages"]
+        assert ends is not None and len(ends) == 30 and text.count(f"r{run}q") == 30
     # total cassette readable
     assert len(_dump_steps(tmp_path / "c.jsonl")) == 20 * 30
 

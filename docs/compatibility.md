@@ -61,23 +61,50 @@ required digest of the full list.
   unresolved attribute redact secrets and shorten names taken from the file.
 - Mapping subclasses in message lists are coerced to dicts on every append (compact on or
   off) so a cassette never stores a `repr` address via `default=str`.
+- A message holding a value whose `str()` changes between calls (written via `default=str`)
+  is written in full rather than referenced, so it can never produce a digest mismatch.
 
-### Measured write tradeoff (main, Nov 2026)
+### Measured write cost (Nov 13 2026)
 
-Encodings are **content-based**, never keyed by object identity. An earlier identity-based
-cache made 1500 short-message appends look ~14× faster; that path silently dropped nested
-mutations and was removed. Measured on this tree:
+The writer compares **JSON text**, never object identity and never a fingerprint. Each step
+encodes the whole current message list once (one `json.dumps`, the same text the required
+digest is computed from), keeps the longest run of leading messages whose text is
+byte-identical to the previous step's, and encodes only the new messages one by one to find
+their boundaries. In-place and nested edits change the text, so they are always written. An
+earlier identity-based cache looked ~14× faster and silently lost nested mutations; it was
+removed, and no speed claim from it stands. The on-disk format is unchanged (still v1), and
+for the same input the writer produces byte-identical lines to 0.0.3's
+(`tests/fixtures/compact_v1_0_0_3`).
 
-| Workload | Compact write | Full write | Compact size | Full size |
-|---|---|---|---|---|
-| 1500 short messages (~40 B each) | ~2.4 s | ~0.4 s | ~0.4 MB | ~54 MB |
-| 200 messages × ~50 KB content | ~2.9 s | ~3.1 s | ~10 MB | ~1006 MB |
+Reproduce with `PYTHONPATH=src python bench/compact_write.py --store --repeat 5`. Each workload
+is a chat that grows by a user message and an assistant message per step, recorded through
+`Store.add_step`, which includes redaction and the SQLite index. Both `request.messages` and
+`raw_request.messages` are recorded. Median of 5, one 8-core Linux box, Python 3.12; your
+numbers will differ:
 
-So for typical short chats, compact writing is **slower** than full (still O(n²) JSON work
-on the growing prefix) but **much smaller on disk**. For large unchanged prefixes, a
-content fingerprint lets the writer reuse an immutable cached encoding when the fingerprint
-still matches (`FP_THRESHOLD` characters); a nested mutation changes the fingerprint and
-forces a fresh serialize. Small messages re-serialize and compare (cheaper than hashing
-them). Compact's practical win is size (and large-attachment prefixes), not short-chat
-wall-clock. Prefer the default full writer unless disk growth is the problem, and only
-enable the experimental writer for recordings replayed by this version or newer.
+| Workload | Full write | Compact write (0.0.3) | Compact write (now) | Full size | Compact size |
+|---|---|---|---|---|---|
+| 5 steps, 40 B messages | 0.009 s | 0.007 s | 0.007 s | 0.01 MB | <0.01 MB |
+| 20 steps, 200 B messages | 0.028 s | 0.027 s | 0.027 s | 0.20 MB | 0.03 MB |
+| 50 steps, 1 KB messages | 0.095 s | 0.119 s | 0.093 s | 5.3 MB | 0.23 MB |
+| 50 steps, 1 KB, first message changes every step | 0.086 s | 0.117 s | 0.126 s | 5.3 MB | 5.3 MB |
+| 750 steps (1,500 messages), 40 B | 3.0 s | 5.5 s | 3.4 s | 85 MB | 0.62 MB |
+| 100 steps, 50 KB messages | 4.0 s | 2.0 s | 3.3 s | 1,011 MB | 20 MB |
+
+What this means:
+
+- For typical chats, compact writing now costs about the same as full writing (0.8–1.2×
+  through the store), and the files are much smaller. With the writer alone (no redaction
+  or index, `bench/compact_write.py` without `--store`), compact is still 1.3–2× slower
+  on short chats, but that difference is under a few milliseconds per run.
+- When the first message changes every step (for example a system prompt that carries
+  the current time), nothing can be shared. Compact gives no size win and is about 1.5×
+  slower. Leave it off for agents like that.
+- With very large messages (50 KB each), compact is faster than full but slower than
+  0.0.3's fingerprint path (3.3 s against 2.0 s), because every step now re-encodes the
+  whole list instead of trusting a hash of it. That trade was made on purpose.
+
+Compact **writing stays opt-in** (`CRASHLAB_EXPERIMENTAL_COMPACT=1`). The speed concern is
+gone, but crashlab 0.0.2 cannot read compact lines (it skips them), so turning it on by
+default would break replay with 0.0.2. Reading compact lines has been on since 0.0.3, and
+`export` always writes the full format.

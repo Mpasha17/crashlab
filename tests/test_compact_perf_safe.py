@@ -1,8 +1,6 @@
-"""Safe append-only compact optimization: content fingerprints (not identity).
-
-Large unchanged prefix messages may reuse immutable cached encodings when their
-content fingerprint still matches; small messages use dumps. Mutations must still
-match a deep-copied full baseline. No wall-clock assertions — structural only.
+"""Safe append-only compact writing: the prefix kept is decided by comparing JSON text
+(never object identity, never a fingerprint). Mutations must still match a deep-copied
+full baseline. No wall-clock assertions: structural only.
 """
 
 from __future__ import annotations
@@ -53,62 +51,93 @@ class Pair:
         assert _dump(self.tmp / "comp.jsonl") == _dump(self.tmp / "full.jsonl")
 
 
-def test_fingerprint_agrees_with_dumps_equality():
-    """fp(a)==fp(b) iff dumps(a)==dumps(b) on a spread of JSON-ish values."""
-    from datetime import date
-
-    samples = [
-        None,
-        True,
-        False,
-        0,
-        1,
-        -7,
-        1.5,
-        0.0,
-        "",
-        "hi",
-        'quote"here',
-        "line\nbreak",
-        "你好",
-        {"role": "user", "content": "x"},
-        {"role": "user", "content": "x", "meta": {"n": [1, 2, 3]}},
-        {"when": datetime(2026, 1, 2, tzinfo=timezone.utc)},
-        {"d": date(2026, 3, 4)},
-        {"b64": base64.b64encode(b"\x00\xff" * 100).decode()},
-        [1, 2, {"a": "b"}],
-    ]
-    for i, a in enumerate(samples):
-        for b in samples[i:]:
-            assert (compact._content_fp(a) == compact._content_fp(b)) == (
-                compact._dumps_msg(a) == compact._dumps_msg(b)
-            )
+SAMPLES = [
+    None, True, False, 0, 1, 12, -7, 1.5, 15, 0.0, -0.0, float("nan"), float("inf"),
+    float("-inf"), "", "hi", 'quote"here', "line\nbreak", "你好", "a, b]", [1, 2], (1, 2),
+    {"role": "user", "content": "x"}, {"role": "user", "content": "x", "meta": {"n": [1, 2]}},
+    {"content": "x", "role": "user"}, {"when": datetime(2026, 1, 2, tzinfo=timezone.utc)},
+    {"b64": base64.b64encode(b"\x00\xff" * 100).decode()}, [1, 2, {"a": "b"}], {"b": b"hi"},
+    {"b": "b'hi'"},
+]  # fmt: skip
 
 
-def test_large_base64_prefix_reuses_encoding_not_identity(monkeypatch, tmp_path):
-    """Unchanged large prefix: dumps of prefix messages must not be repeated."""
+def _brute_keep(prev: list, new: list) -> int:
+    k = 0
+    for a, b in zip(prev, new, strict=False):
+        if compact._dumps_msg(a) != compact._dumps_msg(b):
+            break
+        k += 1
+    return k
+
+
+def _keep_via_writer(prev: list, new: list) -> int:
+    c = compact.Compactor()
+    c.compact(_line(0, prev))
+    out = c.compact(_line(1, new))
+    ref = out.get("compact", {}).get("request.messages")
+    return ref["keep"] if ref else 0
+
+
+def test_kept_prefix_equals_message_by_message_comparison():
+    """Every pair of values, as a changed middle message: the writer keeps exactly the
+    leading messages whose encodings are equal (numbers "1" vs "12", NaN, -0.0, tuples,
+    bytes vs their str() form, key order)."""
+    for a in SAMPLES:
+        for b in SAMPLES:
+            for prev, new in (
+                (["x", a, "y"], ["x", b, "y", "z"]),
+                ([a], [b, "z"]),
+                ([a, a], [a, b]),
+                ([a], [b]),
+                ([], [b]),
+            ):
+                assert _keep_via_writer(prev, new) == _brute_keep(prev, new), (prev, new)
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_random_list_edits_keep_matches_brute_force(seed):
+    import random
+
+    rng = random.Random(seed)
+    prev = [rng.choice(SAMPLES) for _ in range(rng.randrange(0, 12))]
+    for _ in range(30):
+        new = list(prev)
+        op = rng.randrange(4)
+        if op == 0 or not new:
+            new.append(rng.choice(SAMPLES))
+        elif op == 1:
+            new[rng.randrange(len(new))] = rng.choice(SAMPLES)
+        elif op == 2:
+            new.pop(rng.randrange(len(new)))
+        else:
+            new.insert(rng.randrange(len(new) + 1), rng.choice(SAMPLES))
+        assert _keep_via_writer(prev, new) == _brute_keep(prev, new), (prev, new)
+        prev = new
+
+
+def test_large_prefix_is_not_reencoded_message_by_message(monkeypatch, tmp_path):
+    """Append-only steps encode only the new tail message by message; the large prefix
+    goes through the one whole-list encoding (which is what makes mutations visible)."""
     monkeypatch.setenv(compact.ENV, "1")
     blob = base64.b64encode(bytes(range(256)) * 200).decode()  # ~50KB+
-    assert len(blob) > compact.FP_THRESHOLD
     w = CassetteWriter(tmp_path / "c.jsonl")
     msgs = [{"role": "user", "content": blob, "meta": {"k": "v"}}]
     w.append(_line(0, msgs))
     real = compact._dumps_msg
-    n = {"dumps": 0}
+    seen: list[str] = []
 
     def counting(m):
-        if isinstance(m, dict) and len(str(m.get("content", ""))) > compact.FP_THRESHOLD:
-            n["dumps"] += 1
+        seen.append(str(m.get("content", ""))[:8] if isinstance(m, dict) else repr(m))
         return real(m)
 
     with mock.patch.object(compact, "_dumps_msg", side_effect=counting):
         for i in range(1, 6):
             msgs = msgs + [{"role": "assistant", "content": f"ack{i}"}]
             w.append(_line(i, msgs))
-    # the large prefix must not be re-serialized on append-only steps
-    assert n["dumps"] == 0, n
+    assert seen == [f"ack{i}" for i in range(1, 6)], seen
     steps = _dump(tmp_path / "c.jsonl")
     assert steps[-1]["request"]["messages"][0]["content"] == blob
+    assert '"keep": 1' in (tmp_path / "c.jsonl").read_text().splitlines()[1]
 
 
 def test_mutating_large_prefix_is_visible(monkeypatch, tmp_path):
@@ -158,8 +187,8 @@ def test_cache_cleanup_across_1000_runs_no_leak(monkeypatch, tmp_path):
             msgs = msgs + [{"role": "user", "content": f"r{run}q{i} " + ("y" * 200)}]
             w.append(_line(run * 10 + i, msgs))
         assert list(w._compactor._last) == ["request.messages"]
-        _seq, _full, enc, fps = w._compactor._last["request.messages"]
-        assert len(enc) == 5 and len(fps) == 5
+        _seq, text, ends = w._compactor._last["request.messages"]
+        assert ends is not None and len(ends) == 5 and text.endswith("]")
     gc.collect()
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
@@ -201,31 +230,3 @@ def test_redaction_then_compact_reuse_safe(monkeypatch, tmp_path):
         again = crashlab.load(run.run_id)
     assert len(again.steps) == len(run.steps)
     assert not any("could not be expanded" in str(w.message) for w in rec)
-
-
-@pytest.mark.parametrize(
-    "a,b",
-    [
-        (True, 1),
-        (False, 0),
-        ({"a": True}, {"a": 1}),
-        ([True], [1]),
-        (0.0, -0.0),
-        (float("nan"), float("nan")),
-        (float("inf"), float("-inf")),
-        ({"x": float("nan")}, {"x": float("inf")}),
-        ([1, 2], (1, 2)),
-        ({"a": [1, 2]}, {"a": (1, 2)}),
-        ({"a": 1, "b": 2}, __import__("collections").OrderedDict([("b", 2), ("a", 1)])),
-        ({"a": 1}, __import__("collections").UserDict({"a": 1})),
-        ({"b": b"hi"}, {"b": "b'hi'"}),
-        ({"s": {1, 2}}, {"s": str({1, 2})}),
-    ],
-)
-def test_fingerprint_match_implies_dumps_match(a, b):
-    """Safety direction only: equal fingerprints must mean equal dumps (reuse is safe).
-    The converse may fail (bytes/set vs their str forms) — that only skips reuse."""
-    fp_eq = compact._content_fp(a) == compact._content_fp(b)
-    dump_eq = compact._dumps_msg(a) == compact._dumps_msg(b)
-    if fp_eq:
-        assert dump_eq

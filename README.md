@@ -237,7 +237,9 @@ versions may not read newer runs; see
 **Start agents under `if __name__ == "__main__":`.** `crashlab check`, `replay` and
 `export-test` import your entry-point module. If an agent runs at import time, crashlab
 now blocks the stray recording (including threads that agent starts) and prints a clear
-error instead of recursing, but subprocesses and custom queues are not covered.
+error instead of recursing. Under `crashlab check` this also covers threads, thread pools and
+process pools it uses; `multiprocessing.Process`/`Pool` with spawn, other subprocesses and
+custom queues are not covered.
 
 Not yet: a live HTML viewer server. Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response, cut at the recorded chunk boundaries (OpenAI-style chat, Anthropic and

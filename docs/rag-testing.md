@@ -132,9 +132,17 @@ Scope of that guard (best effort; the `__main__` guard is the real fix):
   (and their descendants, also after the import returns) and from tasks it submits to any
   `concurrent.futures.ThreadPoolExecutor`, including one created earlier. Other threads and
   their pool work keep recording.
-- Not covered: subprocesses / `multiprocessing` / `ProcessPoolExecutor`, executors that do
-  not go through `ThreadPoolExecutor.submit` (e.g. a custom queue feeding existing threads),
-  and library replay's threads. Errors raised at import are reported as `ReplayError` with
+- `crashlab check` also refuses runs from tasks the module (or a thread it started)
+  submits to a `concurrent.futures.ProcessPoolExecutor` (`submit`, `map`, and
+  `loop.run_in_executor` with one), with the fork, spawn and forkserver start methods. The
+  refusal is raised in the worker and reaches the caller through the future. Tasks other
+  code submits to the same pool keep recording, including in workers that were forked
+  during the module's `submit`. A process the module forks itself during the import
+  (`os.fork`, `multiprocessing` with fork) inherits the refusal.
+- Not covered: `multiprocessing.Process` / `multiprocessing.Pool` with spawn or forkserver,
+  other subprocesses, executors that do not go through `submit` (for example a custom queue
+  feeding threads that already existed), and library replay's threads. The tests in
+  `tests/test_import_guard_process_pool.py` pin these limits. Errors raised at import are reported as `ReplayError` with
   secrets redacted; `SystemExit` becomes an error, `KeyboardInterrupt` still aborts.
 
 ## 4. Replay and export

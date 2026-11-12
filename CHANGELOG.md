@@ -15,6 +15,9 @@
 - `crashlab flakes` / `crashlab.flakes.find_flakes()`: same agent + canonical input + code version, signals (raised, outcome, checks, findings) that differ between runs, with counts and a Wilson 95% interval; `--json`, `--fail-on-flaky`. See `docs/budgets-and-flakes.md`
 
 ### Fixes
+- Test suite: refuses to start (with the fix in the message) when `import crashlab` resolves outside this checkout's `src/`, so tests can no longer silently run against another worktree or an old install; `CRASHLAB_TEST_ANY_INSTALL=1` opts out
+- Experimental compact writer (`CRASHLAB_EXPERIMENTAL_COMPACT=1`): the shared prefix is now found by comparing the JSON text of the whole list (one encode per step), not per-message encodes or fingerprints. A 1,500-message chat records in about 3.4 s instead of 5.5 s through the store (full format: 3.0 s), and typical chats now cost about the same as the full format. Same on-disk format, byte-identical to 0.0.3 for the same input. Writing stays opt-in; measured numbers are in `docs/compatibility.md`
+- `crashlab check` import guard: tasks an entry point submits to a `ProcessPoolExecutor` at import time (or from threads it started) are now refused in the worker for fork, spawn and forkserver. Before, spawn and forkserver workers recorded a run, and fork workers created inside that `submit` stayed tainted and refused later legitimate tasks. `multiprocessing.Process`/`Pool` with spawn and custom queues are still not covered (pinned by tests)
 - `crashlab fork` (and `verify --patch`-style flags) failed with "None is not a valid string" on typer 0.29+; tuple options now default to `None`
 
 ### Multi-agent

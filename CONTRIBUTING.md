@@ -15,3 +15,9 @@ Do not publish to PyPI from a fork. Do not force-push `main`.
 Dev setup: `python -m venv .venv && .venv/bin/pip install -e ".[dev,openai,anthropic,litellm]"`.
 Pre-push: `./scripts/check.sh` (ruff + offline pytest + secret-scan), or at least
 `./scripts/scan.sh` before every push.
+
+The test suite refuses to start if `import crashlab` would load a copy other than this
+checkout's `src/` (another worktree's editable install, an older wheel), because the
+results would describe other code. Use `pip install -e .` in this checkout, or run
+`PYTHONPATH=src python -m pytest` from its root. To test a different install on purpose,
+set `CRASHLAB_TEST_ANY_INSTALL=1`.
