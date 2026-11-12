@@ -21,6 +21,7 @@ from .cli import (
     _local_time,
     _unique_prefix_len,
     app,
+    trace_of,
 )
 from .models import Run, Step
 from .store import Store
@@ -72,6 +73,9 @@ def search_cmd(
         None, "--since", help="Started within 30m / 2h / 7d / 1w, or after an ISO date."
     ),
     run_prefix: str | None = typer.Option(None, "--run", help="Run id prefix."),
+    trace: str | None = typer.Option(
+        None, "--trace", help="Only runs of the trace of this run (linked runs, any of them)."
+    ),
     fields: list[str] | None = typer.Option(  # noqa: B008
         None,
         "--in",
@@ -107,6 +111,7 @@ def search_cmd(
             name=name,
             since=_since(since),
             run_prefix=run_prefix,
+            trace=trace_of(Store(), trace) if trace else None,
             fields=fields or None,
             regex=regex,
             case_sensitive=case_sensitive,

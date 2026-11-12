@@ -114,7 +114,8 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   `crashlab show` prints the agents and `@agent` per step (`--agent NAME` filters), and checks can filter with
   `run.tool_calls("issue_refund", agent="refunds")`. Sub-agents running concurrently
   in one run keep each tool step linked to the chat step that asked for it. Labels only:
-  replay is unchanged. See [docs/multi-agent.md](https://github.com/Mpasha17/crashlab/blob/main/docs/multi-agent.md).
+  replay is unchanged. Workers in other processes link to the run that started them
+  (`env={**os.environ, **crashlab.child_env()}`; `crashlab ls --trace RUN`). See [docs/multi-agent.md](https://github.com/Mpasha17/crashlab/blob/main/docs/multi-agent.md).
 - **Local store** `.crashlab/` (or `$CRASHLAB_DIR`): a SQLite index plus one JSONL cassette
   per run. API keys, auth headers (`Authorization`, `x-api-key` ...) and token-like strings
   are redacted before anything is written; add your own rules with

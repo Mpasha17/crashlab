@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from . import budgets, checks, flakes, patch, pricing, rag
 from ._version import __version__
-from .capture import agent, clear_fakes, fake_tool, record, tool, wrap
+from .capture import agent, child_env, clear_fakes, fake_tool, record, tool, wrap
 from .checks import ChecksConfig, CircuitBreakerError
 from .compare import RunDiff, diff
 from .context import (
@@ -142,6 +142,7 @@ __all__ = [
     "pricing",
     "rag",
     "record",
+    "child_env",
     "redaction",
     "replay",
     "run_checks",

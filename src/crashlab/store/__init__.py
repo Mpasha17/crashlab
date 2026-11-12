@@ -111,9 +111,18 @@ class Store:
 
     # reading -------------------------------------------------------------------------
     def list_runs(
-        self, limit: int | None = 20, name: str | None = None, *, flagged: str | None = None
+        self,
+        limit: int | None = 20,
+        name: str | None = None,
+        *,
+        flagged: str | None = None,
+        trace: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self.index.list_runs(limit=limit, name=name, flagged=flagged)
+        return self.index.list_runs(limit=limit, name=name, flagged=flagged, trace=trace)
+
+    def child_runs(self, run_id: str) -> list[dict[str, Any]]:
+        """Index rows of the runs linked to ``run_id`` as their parent, oldest first."""
+        return self.index.list_runs(limit=None, parent=run_id)[::-1]
 
     def resolve_run_id(self, ref: str) -> str:
         """Resolve ``"last"``, a full run id or a unique id prefix to a run id."""

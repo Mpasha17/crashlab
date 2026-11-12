@@ -305,6 +305,7 @@ def search_runs(
     name: str | None = None,
     since: datetime | None = None,
     run_prefix: str | None = None,
+    trace: str | None = None,
     fields: list[str] | tuple[str, ...] | None = None,
     regex: bool = False,
     case_sensitive: bool = False,
@@ -341,7 +342,9 @@ def search_runs(
     stats = ScanStats()
     matches: list[RunMatch] = []
     truncated = False
-    for run in iter_runs(store, since=since, run_prefix=run_prefix, name=name, stats=stats):
+    for run in iter_runs(
+        store, since=since, run_prefix=run_prefix, name=name, stats=stats, trace=trace
+    ):
         if limit is not None and len(matches) >= limit:
             truncated = True
             stats.scanned -= 1  # this one was read only to learn there are more

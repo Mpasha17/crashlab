@@ -168,10 +168,50 @@ that repeated it, and an orchestrator that changed a correct fact is blamed rath
 the lookup that returned it. Quotes name the field they came from (a critic's reply
 "APPROVE" is `response.text`, not its system prompt that also says "reply APPROVE").
 
+## Runs in other processes
+
+A worker started as a subprocess, or a service the orchestrator calls, records its own
+run. Link it to the run that started it:
+
+```python
+import os, subprocess
+import crashlab
+
+with crashlab.record("orchestrator", input={"task": task}) as run:
+    # CRASHLAB_PARENT_RUN, CRASHLAB_TRACE_ID and CRASHLAB_DIR for the child
+    subprocess.run(["python", "worker.py"], env={**os.environ, **crashlab.child_env()})
+```
+
+Any run the worker records (`crashlab.record`, `@crashlab.agent`) reads
+`$CRASHLAB_PARENT_RUN` / `$CRASHLAB_TRACE_ID` and links itself. Across HTTP or a queue,
+send the two ids yourself and pass them explicitly:
+
+```python
+with crashlab.record("worker", parent=msg["parent_run"], trace=msg["trace"]) as run: ...
+```
+
+`record(parent=run)` also takes a `Run`. A linked run has `run.parent_run` and
+`run.trace_id` (the root run's id; an unlinked run is its own trace).
+`crashlab show PARENT` lists the child runs; `crashlab show CHILD` shows its parent and
+trace; `crashlab ls --trace RUN` and `crashlab search --trace RUN` list every run of the
+trace of any run in it. `Store().child_runs(run_id)` and
+`Store().list_runs(trace=...)` do the same in Python.
+
+- The link is stored in `run.env["link"]`, so the run format is unchanged (0.0.3 reads
+  linked runs) and runs recorded before have no link.
+- `child_env()` sets `CRASHLAB_DIR` to the parent's store so `show` finds the children;
+  drop it if the worker should record elsewhere (the link is kept, `show` just cannot
+  list children from another store).
+- Every run recorded by a process started with these variables links to that parent
+  (a long-lived worker handling many tasks links them all). Replays and forks are not
+  linked; they point to their source run (`replay of` / `forked from`).
+- Bad values in the variables are ignored with a warning; the worker is still recorded.
+
 ## Not covered
 
-- Separate processes or services (an orchestrator calling a worker over HTTP) record
-  separate runs; crashlab does not link runs across processes.
+- Runs in other processes are separate runs, linked rather than merged (see "Runs in
+  other processes"): no step of the worker shows in the parent's step table, and a
+  replay or fork of the parent does not re-run or replay the workers.
 - Handoffs are shown, not recorded as extra steps (see "Handoffs"), so step numbers and
   replay are unchanged. A handoff that passes no conversation (the next agent starts
   from scratch) looks like any other agent change.

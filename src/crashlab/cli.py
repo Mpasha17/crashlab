@@ -139,6 +139,9 @@ def ls(
     min_severity: str = typer.Option(
         "warn", "--min-severity", help="With --flagged: info, warn, error or critical."
     ),
+    trace: str | None = typer.Option(
+        None, "--trace", help="Only runs of the trace of this run (linked runs, any of them)."
+    ),
 ) -> None:
     """List recorded runs, newest first."""
     console = _console()
@@ -146,9 +149,16 @@ def ls(
     if min_severity not in _SEVERITIES:
         console.print(f"[red]--min-severity must be one of {', '.join(_SEVERITIES)}[/]")
         raise typer.Exit(code=2)
+    trace_id = trace_of(store, trace) if trace else None
     rows = store.list_runs(
-        limit=limit or None, name=name, flagged=min_severity if flagged else None
+        limit=limit or None,
+        name=name,
+        flagged=min_severity if flagged else None,
+        trace=trace_id,
     )
+    if not rows and trace_id:
+        console.print(f"No runs in trace {_e(trace_id)} in [bold]{_e(store.root)}[/].")
+        raise typer.Exit(code=1)
     if not rows:
         what = "flagged runs" if flagged else "runs recorded yet"
         console.print(f"No {what} in [bold]{_e(store.root)}[/].")
@@ -294,6 +304,15 @@ def _step_io(step: Step) -> tuple[str, str]:
     return _short(step.request, 50), _short(step.response, 60)
 
 
+def trace_of(store: Store, ref: str) -> str:
+    """The trace id of run ``ref`` (an id, prefix or 'last'); ``ref`` itself when no
+    stored run matches (a trace id passed down from a process with another store)."""
+    try:
+        return store.load_run(ref).trace_id
+    except RunNotFoundError:
+        return ref
+
+
 def _resolve(store: Store, ref: str) -> Run:
     try:
         return store.load_run(ref)
@@ -376,6 +395,22 @@ def show(
         meta.add_row("forked from", f"{run.forked_from} at step {run.fork_step}")
         for i, line in enumerate(run.patch.describe_lines() if run.patch else [], 1):
             meta.add_row("patch" if i == 1 else "", f"{i}. {line}")
+    children = store.child_runs(run.run_id)
+    if run.parent_run:
+        prow = store.index.get_run_json(run.parent_run)
+        meta.add_row(
+            "parent", run.parent_run + (f"  {prow['name']}" if prow else "  (not in this store)")
+        )
+    if run.parent_run or children:
+        meta.add_row("trace", run.trace_id)
+    for i, c in enumerate(children[:10]):
+        meta.add_row(
+            "children" if i == 0 else "",
+            Text(f"{c['run_id']}  {c['name']}  ")
+            + Text(c["outcome"], style=_OUTCOME_STYLE.get(c["outcome"], "")),
+        )
+    if len(children) > 10:
+        meta.add_row("", f"+{len(children) - 10} more: crashlab ls --trace {run.run_id}")
     meta.add_row("entrypoint", run.entrypoint or "-")
     meta.add_row("input", _short(run.input, 100))
     meta.add_row("output", _short(run.output, 100))

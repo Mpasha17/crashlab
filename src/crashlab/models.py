@@ -324,6 +324,21 @@ class Run(_Model):
     # Populated by crashlab.load(); not stored in the run row (steps live in the cassette).
     steps: list[Step] = Field(default_factory=list)
 
+    @property
+    def parent_run(self) -> str | None:
+        """Run id of the run that started this one in another process or service
+        (``crashlab.child_env()`` / ``record(parent=...)``); None when not linked."""
+        link = (self.env or {}).get("link")
+        return link.get("parent_run") if isinstance(link, dict) else None
+
+    @property
+    def trace_id(self) -> str:
+        """Id shared by a run and every run it started, directly or not: the root run's
+        id. An unlinked run is its own trace."""
+        link = (self.env or {}).get("link")
+        trace = link.get("trace") if isinstance(link, dict) else None
+        return trace or self.run_id
+
     def describe_step(self, idx: int | None) -> str:
         """``"step 3 (tool place_order, called by chat step 2)"``: a tool step names the
         LLM call that decided to make it, since a diagnosis often points at the tool call

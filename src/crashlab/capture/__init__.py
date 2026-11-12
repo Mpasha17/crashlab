@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .agent import agent, record
+from .agent import agent, child_env, record
 from .tools import clear_fakes, fake_tool, tool
 
 
@@ -65,4 +65,4 @@ def wrap(client: Any, *, provider: str | None = None, agent: str | None = None) 
     )
 
 
-__all__ = ["agent", "clear_fakes", "fake_tool", "record", "tool", "wrap"]
+__all__ = ["agent", "child_env", "clear_fakes", "fake_tool", "record", "tool", "wrap"]

@@ -313,9 +313,17 @@ class SQLiteIndex:
             )
 
     def list_runs(
-        self, limit: int | None = 20, name: str | None = None, *, flagged: str | None = None
+        self,
+        limit: int | None = 20,
+        name: str | None = None,
+        *,
+        flagged: str | None = None,
+        trace: str | None = None,
+        parent: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Newest first. ``flagged``: only runs with a finding of at least that severity."""
+        """Newest first. ``flagged``: only runs with a finding of at least that severity.
+        ``trace``: the runs of one trace (the root run and every run linked under it);
+        ``parent``: the runs linked to this parent run (``run.env["link"]``)."""
         if not self.exists():
             return []
         sql = "SELECT * FROM runs"
@@ -323,6 +331,12 @@ class SQLiteIndex:
         if name:
             where.append("name = ?")
             args.append(name)
+        if trace:
+            where.append("(run_id = ? OR json_extract(run_json, '$.env.link.trace') = ?)")
+            args += [trace, trace]
+        if parent:
+            where.append("json_extract(run_json, '$.env.link.parent_run') = ?")
+            args.append(parent)
         if flagged:
             levels = [k for k, v in _RANK.items() if v >= _RANK.get(flagged, 0)]
             where.append(f"max_severity IN ({', '.join('?' for _ in levels)})")

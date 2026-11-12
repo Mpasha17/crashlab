@@ -67,11 +67,12 @@ def iter_runs(
     run_prefix: str | None = None,
     name: str | None = None,
     stats: ScanStats | None = None,
+    trace: str | None = None,
 ) -> Iterator[Run]:
     """Stored runs, newest first, filtered on index columns before any cassette is read.
     A run whose files cannot be read is skipped and listed in ``stats.unreadable``."""
     prefix = run_prefix.upper() if run_prefix else None
-    for row in store.list_runs(limit=None, name=name):
+    for row in store.list_runs(limit=None, name=name, trace=trace):
         rid = row["run_id"]
         if prefix and not rid.startswith(prefix):
             continue

@@ -8,6 +8,7 @@ import functools
 import inspect
 import os
 import platform
+import re
 import sqlite3
 import subprocess
 import sys
@@ -15,6 +16,7 @@ import time
 import types
 import warnings
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, TypeVar, overload
 
 from .._ids import new_span_id, new_ulid
@@ -24,6 +26,7 @@ from ..context import (
     agent_scope,
     bound_current,
     check_mode,
+    current,
     register_live,
     reset_current,
     set_current,
@@ -86,6 +89,56 @@ def _env_vars(names: Any) -> dict[str, str | None]:
     return out
 
 
+ENV_PARENT_RUN = "CRASHLAB_PARENT_RUN"
+ENV_TRACE_ID = "CRASHLAB_TRACE_ID"
+_LINK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+
+
+def _link_id(value: Any, what: str) -> str:
+    if not isinstance(value, str) or not _LINK_ID.fullmatch(value):
+        raise ValueError(
+            f"{what}={value!r}: expected a run or trace id (letters, digits, . _ : -, "
+            "up to 128 characters)"
+        )
+    return value
+
+
+def _env_link() -> dict[str, str] | None:
+    """The link a parent process passed down in ``$CRASHLAB_PARENT_RUN`` /
+    ``$CRASHLAB_TRACE_ID`` (see :func:`child_env`). Bad values are ignored with a warning:
+    recording must not take the agent down."""
+    parent = os.environ.get(ENV_PARENT_RUN)
+    if not parent:
+        return None
+    try:
+        pid = _link_id(parent, ENV_PARENT_RUN)
+        trace = _link_id(os.environ.get(ENV_TRACE_ID) or pid, ENV_TRACE_ID)
+    except ValueError as exc:
+        warnings.warn(f"crashlab: ignoring {exc}", RuntimeWarning, stacklevel=4)
+        return None
+    return {"parent_run": pid, "trace": trace}
+
+
+def child_env(run: Run | None = None) -> dict[str, str]:
+    """Environment variables that link runs recorded by a subprocess or worker to
+    ``run`` (default: the run being recorded now; ``{}`` when there is none):
+    ``CRASHLAB_PARENT_RUN``, ``CRASHLAB_TRACE_ID`` and ``CRASHLAB_DIR`` (the parent's
+    store, so ``crashlab show`` finds the child runs).
+
+    ``subprocess.run(cmd, env={**os.environ, **crashlab.child_env()})``
+    """
+    store_root = None
+    if run is None:
+        ctx = current()
+        if ctx is None:
+            return {}
+        run, store_root = ctx.run, ctx.store.root
+    env = {ENV_PARENT_RUN: run.run_id, ENV_TRACE_ID: run.trace_id}
+    if store_root is not None:
+        env["CRASHLAB_DIR"] = str(Path(store_root).resolve())
+    return env
+
+
 def _env() -> dict[str, Any]:
     env: dict[str, Any] = {
         "python": platform.python_version(),
@@ -113,6 +166,12 @@ class record:
     their values are recorded and set again while the run is replayed or forked, so an
     exported test does not depend on the shell it runs in. Secret-looking names are refused.
 
+    ``parent`` links this run to the run that started it in another process or service
+    (a :class:`~crashlab.models.Run` or its id; ``trace`` is the root run's id when only
+    the parent id is at hand). Without ``parent``, a run reads the link from
+    ``$CRASHLAB_PARENT_RUN`` / ``$CRASHLAB_TRACE_ID`` (set them with
+    :func:`crashlab.child_env`). Replays and forks are not linked.
+
     The yielded :class:`~crashlab.models.Run` can be mutated, e.g. ``run.output = answer``
     or ``run.outcome = "pass"``; it is persisted when the block exits. An exception marks
     the run ``status="error"`` and ``outcome="fail"`` and is re-raised.
@@ -129,7 +188,17 @@ class record:
         mode: str = "record",
         checks: Any = None,
         env: list[str] | tuple[str, ...] | None = None,
+        parent: Run | str | None = None,
+        trace: str | None = None,
     ) -> None:
+        self.link: dict[str, str] | None = None
+        if parent is not None:
+            pid = _link_id(parent.run_id if isinstance(parent, Run) else parent, "parent")
+            default = parent.trace_id if isinstance(parent, Run) else pid
+            self.link = {"parent_run": pid, "trace": _link_id(trace or default, "trace")}
+        elif trace is not None:
+            _link_id(trace, "trace")
+            raise ValueError("trace= needs parent= (the run that started this one)")
         self.name = name
         self.checks = checks
         self.env_vars = _env_vars(env)
@@ -172,6 +241,10 @@ class record:
             tags=list(self.tags),
             span_id=new_span_id(),
         )
+        if replayer is None:
+            link = self.link or _env_link()
+            if link:
+                run.env["link"] = link
         store_dir = self.store_dir
         if replayer is not None:
             replayer.prepare_run(run)  # replay_of / forked_from, fork_step, patch, tags
