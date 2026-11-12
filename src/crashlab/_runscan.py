@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from ._isotime import parse_iso
 from .models import Run
 from .store import Store
 
@@ -25,11 +26,8 @@ def parse_since(value: str, *, now: datetime | None = None) -> datetime:
     if m:
         amount, unit = float(m.group(1)), m.group(2).lower()
         return now - timedelta(**{_UNIT[unit]: amount})
-    text = value.strip()
-    if text.endswith(("Z", "z")):
-        text = text[:-1] + "+00:00"
     try:
-        dt = datetime.fromisoformat(text)
+        dt = parse_iso(value)
     except ValueError:
         raise ValueError(
             f"--since expects 30m / 2h / 7d / 1w or an ISO date like 2026-11-12, not {value!r}"
@@ -43,9 +41,8 @@ def _as_utc(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         dt = value
     elif isinstance(value, str) and value:
-        text = value[:-1] + "+00:00" if value.endswith("Z") else value
         try:
-            dt = datetime.fromisoformat(text)
+            dt = parse_iso(value)
         except ValueError:
             return None
     else:

@@ -18,6 +18,7 @@ from rich.panel import Panel
 from rich.table import Table as _RichTable
 from rich.text import Text
 
+from ._isotime import parse_iso
 from ._version import __version__
 from .models import SEVERITY_RANK, CheckResult, Diagnosis, Finding, Run, Step
 from .store import ENV_DIR, RunNotFoundError, Store
@@ -115,11 +116,8 @@ def main(
 def _local_time(value: str | datetime | None) -> str:
     if not value:
         return "-"
-    if isinstance(value, datetime):
-        dt = value
-    else:  # Python 3.10's fromisoformat() does not accept a trailing "Z"
-        text = str(value)
-        dt = datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith("Z") else text)
+    # Python 3.10's fromisoformat() takes no "Z" and only 3 or 6 fraction digits
+    dt = value if isinstance(value, datetime) else parse_iso(str(value))
     return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -662,10 +660,8 @@ _VERDICT_STYLE = {
 
 def _local_minute(ts: Any) -> str:
     """An ISO timestamp (stored in UTC) as local time, to the minute."""
-    from datetime import datetime
-
     try:
-        return datetime.fromisoformat(str(ts)).astimezone().strftime("%Y-%m-%d %H:%M")
+        return parse_iso(str(ts)).astimezone().strftime("%Y-%m-%d %H:%M")
     except ValueError:
         return str(ts or "")[:16]
 

@@ -11,6 +11,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from ._isotime import parse_iso
 from .models import Run
 
 CSS = """
@@ -50,7 +51,7 @@ def _short(value: Any, width: int = 160) -> str:
 def _local(ts: Any) -> str:
     if isinstance(ts, str):
         try:
-            ts = datetime.fromisoformat(ts)
+            ts = parse_iso(ts)
         except ValueError:
             return ts
     if not isinstance(ts, datetime):
