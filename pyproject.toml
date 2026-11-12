@@ -33,8 +33,11 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "pydantic>=2",
-    "typer>=0.12",
+    # floors checked on Python 3.10 + 3.13 (Nov 2026): typer < 0.16 crashes on `str | None`
+    # options (< 0.12.4) or with click 8.2+ ("Secondary flag"); pydantic < 2.6 loses nested
+    # dataclass results on replay and < 2.3 wrote timestamps Python 3.10 cannot read back
+    "pydantic>=2.6",
+    "typer>=0.16",
     "rich>=13",
     "tomli>=1.1; python_version < '3.11'",  # [tool.crashlab] in pyproject.toml
 ]

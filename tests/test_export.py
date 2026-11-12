@@ -185,6 +185,9 @@ def test_local_roots_wheel_vs_editable(tmp_path, monkeypatch):
     from crashlab.store import Store
 
     store = Store(tmp_path / "store")
+    repo_src = (Path(__file__).resolve().parents[1] / "src").resolve()
+    if repo_src not in Path(real_pkg.__file__).resolve().parents:
+        pytest.skip("crashlab is not an editable install of this checkout (wheel install)")
 
     tokens = {t for _, t in exp._local_roots(store)}
     assert "$CRASHLAB" in tokens
