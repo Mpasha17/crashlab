@@ -370,9 +370,12 @@ def select_steps(
         steps = [s for s in steps if s.operation in ops]
         notes.append(" + ".join(n for n, on in (("tool", tools), ("llm", llm)) if on) + " steps")
     if agent is not None:
-        steps = [s for s in steps if s.agent == agent]
-        known = ", ".join(run.agents) or "none labelled"
-        notes.append(f"agent {agent}" + ("" if agent in run.agents else f" (agents: {known})"))
+        mine = {s.idx for s in run.chat_steps(agent=agent) + run.tool_calls(agent=agent)}
+        steps = [s for s in steps if s.idx in mine or ("#" not in agent and s.agent == agent)]
+        names = run.agent_labels
+        known = ", ".join(names) or "none labelled"
+        ok = agent in names or agent in run.agents
+        notes.append(f"agent {agent}" + ("" if ok else f" (agents: {known})"))
     if errors:
         steps = [s for s in steps if s.error is not None]
         notes.append("steps with an error")

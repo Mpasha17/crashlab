@@ -99,6 +99,21 @@ Tools that take a framework context (PydanticAI `ctx: RunContext[...]`) work: th
 context is not recorded as a tool argument. Leave out other per-run arguments with
 `@crashlab.tool(ignore_args=("request_id",))`.
 
+## The same agent running twice at once
+
+When one agent runs twice in parallel (a manager calls `researcher.as_tool()` for two
+topics at once), both runs carry the label `researcher`. crashlab tells them apart from
+their conversations: each chat request that extends an earlier request of that agent
+continues it (the one whose tool calls it answers). If two conversations of one agent
+interleave, `crashlab show`, the diagnoser's view and `run.agent_labels` call them
+`researcher#1` / `researcher#2` (numbered by first step); tool steps follow the chat
+that requested them. Filter with `run.chat_steps(agent="researcher#2")`,
+`run.tool_calls(agent="researcher#2")` or `crashlab show --agent "researcher#2"`; the
+plain name still matches every instance. `run.agents` lists names only. An agent called
+again later (not at the same time) keeps its plain name. This is inferred after the
+fact, so it also works on runs recorded before it existed; it needs requests that carry
+the conversation (concurrent agents that send only the latest message are not split).
+
 ## Diagnosing a multi-agent run
 
 The diagnoser's view tags each step with its agent (`[agent: critic]`). The

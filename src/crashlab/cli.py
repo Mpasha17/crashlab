@@ -342,8 +342,9 @@ def show(
     meta.add_column()
     meta.add_row("run", run.run_id)
     meta.add_row("name", run.name)
+    labels = run.agent_instances()
     if run.agents:
-        meta.add_row("agents", " → ".join(run.agents))
+        meta.add_row("agents", " → ".join(run.agent_labels))
     meta.add_row(
         "status",
         Text(run.status, style=_STATUS_STYLE.get(run.status, ""))
@@ -425,7 +426,7 @@ def show(
             head = Text(f"{kind}{_SOURCE_MARK.get(step.source, '')} ", style="bold")
             head.append(step.name)
             if step.agent and step.operation != "invoke_agent":
-                head.append(f"\n@{step.agent}", style="magenta")
+                head.append(f"\n@{labels.get(step.idx, step.agent)}", style="magenta")
             if usd:
                 head.append(f"\n{usd}", style="dim")
             if mark:
@@ -442,7 +443,7 @@ def show(
         else:
             name = Text(step.name)
             if step.agent and step.operation != "invoke_agent":
-                name.append(f" @{step.agent}", style="magenta")
+                name.append(f" @{labels.get(step.idx, step.agent)}", style="magenta")
             table.add_row(str(step.idx), op, name, inp, out, err, usd, flag)
     if steps:
         console.print(table)

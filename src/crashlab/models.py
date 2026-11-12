@@ -7,6 +7,8 @@ OTLP export can be a straight mapping. The conventions are still in Development 
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
@@ -235,6 +237,35 @@ class Step(_Model):
         return (self.response or {}).get("result")
 
 
+def _msg_key(msg: Any) -> str:
+    return json.dumps(msg, sort_keys=True, default=str)
+
+
+def _continued_thread(threads: list[dict[str, Any]], msgs: list[str]) -> int | None:
+    """The conversation ``msgs`` continues: its last request is a strict prefix of
+    ``msgs``; the one whose tool calls ``msgs`` answers first, else the longest."""
+    best: int | None = None
+    for i, t in enumerate(threads):
+        prev = t["msgs"]
+        if not prev or len(prev) >= len(msgs) or msgs[: len(prev)] != prev:
+            continue
+        tail = "".join(msgs[len(prev) :])
+        if t["calls"] and any(c in tail for c in t["calls"]):
+            return i
+        if best is None or len(prev) >= len(threads[best]["msgs"]):
+            best = i
+    return best
+
+
+def _interleaved(threads: list[dict[str, Any]]) -> bool:
+    end = -1
+    for start, stop in sorted((min(t["steps"]), max(t["steps"])) for t in threads if t["steps"]):
+        if start < end:
+            return True
+        end = max(end, stop)
+    return False
+
+
 class Run(_Model):
     run_id: str
     name: str
@@ -339,22 +370,86 @@ class Run(_Model):
             if s.operation == "execute_tool" and (name is None or s.name == name)
         ]
 
+    def _agent_match(self, agent: str | None) -> Callable[[Step], bool]:
+        if agent is None:
+            return lambda s: True
+        if "#" not in agent:
+            return lambda s: s.agent == agent
+        labels = self.agent_instances()
+        return lambda s: labels.get(s.idx) == agent
+
     def chat_steps(self, *, agent: str | None = None) -> list[Step]:
-        """Chat steps (optionally only those of one agent, see :attr:`Step.agent`)."""
-        return [
-            s for s in self.steps if s.operation == "chat" and (agent is None or s.agent == agent)
-        ]
+        """Chat steps (optionally only those of one agent, see :attr:`Step.agent`, or of
+        one concurrent instance of it, ``"researcher#2"``, see :meth:`agent_instances`)."""
+        match = self._agent_match(agent)
+        return [s for s in self.steps if s.operation == "chat" and match(s)]
 
     def tool_calls(
         self, name: str | None = None, *, ok_only: bool = False, agent: str | None = None
     ) -> list[Step]:
         """Tool steps (optionally only one tool / only those that did not raise / only
-        those of one agent)."""
+        those of one agent or agent instance)."""
+        match = self._agent_match(agent)
         return [
-            s
-            for s in self.tool_steps(name)
-            if not (ok_only and s.error is not None) and (agent is None or s.agent == agent)
+            s for s in self.tool_steps(name) if not (ok_only and s.error is not None) and match(s)
         ]
+
+    @property
+    def agent_labels(self) -> list[str]:
+        """Agent labels in order of first appearance, with concurrent instances told
+        apart (``["manager", "researcher#1", "researcher#2"]``); same as :attr:`agents`
+        when no agent ran twice at once."""
+        seen: dict[str, None] = {}
+        labels = self.agent_instances()
+        for idx in sorted(labels):
+            seen.setdefault(labels[idx], None)
+        return list(seen)
+
+    def agent_instances(self) -> dict[int, str]:
+        """Step index -> agent label, telling apart concurrent runs of the same agent.
+
+        Chat steps of one agent are grouped into conversations: a request that extends an
+        earlier request of that agent (its messages start with them) continues it, the one
+        whose tool calls it answers first. When two conversations of the same agent
+        interleave (the agent ran twice in parallel, e.g. ``as_tool`` called twice), their
+        steps are labelled ``name#1``, ``name#2`` in order of first step; tool steps take the
+        label of the chat that requested them. Otherwise the plain name is kept (an agent
+        called again later is not split). Unlabelled steps are left out."""
+        steps = sorted(self.steps, key=lambda s: s.idx)
+        threads: dict[str, list[dict[str, Any]]] = {}
+        thread_of: dict[int, tuple[str, int]] = {}
+        for s in steps:
+            if s.operation != "chat" or s.agent is None:
+                continue
+            msgs = [_msg_key(m) for m in (s.request or {}).get("messages") or []]
+            own = threads.setdefault(s.agent, [])
+            pick = _continued_thread(own, msgs) if msgs else (len(own) - 1 if own else None)
+            if pick is None:
+                own.append({"steps": [], "msgs": msgs, "calls": set()})
+                pick = len(own) - 1
+            t = own[pick]
+            t["steps"].append(s.idx)
+            if msgs:
+                t["msgs"] = msgs
+            t["calls"] = {c.get("id") for c in (s.response or {}).get("tool_calls") or []
+                          if isinstance(c, dict) and c.get("id")}  # fmt: skip
+            thread_of[s.idx] = (s.agent, pick)
+        split = {name for name, ts in threads.items() if _interleaved(ts)}
+        out: dict[int, str] = {}
+        for s in steps:
+            if s.agent is None:
+                continue
+            key = thread_of.get(s.idx)
+            if key is None and s.operation == "execute_tool":
+                caller = self.caller_chat(s.idx)
+                key = thread_of.get(caller) if caller is not None else None
+                if key is not None and key[0] != s.agent:
+                    key = None
+            if key is not None and key[0] in split:
+                out[s.idx] = f"{key[0]}#{key[1] + 1}"
+            else:
+                out[s.idx] = s.agent
+        return out
 
     @property
     def agents(self) -> list[str]:

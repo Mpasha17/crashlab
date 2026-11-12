@@ -115,8 +115,9 @@ def compact(
     by_step = _findings_by_step(run)
     cand_steps = {c.step for c in cands}
     first_chat = True
+    labels = run.agent_instances() if run.agents else {}
     for s in run.steps:
-        lines += _step_lines(s, first_chat, system, has_tool_steps, max_field)
+        lines += _step_lines(s, first_chat, system, has_tool_steps, max_field, labels.get(s.idx))
         if s.operation == "chat":
             first_chat = False
         if s.idx in by_step:
@@ -126,10 +127,12 @@ def compact(
     return "\n".join(lines)
 
 
-def _step_lines(s: Step, first: bool, system: Any, has_tool_steps: bool, lim: int) -> list[str]:
+def _step_lines(
+    s: Step, first: bool, system: Any, has_tool_steps: bool, lim: int, label: str | None = None
+) -> list[str]:
     tag = "" if s.source in ("live", "cassette") else f"  [source: {s.source}]"
     if s.agent and s.operation != "invoke_agent":
-        tag = f"  [agent: {s.agent}]" + tag
+        tag = f"  [agent: {label or s.agent}]" + tag
     if s.operation != "chat":
         out = [f"[{s.idx}] tool {s.name}{tag}", "    args: " + cut(as_text(s.args), lim, "args")]
         if s.error is None and s.response is not None:
