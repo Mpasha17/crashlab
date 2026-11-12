@@ -256,3 +256,22 @@ def test_show_agent_filter(monkeypatch):
     assert "agent billing (agents: triage, refunds)" in out
     out = CliRunner().invoke(app, ["show", "last", "--agent", "refunds", "--tools"]).output
     assert "showing 2 of 6 steps" in out
+
+
+def test_diagnoser_view_names_the_agent_of_each_step():
+    from crashlab.diagnose.compact import compact
+
+    support()
+    view = compact(crashlab.load("last"))
+    lines = view.splitlines()
+    assert any(ln.startswith("[0] chat") and ln.endswith("[agent: triage]") for ln in lines)
+    assert "[2] tool lookup  [agent: refunds]" in lines
+
+    @crashlab.agent(name="plain")
+    def plain() -> None:
+        crashlab.wrap(FakeOpenAI([text_response(1, "x")])).chat.completions.create(
+            model="m", messages=[]
+        )
+
+    plain()
+    assert "[agent:" not in compact(crashlab.load("last"))

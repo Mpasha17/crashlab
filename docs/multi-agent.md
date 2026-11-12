@@ -54,7 +54,9 @@ run.chat_steps(agent="refunds")
 ```
 
 `crashlab show` prints an `agents  triage → refunds` row and `@agent` next to each
-labelled step.
+labelled step; `crashlab show last --agent refunds` lists only that agent's steps
+(combines with `--tools`, `--llm`, `--errors`). The diagnoser's view of the run names
+the agent of each labelled step, so a diagnosis can say which agent went wrong.
 
 Labels are metadata only: request hashes, replay, fork and export are unchanged, and
 runs recorded by 0.0.3 (no labels) load and replay as before (`step.agent` is `None`).

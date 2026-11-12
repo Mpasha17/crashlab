@@ -122,6 +122,8 @@ def compact(
 
 def _step_lines(s: Step, first: bool, system: Any, has_tool_steps: bool, lim: int) -> list[str]:
     tag = "" if s.source in ("live", "cassette") else f"  [source: {s.source}]"
+    if s.agent and s.operation != "invoke_agent":
+        tag = f"  [agent: {s.agent}]" + tag
     if s.operation != "chat":
         out = [f"[{s.idx}] tool {s.name}{tag}", "    args: " + cut(as_text(s.args), lim, "args")]
         if s.error is None and s.response is not None:
