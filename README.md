@@ -198,7 +198,12 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   fixes with diffs and the next commands to run (`crashlab diagnose --fix` prints it too).
 - **Share runs:** `crashlab export RUN -o run.jsonl` / `crashlab import run.jsonl`
   (redacted again on the way out).
-- **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab replay`, `crashlab check`,
+- **Debug many runs:** `crashlab search` (text and filters across runs: tools, errors,
+  checks, labels, models, time), `crashlab cluster` (group failed runs by a conservative
+  failure signature), `crashlab show RUN --failing / --errors / --tools / --step N`, and a
+  per-step timing / cost waterfall in the HTML report. See
+  [docs/debugging.md](https://github.com/Mpasha17/crashlab/blob/main/docs/debugging.md).
+- **CLI:** `crashlab ls`, `crashlab show <run_id|last>`, `crashlab search`, `crashlab cluster`, `crashlab replay`, `crashlab check`,
   `crashlab diagnose`, `crashlab fix`, `crashlab report`, `crashlab fork`, `crashlab diff`, `crashlab export`, `crashlab import`; in Python,
   `crashlab.load("last")`.
 
@@ -306,6 +311,10 @@ print(crashlab.diff(run, branch).summary())
 crashlab ls            # runs: id, name, status, outcome, steps, tokens, cost, findings
 crashlab ls --flagged  # only runs with runtime-check findings (--min-severity error)
 crashlab show last     # checks, findings + step table: idx, op, name, args / result, error
+crashlab show last --failing      # steps around the first failure (--errors, --tools, --llm)
+crashlab show last --step 3       # full request / response / traceback for one step
+crashlab search "timed out" --since 1d   # text + filters (--tool, --check, --errors ...)
+crashlab cluster       # group failed runs by failure signature, largest first
 crashlab replay last   # offline re-run from the cassette; exit 1 + diff on divergence
 crashlab check last    # re-run the oracles and the runtime checks (--save to store them)
 crashlab check --all --findings-only --max-cost 0.05 --fail-on error   # e.g. in CI
@@ -478,7 +487,8 @@ asserting it still passes. The pytest plugin (auto-loaded) adds `--crashlab`, th
 fixtures. Store and home paths are replaced in exported cassettes. See
 [examples/refund_bot/tests](https://github.com/Mpasha17/crashlab/tree/main/examples/refund_bot/tests), which CI runs.
 The HTML report has the outcome, checks, findings, diagnosis with quotes, fixes with
-diffs, verification stats and the step timeline; inline CSS, no scripts, no external
+diffs, verification stats, a per-step timing / cost waterfall (recorded data only) and the
+step timeline; inline CSS, no scripts, no external
 assets.
 
 ### Free, local, with Ollama

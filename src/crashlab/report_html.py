@@ -1,6 +1,7 @@
 """``crashlab report RUN --html out.html``: one self-contained HTML file (inline CSS, no
 scripts, no external assets) to share a run: outcome, checks, findings, diagnosis with
-its quotes, fixes with diffs, verification stats and the step timeline."""
+its quotes, fixes with diffs, verification stats, a per-step timing / cost waterfall and
+the step timeline."""
 
 from __future__ import annotations
 
@@ -27,6 +28,10 @@ pre{background:#f7f8fb;border:1px solid #e3e6ee;padding:.6rem;overflow-x:auto;wh
 .badge{display:inline-block;padding:.1rem .5rem;border-radius:.6rem;background:#eef1f7}
 .add{color:#137333}.del{color:#b3261e}.hunk{color:#5b6ad0}.muted{color:#6b7280}
 .quote{background:#fff7d6;padding:0 .2rem}
+.wf{position:relative;height:.9rem;min-width:180px;background:#f4f6fa;border-radius:2px}
+.wf span{position:absolute;top:0;bottom:0;border-radius:2px;min-width:2px;background:#5b6ad0}
+.wf .tool{background:#2a9d8f}.wf .err{background:#b3261e}.wf .other{background:#8a8fa3}
+td.num{text-align:right;white-space:nowrap}
 """
 
 
@@ -226,6 +231,7 @@ def render_html(run: Run, verifications: list[Any] | None = None) -> str:
             f"{len(v.trials)} trials (child runs tagged verify:{_e(v.verification_id)})</p>"
         )
 
+    p.append(_timing_html(run))
     p.append("<h2>Step timeline</h2>")
     rows = []
     for s in run.steps:
@@ -259,6 +265,121 @@ def render_html(run: Run, verifications: list[Any] | None = None) -> str:
         + "\n".join(p)
         + "</body></html>\n"
     )
+
+
+def _step_usd(step: Any) -> float | None:
+    from .pricing import step_cost
+
+    cost = step.attributes.get("crashlab.usage.cost_usd")
+    return step_cost(step) if cost is None else float(cost)
+
+
+def _timing_html(run: Run) -> str:
+    """Per-step latency waterfall and cost table, from the recorded ``started_at`` /
+    ``duration_ms`` and token / cost attributes. Says so instead of drawing bars when a
+    run has no timing data; never estimates missing numbers."""
+    out = ["<h2>Step timing and cost</h2>"]
+    steps = sorted(run.steps, key=lambda s: s.idx)
+    if not steps:
+        out.append('<p class="muted">No steps recorded.</p>')
+        return "\n".join(out)
+    if all(not s.duration_ms for s in steps):
+        out.append(
+            '<p class="muted">No step durations were recorded for this run (every step has '
+            "duration 0), so there is no latency waterfall.</p>"
+        )
+        return "\n".join(out)
+    t0 = min(s.started_at for s in steps)
+    offs = [max((s.started_at - t0).total_seconds() * 1000, 0.0) for s in steps]
+    span = max(o + max(s.duration_ms, 0.0) for o, s in zip(offs, steps, strict=True)) or 1.0
+    rows = []
+    llm_ms = tool_ms = 0.0
+    total_cost, unknown_cost, in_tok, out_tok = 0.0, 0, 0, 0
+    for off, s in zip(offs, steps, strict=True):
+        dur = max(s.duration_ms, 0.0)
+        if s.error:
+            kind = "err"
+        elif s.operation in ("chat", "embeddings"):
+            kind = ""
+        elif s.operation in ("execute_tool", "invoke_agent"):
+            kind = "tool"
+        else:
+            kind = "other"
+        if s.operation in ("chat", "embeddings"):
+            llm_ms += dur
+        elif s.operation in ("execute_tool", "invoke_agent"):
+            tool_ms += dur
+        left, width = off / span * 100, dur / span * 100
+        bar = (
+            f'<div class="wf" title="{_e(f"+{off:.0f} ms, {dur:.1f} ms")}">'
+            f'<span class="{kind}" style="left:{left:.2f}%;width:{width:.2f}%"></span></div>'
+        )
+        tokens = cost = ""
+        if s.operation == "chat":
+            a = s.attributes or {}
+            i, o = a.get("gen_ai.usage.input_tokens"), a.get("gen_ai.usage.output_tokens")
+            if i is not None or o is not None:
+                in_tok, out_tok = in_tok + int(i or 0), out_tok + int(o or 0)
+                tokens = f"{int(i or 0)} / {int(o or 0)}"
+            usd = _step_usd(s)
+            if usd is None:
+                unknown_cost += 1
+                cost = "?"
+            else:
+                total_cost += usd
+                cost = f"${usd:.4f}" if usd >= 0.0001 or usd == 0 else f"${usd:.6f}"
+        rows.append(
+            f"<tr><td>{_e(s.idx)}</td><td>{_e(s.operation)}</td><td>{_e(s.name)}</td>"
+            f'<td class="num">+{off:,.0f} ms</td><td class="num">{dur:,.1f} ms</td>'
+            f'<td class="num">{_e(tokens)}</td><td class="num">{_e(cost)}</td>'
+            f"<td>{bar}</td></tr>"
+        )
+    head = "".join(
+        f"<th>{h}</th>"
+        for h in (
+            "#",
+            "op",
+            "name",
+            "start",
+            "duration",
+            "tokens in / out",
+            "est. cost",
+            "waterfall",
+        )  # fmt: skip
+    )
+    out.append(f"<table><tr>{head}</tr>{''.join(rows)}</table>")
+    slow = max(steps, key=lambda s: s.duration_ms)
+    facts = [
+        f"span {span:,.0f} ms from the first step's start",
+        f"LLM calls {llm_ms:,.0f} ms",
+        f"tools {tool_ms:,.0f} ms",
+        f"slowest: step {slow.idx} ({slow.operation} {slow.name}, {slow.duration_ms:,.0f} ms)",
+    ]
+    if run.usage.wall_time_ms is not None:
+        facts.insert(0, f"run wall time {run.usage.wall_time_ms:,.0f} ms")
+    if any(s.operation == "chat" for s in steps):
+        facts.append(f"{in_tok:,} / {out_tok:,} tokens")
+        facts.append(
+            f"est. cost ${total_cost:.4f}"
+            + (f" + {unknown_cost} call(s) with no known price" if unknown_cost else "")
+        )
+    out.append(f'<p class="muted">{_e(" · ".join(facts))}</p>')
+    notes = [
+        "Durations are wall-clock times measured around each call by crashlab, including "
+        "network time; overlapping bars are calls that ran concurrently."
+    ]
+    if any(s.source != "live" for s in steps):
+        notes.append(
+            "Steps served from a cassette, patched, blocked or faked show the time of this "
+            "run (a replay or fork), not of the original call."
+        )
+    if unknown_cost:
+        notes.append(
+            "'?' cost: the model has no price in crashlab's table or [tool.crashlab.prices], "
+            "or the call reported no usage."
+        )
+    out.append("".join(f'<p class="muted">{_e(n)}</p>' for n in notes))
+    return "\n".join(out)
 
 
 def write_html(run: Run, path: str | Path, verifications: list[Any] | None = None) -> Path:

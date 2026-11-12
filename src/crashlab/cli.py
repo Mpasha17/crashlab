@@ -1,5 +1,5 @@
-"""``crashlab`` command line: ``ls``, ``show``, ``replay``, ``check``, ``diagnose``,
-``fix``, ``report``, ``fork``, ``diff``, ``export``, ``import``."""
+"""``crashlab`` command line: ``ls``, ``show``, ``search``, ``cluster``, ``replay``,
+``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``, ``export``, ``import``."""
 
 from __future__ import annotations
 
@@ -308,11 +308,30 @@ def _resolve(store: Store, ref: str) -> Run:
 def show(
     run_ref: str = typer.Argument("last", help="Run id, unique id prefix, or 'last'."),
     as_json: bool = typer.Option(False, "--json", help="Print the run and steps as JSON."),
+    step_idx: int | None = typer.Option(
+        None, "--step", help="Show everything recorded for one step (full request / response)."
+    ),
+    errors_only: bool = typer.Option(False, "--errors", help="Only steps with an error."),
+    tools_only: bool = typer.Option(False, "--tools", help="Only tool steps."),
+    llm_only: bool = typer.Option(False, "--llm", help="Only LLM (chat / embeddings) steps."),
+    failing: bool = typer.Option(
+        False, "--failing", help="Only the steps around the first failing step."
+    ),
 ) -> None:
     """Show a run's metadata and step table."""
+    from .cli_debug import failure_line, print_step_detail, select_steps
+
     store = Store()
     run = _resolve(store, run_ref)
+    if step_idx is not None:
+        print_step_detail(_console(), run, step_idx, as_json=as_json)
+        return
+    steps, filter_note = select_steps(
+        run, errors=errors_only, tools=tools_only, llm=llm_only, failing=failing
+    )
     if as_json:
+        if filter_note is not None:
+            run = run.model_copy(update={"steps": steps})
         typer.echo(run.model_dump_json(indent=2))
         return
     console = _console()
@@ -389,7 +408,7 @@ def show(
         table.add_column("error", style="red", overflow="fold")
         table.add_column("$", justify="right", no_wrap=True, style="dim")
         table.add_column("", no_wrap=True)
-    for step in run.steps:
+    for step in steps:
         inp, out = _step_io(step)
         err = f"{step.error.type}: {_short(step.error.detail, 50)}" if step.error else ""
         op = step.operation + _SOURCE_MARK.get(step.source, "")
@@ -417,10 +436,17 @@ def show(
             table.add_row(str(step.idx), head, body)
         else:
             table.add_row(str(step.idx), op, step.name, inp, out, err, usd, flag)
-    if run.steps:
+    if steps:
         console.print(table)
+    elif run.steps:
+        console.print("[dim]No steps match the filter.[/]")
     else:
         console.print("[dim]No steps recorded.[/]")
+    if filter_note:
+        console.print(f"[dim]{_e(filter_note)}[/]")
+    jump = failure_line(run, run_ref if run_ref not in ("last", "latest") else run.run_id[:12])
+    if jump is not None:
+        console.print(jump)
     if any(s.source != "live" for s in run.steps):
         console.print(
             "[dim]↺ served from the cassette  ✎ patched by the fork  ⊘ blocked  ◇ fake tool[/]"
@@ -2032,7 +2058,7 @@ def _first_sentence(text: str, limit: int = 60) -> str:
 
 # `crashlab --help`: the commands grouped in the order a failing run is handled
 _HELP_PANELS = (
-    ("Inspect", ("ls", "show", "report", "diff", "check")),
+    ("Inspect", ("ls", "show", "search", "cluster", "report", "diff", "check")),
     ("Diagnose and fix", ("diagnose", "fix", "verify", "export-test")),
     ("Replay and fork", ("replay", "fork")),
     ("Share and benchmark", ("export", "import", "bench")),
@@ -2056,6 +2082,8 @@ def _tidy_help(typer_app: typer.Typer) -> None:
         if info.short_help is None:
             info.short_help = _first_sentence(info.help)
 
+
+from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster
 
 _tidy_help(app)
 

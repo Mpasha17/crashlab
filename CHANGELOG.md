@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Debugging many runs (see `docs/debugging.md`)
+- `crashlab search` / `crashlab.search.search_runs`: offline text search across runs (messages, tool names / args / results, errors, models, checks, findings, diagnosis labels, run ids) with `--tool`, `--model`, `--check`, `--label`, `--errors`, `--since`, `--run`, `--in`, regex and JSON output; exits 1 when nothing matched
+- `crashlab cluster` / `crashlab.cluster.cluster_runs`: group failed runs by a conservative signature (agent, normalized exception, first failing step, failing checks, diagnosis label, serious findings); `--by` to loosen, stable cluster ids, JSON output
+- `crashlab show` gains `--errors`, `--tools`, `--llm`, `--failing` and `--step N` (full detail of one step), and a failed run's output ends with a line pointing at the first failing step and failing checks; existing output is otherwise unchanged
+- HTML report: per-step timing / cost waterfall from recorded durations, tokens and prices; unknown prices shown as `?`, no chart when no durations were recorded
+
 ### Fixes
 - `crashlab fork` (and `verify --patch`-style flags) failed with "None is not a valid string" on typer 0.29+; tuple options now default to `None`
 
