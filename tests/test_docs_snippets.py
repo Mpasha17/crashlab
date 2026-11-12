@@ -18,7 +18,6 @@ import shlex
 import sys
 from pathlib import Path
 
-import click
 import pytest
 import typer
 from typer.testing import CliRunner
@@ -30,12 +29,21 @@ if sys.version_info >= (3, 11):
 else:  # pragma: no cover
     import tomli as tomllib
 
-try:  # typer 0.2x vendors its own click
+# typer < 0.2x uses click; newer typer vendors it (typer._click) and does not install it
+_usage_errors: list[type[Exception]] = []
+try:
+    import click
+
+    _usage_errors.append(click.UsageError)
+except ImportError:  # pragma: no cover
+    pass
+try:
     from typer._click.exceptions import UsageError as _TyperUsageError
 
-    USAGE_ERRORS: tuple[type[Exception], ...] = (click.UsageError, _TyperUsageError)
+    _usage_errors.append(_TyperUsageError)
 except ImportError:  # pragma: no cover
-    USAGE_ERRORS = (click.UsageError,)
+    pass
+USAGE_ERRORS: tuple[type[Exception], ...] = tuple(_usage_errors)
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = sorted(
@@ -191,6 +199,7 @@ def _no_key_block() -> str:
 def test_readme_try_it_with_no_api_key_runs(tmp_path, monkeypatch):
     """Copy-paste of the README block, minus the clone / venv lines (this is that
     checkout). Each command must exit as its comment says (0 unless "exit 1")."""
+    pytest.importorskip("openai")  # the demo agent replays through the OpenAI SDK
     monkeypatch.chdir(ROOT)
     monkeypatch.setenv("CRASHLAB_DIR", str(tmp_path / "demo"))
     for var in ("OPENAI_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY"):
