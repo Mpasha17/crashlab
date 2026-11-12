@@ -1988,6 +1988,44 @@ def diff_cmd(
     console.print(rd.summary())
 
 
+@app.command("flakes")
+def flakes_cmd(
+    name: str | None = typer.Option(None, "--name", help="Only runs of this agent name."),
+    limit: int = typer.Option(500, "--limit", "-n", help="Newest runs to scan (0 = all)."),
+    min_runs: int = typer.Option(2, "--min-runs", help="Runs of one input needed (>= 2)."),
+    min_severity: str = typer.Option(
+        "warn", "--min-severity", help="Lowest finding severity that counts as bad."
+    ),
+    across_versions: bool = typer.Option(
+        False, "--across-versions", help="Group runs of different code versions together."
+    ),
+    show_all: bool = typer.Option(False, "--all", help="Also list inputs that never varied."),
+    as_json: bool = typer.Option(False, "--json", help="Print JSON."),
+    fail_on_flaky: bool = typer.Option(
+        False, "--fail-on-flaky", help="Exit 1 when a flaky input is found (CI)."
+    ),
+) -> None:
+    """Find flaky inputs: the same agent, input and code version passing in some runs
+    and failing (raising, a check, a finding) in others."""
+    from .flakes import find_flakes, render_text
+
+    try:
+        groups = find_flakes(Store(), name=name, limit=limit or None, min_runs=min_runs,
+                             min_severity=min_severity, across_versions=across_versions,
+                             include_stable=True)  # fmt: skip
+    except ValueError as exc:
+        _console(stderr=True).print(f"[red]{_e(exc)}[/]")
+        raise typer.Exit(code=2) from exc
+    if as_json:
+        shown = groups if show_all else [g for g in groups if g.flaky]
+        typer.echo(json.dumps([g.to_dict() for g in shown], indent=2, default=str))
+    else:
+        for line in render_text(groups, show_stable=show_all):
+            typer.echo(line)
+    if fail_on_flaky and any(g.flaky for g in groups):
+        raise typer.Exit(code=1)
+
+
 # --- export / import -------------------------------------------------------------------
 
 
