@@ -46,5 +46,21 @@ jobs:
         run: python -m pytest
       - name: Exported crashlab regression tests (offline, no keys)
         run: python -m pytest --crashlab examples/refund_bot/tests
-      - name: CLI smoke test
-        run: crashlab --version
+      - name: CLI smoke test (every command, offline fake LLM server)
+        run: bash scripts/smoke.sh
+
+  test-min-deps:
+    # the declared floors in pyproject.toml, so a bound that is too loose shows up here
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install with the oldest supported pydantic / typer / rich
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,openai]" "pydantic==2.6.0" "typer==0.16.0" "rich==13.0.0"
+      - run: python -m pytest
+      - run: bash scripts/smoke.sh
