@@ -13,7 +13,7 @@ from typing import Any
 
 from ..models import Run, Step
 from .fields import as_text, message_text, reply_parts, tool_calls
-from .heuristics import Candidate
+from .heuristics import Candidate, is_broken_check
 
 
 def cut(text: Any, limit: int, what: str) -> str:
@@ -82,7 +82,13 @@ def compact(
 
     lines += ["", "CHECKS (@crashlab.check outcome oracles):"]
     lines += [
-        f"- {c.status.upper()} {c.name}" + (f": {c.message}" if c.message else "")
+        f"- {c.status.upper()} {c.name}"
+        + (f": {c.message}" if c.message else "")
+        + (
+            " (the check itself crashed: a bug in the check, not evidence)"
+            if is_broken_check(c)
+            else ""
+        )  # fmt: skip
         for c in run.checks
     ] or ["- none"]
     lines.append("RUNTIME FINDINGS (built-in detectors):")

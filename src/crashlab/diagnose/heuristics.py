@@ -10,6 +10,20 @@ from typing import Any
 from ..models import Run, Step, TaxonomyLabel
 from .fields import step_fields
 
+# A check that crashed on a programming error in the check itself (a typo'd attribute
+# of a crashlab object, an undefined name, a missing import): not evidence about the run.
+_BROKEN_CHECK = re.compile(
+    r"^(?:AttributeError: '(?:Step|Run|CheckResult|Finding|Usage|ErrorInfo|Evidence)' object "
+    r"has no attribute|NameError:|UnboundLocalError:|ImportError:|ModuleNotFoundError:"
+    r"|SyntaxError:|IndentationError:)"
+)
+
+
+def is_broken_check(c: Any) -> bool:
+    """True when check result ``c`` errored because the check's own code is broken."""
+    return c.status == "error" and bool(_BROKEN_CHECK.match((c.message or "").strip()))
+
+
 _STEP_REF = re.compile(r"\bsteps? (\d+)\b")
 _NOT_CALLED = re.compile(r"\b(?:never|not) (?:been )?called\b|\bwithout calling\b", re.I)
 _ACTION_VIOLATION = re.compile(
@@ -501,7 +515,7 @@ def candidates(run: Run) -> list[Candidate]:
         out.append(Candidate(idx, reason, label, quotes, rank))
 
     for c in run.checks:
-        if c.status not in ("fail", "error"):
+        if c.status not in ("fail", "error") or is_broken_check(c):
             continue
         refs = [int(m) for m in _STEP_REF.findall(c.message or "") if int(m) in steps]
         damage = _step_for_check(run, c.message or "", steps)
@@ -611,6 +625,18 @@ def heuristic_raw(run: Run, cands: list[Candidate] | None = None) -> dict[str, A
             "evidence": [],
         }
     labelled = [c for c in cands if c.label is not None]
+    broken = [c for c in run.checks if is_broken_check(c)]
+    judged = [c for c in run.checks if c.status != "pass" and not is_broken_check(c)]
+    if broken and not labelled and not judged and run.status != "error":
+        names = ", ".join(c.name for c in broken)
+        return {
+            "label": "UNKNOWN",
+            "failing_step": None,
+            "confidence": 0.0,
+            "root_cause": f"check {names} crashed ({broken[0].message}): the check itself "
+            "is broken, so the run was not judged. Fix the check and run `crashlab check`.",
+            "evidence": [],
+        }
     if labelled:
         primary = labelled[0]
         secondary: list[str] = []
