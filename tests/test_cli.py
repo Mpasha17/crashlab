@@ -256,3 +256,11 @@ def test_next_hints_when_diagnoser_misses_a_failure():
 
     clean = _next_hints(make(TaxonomyLabel.NO_FAILURE, outcome="pass"))
     assert not any("STRONGER_MODEL" in h for h in clean)
+
+    # new-user run: a confident diagnosis with a proposed fix was told to "diagnose again"
+    from crashlab.models import Fix
+
+    fix = Fix(fix_id="fix-1", kind="system_prompt", file="f.json")
+    fixed = _next_hints(make(TaxonomyLabel.TASK_SPEC_VIOLATION, fixes=[fix]))
+    assert not any("STRONGER_MODEL" in h or "--heuristic" in h for h in fixed), fixed
+    assert any("verify" in h and "fix-1" in h for h in fixed)

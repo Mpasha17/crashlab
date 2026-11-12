@@ -613,7 +613,7 @@ def _next_hints(run: Run) -> list[str]:
         hints.append(f"crashlab diagnose {rid} --heuristic        # no LLM")
     elif d.is_failure and not d.fixes:
         hints.append(f"crashlab fix {rid} --model MODEL           # propose patches")
-    elif run.outcome == "fail" or run.status == "error":
+    elif not d.is_failure and (run.outcome == "fail" or run.status == "error"):
         # the diagnoser found no failure in a failing run (often a small model): no fixes
         hints.append(f"crashlab fix {rid} --no-cache --model STRONGER_MODEL   # diagnose again")
         hints.append(f"crashlab diagnose {rid} --heuristic   # rule-based label, then `fix`")
