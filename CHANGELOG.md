@@ -31,6 +31,7 @@
 - Fix: a tool taking PydanticAI's `RunContext` (or any dataclass holding a lock / client) crashed the agent with `TypeError: cannot pickle '_thread.RLock'`; context objects are no longer recorded, dataclass args are converted without deep-copying, and an argument that cannot be converted is recorded as a placeholder. `@crashlab.tool(ignore_args=...)`
 - Fix: replaying a run with a sub-agent used as a tool dropped the sub-agent's steps, so oracles on them passed on the recording and failed on the replay / exported test; the served tool's recorded inner steps are now copied into the replay
 - Fix: concurrent sub-agents in one run no longer lose tool-call ids; `describe_step` / diagnose blame the chat step that requested a tool call (`run.caller_chat`), not just the nearest one
+- New runtime check `empty_reply` (warn): a chat turn that ended with no text and no tool call (e.g. reasoning only). Found live: a LlamaIndex AgentWorkflow agent on gpt-oss-120b "decided" to hand off in its reasoning but emitted no handoff call, and the workflow returned "" with status ok. Disable with `checks={"empty_reply": False}`
 
 ## 0.0.3 (pre-alpha)
 

@@ -102,6 +102,10 @@ class NoLlmCallsConfig(_Cfg):
     """Tool calls were recorded but no LLM call: the model client is probably not wrapped."""
 
 
+class EmptyReplyConfig(_Cfg):
+    """The model ended its turn with no text and no tool call (e.g. reasoning only)."""
+
+
 class FailedSideEffectClaimConfig(_Cfg):
     """Every call of a side-effect tool failed, yet the final answer reads like it worked
     ("your order is placed", "I could only get 2"). Heuristic (English success words)."""
@@ -139,6 +143,7 @@ class ChecksConfig(BaseModel):
         default_factory=ToolResultInstructionsConfig
     )
     unhandled_tool_error: UnhandledToolErrorConfig = Field(default_factory=UnhandledToolErrorConfig)
+    empty_reply: EmptyReplyConfig = Field(default_factory=EmptyReplyConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -165,6 +170,7 @@ _SECTIONS = (
     "failed_side_effect_claim",
     "tool_result_instructions",
     "unhandled_tool_error",
+    "empty_reply",
 )
 
 

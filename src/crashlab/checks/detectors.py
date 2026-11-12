@@ -709,6 +709,62 @@ class LengthCutoff(Detector):
         )]  # fmt: skip
 
 
+# --- empty_reply ------------------------------------------------------------------------
+
+_BLANK_PART_TYPES = {"text", "reasoning"}
+_MSG_OUTPUT_KEYS = ("refusal", "tool_calls", "function_call", "audio")
+
+
+def _says_something(step: Step) -> bool:
+    """Any output beyond blank text and reasoning: text, a tool call, a refusal, media."""
+    if response_text(step).strip() or _tool_calls(step):
+        return True
+    for msg in (step.response or {}).get("messages") or []:
+        if not isinstance(msg, dict):
+            return True  # an unknown shape: do not guess
+        if any(msg.get(k) for k in _MSG_OUTPUT_KEYS):
+            return True
+        content = msg.get("content")
+        if isinstance(content, list) and any(
+            not isinstance(p, dict) or p.get("type") not in _BLANK_PART_TYPES for p in content
+        ):
+            return True
+        for p in msg.get("parts") or []:
+            if not isinstance(p, dict) or p.get("type") not in _BLANK_PART_TYPES:
+                return True
+    return False
+
+
+class EmptyReply(Detector):
+    """The model ended its turn with no text and no tool call (often reasoning only).
+    Frameworks treat that as the final answer: the run returns "" with status ok."""
+
+    kind = "empty_reply"
+
+    def on_step(self, step: Step, h: History) -> list[Finding]:
+        if step.operation != "chat" or not step.response or step.error:
+            return []
+        finish = step.response.get("finish_reason")
+        if not finish or str(finish).lower() in _LENGTH:
+            return []  # unknown, or length_cutoff's finding
+        if step.attributes.get("crashlab.stream.complete") is False:
+            return []
+        if _says_something(step):
+            return []
+        reasoning = [str(p.get("content")) for m in step.response.get("messages") or []
+                     for p in (m.get("parts") or []) if isinstance(p, dict)
+                     and p.get("type") == "reasoning" and p.get("content")]  # fmt: skip
+        text = "\n".join(reasoning)
+        ev = [_ev(step, "response.reasoning", text, max(0, len(text) - 120))] if text else []
+        what = " (reasoning only)" if text else ""
+        return [self.finding(
+            severity="warn", step=step.idx, steps=[step.idx], key=f"{step.idx}",
+            message=f"the model ended its turn with no text and no tool call{what} "
+                    f"(finish_reason={finish}); a framework takes that as an empty answer",
+            evidence=ev,
+        )]  # fmt: skip
+
+
 # --- no_llm_calls -----------------------------------------------------------------------
 
 
@@ -942,6 +998,8 @@ def build(cfg: ChecksConfig) -> list[Detector]:
         out.append(LengthCutoff(cfg.length_cutoff))
     if cfg.no_llm_calls.enabled:
         out.append(NoLlmCalls(cfg.no_llm_calls))
+    if cfg.empty_reply.enabled:
+        out.append(EmptyReply(cfg.empty_reply))
     if cfg.failed_side_effect_claim.enabled:
         out.append(FailedSideEffectClaim(cfg.failed_side_effect_claim, cfg.suspicious_tool_result))
     if cfg.tool_result_instructions.enabled:
@@ -962,4 +1020,5 @@ KINDS = (
     "failed_side_effect_claim",
     "tool_result_instructions",
     "unhandled_tool_error",
+    "empty_reply",
 )

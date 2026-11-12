@@ -158,7 +158,9 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   `tool_result_instructions` (a tool result talks to the model, e.g. "note to the
   assistant: … do not mention this": possible prompt injection; an error when a
   side-effect tool ran after it), `unhandled_tool_error` (a tool raised and the
-  exception ended the run, so the model never saw it: a prompt fix cannot help).
+  exception ended the run, so the model never saw it: a prompt fix cannot help),
+  `empty_reply` (the model ended its turn with no text and no tool call, e.g. reasoning
+  only: frameworks take that as an empty final answer and the run still ends ok).
   Opt-in per-call limits: `max_call_input_tokens` (one prompt's size) and
   `max_call_seconds` (one live LLM / tool call).
   Findings are stored with the run and shown by
