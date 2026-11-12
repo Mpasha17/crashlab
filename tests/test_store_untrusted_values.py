@@ -149,3 +149,23 @@ def test_import_stores_steps_under_the_runs_own_id(tmp_path):
 @pytest.mark.parametrize("ok", ["01M6PGSAZ3328RE4HF201K6H5Q", "r", "a.b-c_d", "R1"])
 def test_ordinary_run_ids_still_work(tmp_path, ok):
     assert Store(tmp_path).run_dir(ok) == Store(tmp_path).root / "runs" / ok
+
+
+def test_byte_order_mark_and_crlf_from_an_editor_still_read(tmp_path):
+    """A cassette or export saved by a Windows editor (UTF-8 BOM, CRLF) used to lose its
+    first step (cassette) or fail to import at all."""
+    from crashlab.store.cassette import read_cassette
+
+    store, out, _ = _export(tmp_path)
+    run = crashlab.load("last")
+    cas = store.cassette_path(run.run_id)
+    raw = cas.read_bytes()
+    cas.write_bytes(b"\xef\xbb\xbf" + raw.replace(b"\n", b"\r\n"))
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        assert len(read_cassette(cas)) == len(run.steps)
+    assert not [w for w in rec if "damaged" in str(w.message)]
+    cas.write_bytes(raw)
+    out.write_bytes(b"\xef\xbb\xbf" + out.read_bytes().replace(b"\n", b"\r\n"))
+    assert import_run(store, out, replace=True) == (run.run_id, True)
+    assert len(crashlab.load(run.run_id).steps) == len(run.steps)

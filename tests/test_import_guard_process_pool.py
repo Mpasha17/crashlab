@@ -232,3 +232,17 @@ def test_process_forked_at_import_inherits_the_refusal(store):
     ))  # fmt: skip
     assert _import("ppmod_i").P.exitcode == 3
     assert _count() == 0
+
+
+def test_run_in_executor_with_a_process_pool_at_import_is_refused(store):
+    SHARED["pool"] = _pool(METHODS[-1])
+    _write(store, "ppmod_j", (
+        "import asyncio\n"
+        "async def call():\n"
+        "    loop = asyncio.get_running_loop()\n"
+        "    try:\n        return await loop.run_in_executor(T.SHARED['pool'], T.rec)\n"
+        "    except T.guard.RunAtImportError:\n        return 'refused'\n"
+        "R = asyncio.run(call())\n"
+    ))  # fmt: skip
+    assert _import("ppmod_j").R == "refused"
+    assert _count() == 0

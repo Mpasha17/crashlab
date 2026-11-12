@@ -15,6 +15,7 @@
 - `crashlab flakes` / `crashlab.flakes.find_flakes()`: same agent + canonical input + code version, signals (raised, outcome, checks, findings) that differ between runs, with counts and a Wilson 95% interval; `--json`, `--fail-on-flaky`. See `docs/budgets-and-flakes.md`
 
 ### Fixes
+- A cassette or export saved by an editor that adds a UTF-8 byte-order mark (and CRLF line endings) lost its first step on read, and `crashlab import` rejected it; both now read normally
 - Security: `crashlab import` / `import_run` of a crafted export could write `cassette.jsonl` and `run.json` outside the store (a run id like `../x` or an absolute path). A run id must now be one plain name (letters, digits, `.`, `_`, `-`). Imported steps are always stored under the run's own id
 - Recording no longer crashes the agent (`OverflowError`) or stops (`sqlite3` binding error) when a provider reports a token count beyond 64 bits, or sends a non-string finish reason or tool-call id, or a NaN duration. The SQLite index clamps or stringifies the value, and the cassette and `run.json` keep the exact value
 - Test suite: refuses to start (with the fix in the message) when `import crashlab` resolves outside this checkout's `src/`, so tests can no longer silently run against another worktree or an old install; `CRASHLAB_TEST_ANY_INSTALL=1` opts out

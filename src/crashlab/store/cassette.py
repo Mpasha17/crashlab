@@ -117,7 +117,8 @@ def read_lines(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     out = []
-    with path.open(encoding="utf-8") as fh:
+    # utf-8-sig: a file saved by an editor that adds a byte-order mark still parses
+    with path.open(encoding="utf-8-sig") as fh:
         for raw in fh:
             raw = raw.strip()
             if raw:
@@ -136,7 +137,7 @@ def read_cassette(path: Path) -> list[Step]:
     bad: list[int] = []
     unknown: list[str] = []
     parsed: list[tuple[int, dict[str, Any]]] = []
-    with path.open(encoding="utf-8", errors="replace") as fh:
+    with path.open(encoding="utf-8-sig", errors="replace") as fh:
         for n, raw in enumerate(fh, 1):
             raw = raw.strip()
             if not raw:
