@@ -1574,14 +1574,14 @@ def fork_cmd(
     system_replace: str | None = typer.Option(
         None, "--system-replace", help="Replace the system prompt."
     ),
-    system_insert_after: tuple[str, str] = typer.Option(
-        (None, None),
+    system_insert_after: tuple[str, str] | None = typer.Option(
+        None,
         "--system-insert-after",
         metavar="ANCHOR TEXT",
         help="Insert TEXT as a new line after the system-prompt line containing ANCHOR.",
     ),
-    system_sub: tuple[str, str] = typer.Option(
-        (None, None),
+    system_sub: tuple[str, str] | None = typer.Option(
+        None,
         "--system-sub",
         metavar="OLD NEW",
         help="Replace OLD with NEW in the system prompt.",
@@ -1599,26 +1599,26 @@ def fork_cmd(
         metavar="KEY=VALUE",
         help="Request parameter (JSON value), e.g. temperature=0.7. Repeatable.",
     ),
-    tool_description: tuple[str, str] = typer.Option(
-        (None, None),
+    tool_description: tuple[str, str] | None = typer.Option(
+        None,
         "--tool-description",
         metavar="TOOL TEXT",
         help="Replace a tool's description.",
     ),
-    tool_result: tuple[int, str] = typer.Option(
-        (None, None),
+    tool_result: tuple[int, str] | None = typer.Option(
+        None,
         "--tool-result",
         metavar="STEP JSON",
         help="Serve this result at tool step STEP instead of running the tool.",
     ),
-    message: tuple[int, int, str] = typer.Option(
-        (None, None, None),
+    message: tuple[int, int, str] | None = typer.Option(
+        None,
         "--message",
         metavar="STEP INDEX TEXT",
         help="Replace message INDEX of the request at chat step STEP.",
     ),
-    inject_user: tuple[int, str] = typer.Option(
-        (None, None),
+    inject_user: tuple[int, str] | None = typer.Option(
+        None,
         "--inject-user",
         metavar="STEP TEXT",
         help="Append a user message to the request at chat step STEP.",

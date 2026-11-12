@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+- `crashlab fork` (and `verify --patch`-style flags) failed with "None is not a valid string" on typer 0.29+; tuple options now default to `None`
+
 ## 0.0.3 (pre-alpha)
 
 Third public cut; matches `main` at release. `pip install crashlab`.
