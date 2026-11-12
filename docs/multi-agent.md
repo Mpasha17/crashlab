@@ -70,6 +70,26 @@ and the heuristic diagnoser use that link (falling back to the nearest earlier c
 step when a recording has no call id). Before this, a slower sub-agent's tool step lost
 its call id and was attributed to the other sub-agent's chat step.
 
+## Runtime checks per agent
+
+In a labelled run, `step_repetition` compares replies and requests within one agent:
+a writer that repeats the researcher's answer is a hand-over, not "the same reply 2
+times in a row". Repeated tool calls are still counted across agents (two agents
+placing the same order is a duplicate). Unlabelled runs behave as before.
+
+## Agents used as tools
+
+A sub-agent called from inside a tool (PydanticAI agent delegation, OpenAI Agents SDK
+`agent.as_tool()`, your own `delegate()` tool) records its steps nested under that tool
+step. A strict replay serves the tool from the cassette without running the sub-agent,
+and copies the sub-agent's recorded steps into the replay (`source="cassette"`,
+attribute `crashlab.replay.served_inside` = the tool step), so checks, usage and
+exported tests see the same steps as the recording.
+
+Tools that take a framework context (PydanticAI `ctx: RunContext[...]`) work: the
+context is not recorded as a tool argument. Leave out other per-run arguments with
+`@crashlab.tool(ignore_args=("request_id",))`.
+
 ## Not covered
 
 - Separate processes or services (an orchestrator calling a worker over HTTP) record

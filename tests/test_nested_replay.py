@@ -58,8 +58,13 @@ def test_replay_skips_steps_recorded_inside_a_served_tool():
     assert len(run.steps) == 7
     replayed = crashlab.replay(run)
     assert replayed.status == "ok" and replayed.output == "all done"
-    # the sub-agent never ran again: only the orchestrator's own steps were re-made
-    assert [s.idx for s in replayed.steps] == [0, 1, 6]
+    # the sub-agent never ran again: only the orchestrator's own steps were re-made;
+    # the steps recorded inside the served tool are copied from the cassette
+    assert [s.idx for s in replayed.steps] == list(range(7))
+    inside = [s for s in replayed.steps if 2 <= s.idx <= 5]
+    assert all(s.attributes.get("crashlab.replay.served_inside") == 1 for s in inside)
+    assert all(s.source == "cassette" for s in inside)
+    assert [(s.operation, s.name) for s in replayed.steps] == ops
     assert crashlab.replay(replayed).output == "all done"
 
 
@@ -70,3 +75,31 @@ def test_fork_after_a_nested_agent_tool():
     CLIENT[:] = [crashlab.wrap(FakeOpenAI([text_response(9, "forked answer")]))]
     branch = crashlab.fork(run, at_step=6, patch=crashlab.SystemPromptPatch(op="append", text="!"))
     assert branch.status == "ok" and branch.output == "forked answer"
+
+
+@crashlab.check("orchestrator")
+def sub_agent_looked_it_up(run):
+    """Oracle on a step made inside the delegated sub-agent."""
+    assert run.tool_calls("lookup"), "the sub-agent never called lookup"
+
+
+def test_replay_judges_the_same_steps_as_the_recording():
+    """Found on a live PydanticAI delegation agent: an oracle on the sub-agent's steps
+    passed on the recording and failed on its replay and exported test."""
+    CLIENT[:] = [crashlab.wrap(FakeOpenAI(list(SCRIPT)))]
+    orchestrator("plan")
+    run = crashlab.load("last")
+    assert run.outcome == "pass"
+    replayed = crashlab.replay(run)
+    assert replayed.outcome == "pass", replayed.outcome_reason
+    assert [c.status for c in replayed.checks] == ["pass"]
+    for key in ("steps", "llm_calls", "tool_calls", "input_tokens", "output_tokens"):
+        assert getattr(replayed.usage, key) == getattr(run.usage, key), key
+    again = crashlab.replay(replayed)
+    assert again.outcome == "pass" and len(again.steps) == len(run.steps)
+    # nesting is kept: the copied sub-agent steps hang under the replayed tool step
+    tool = next(s for s in replayed.steps if s.idx == 1)
+    inv = next(s for s in replayed.steps if s.operation == "invoke_agent")
+    assert inv.parent_span_id == tool.span_id
+    nested = [s for s in replayed.steps if 2 < s.idx <= 5]
+    assert all(s.parent_span_id == inv.span_id for s in nested if s.idx in (3, 5))

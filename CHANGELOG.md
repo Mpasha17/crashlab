@@ -25,6 +25,9 @@
 
 ### Multi-agent
 - Steps record which agent made them (`gen_ai.agent.name`, `step.agent`): `crashlab.wrap(client, agent=...)`, `crashlab.agent_scope(name)`, nested `@crashlab.agent`; tool steps inherit the requesting chat step's agent. `run.agents`, `run.tool_calls(..., agent=)`, `run.chat_steps(agent=)`; `crashlab show` prints agents. Labels only; replay unchanged. See `docs/multi-agent.md`
+- Fix: `step_repetition` judges reply / request repetition per agent in labelled runs (a writer repeating a researcher's answer is not a loop)
+- Fix: a tool taking PydanticAI's `RunContext` (or any dataclass holding a lock / client) crashed the agent with `TypeError: cannot pickle '_thread.RLock'`; context objects are no longer recorded, dataclass args are converted without deep-copying, and an argument that cannot be converted is recorded as a placeholder. `@crashlab.tool(ignore_args=...)`
+- Fix: replaying a run with a sub-agent used as a tool dropped the sub-agent's steps, so oracles on them passed on the recording and failed on the replay / exported test; the served tool's recorded inner steps are now copied into the replay
 - Fix: concurrent sub-agents in one run no longer lose tool-call ids; `describe_step` / diagnose blame the chat step that requested a tool call (`run.caller_chat`), not just the nearest one
 
 ## 0.0.3 (pre-alpha)

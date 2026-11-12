@@ -121,7 +121,9 @@ class RunContext:
     def steps_started(self) -> int:
         return self._counter
 
-    def add_step(self, step: Step) -> None:
+    def add_step(self, step: Step, *, link_tool_calls: bool = True) -> None:
+        """Count, keep and store a finished step. ``link_tool_calls=False`` for a step
+        copied from the cassette (its tool calls were answered inside the recording)."""
         if step.operation == "chat":
             from .pricing import step_cost
 
@@ -147,7 +149,7 @@ class RunContext:
                 u.input_tokens += inp
                 u.output_tokens += out
                 u.total_tokens += int(total) if total is not None else inp + out
-                if step.response:
+                if step.response and link_tool_calls:
                     # keep earlier unclaimed calls: concurrent sub-agents in one run each
                     # wait for their own tool calls (claimed newest first, bounded)
                     agent = step.attributes.get(AGENT_ATTR)

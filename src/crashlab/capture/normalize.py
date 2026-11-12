@@ -141,7 +141,12 @@ def to_jsonable(obj: Any, _depth: int = 0) -> Any:
         except Exception:
             pass
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        return to_jsonable(dataclasses.asdict(obj), _depth + 1)
+        # field by field, not dataclasses.asdict: asdict deep-copies every value and
+        # raises on locks / clients / sockets held by framework context objects
+        return {
+            f.name: to_jsonable(getattr(obj, f.name, None), _depth + 1)
+            for f in dataclasses.fields(obj)
+        }
     to_dict = getattr(obj, "to_dict", None)
     if callable(to_dict):
         try:

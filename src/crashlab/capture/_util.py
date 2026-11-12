@@ -9,10 +9,23 @@ from typing import Any
 from .normalize import to_jsonable
 
 
+def _safe_jsonable(value: Any) -> Any:
+    """``to_jsonable`` that never raises: recording an argument must not crash the call."""
+    try:
+        return to_jsonable(value)
+    except Exception as exc:  # a hostile __dict__ / property, a broken model_dump ...
+        return f"<unrecordable {type(value).__qualname__}: {type(exc).__name__}>"
+
+
 def bind_arguments(
-    fn: Callable[..., Any], args: tuple, kwargs: dict, ignore: tuple[str, ...] = ()
+    fn: Callable[..., Any],
+    args: tuple,
+    kwargs: dict,
+    ignore: tuple[str, ...] = (),
+    skip_value: Callable[[Any], bool] | None = None,
 ) -> dict[str, Any]:
-    """Map a call's positional/keyword args to parameter names (JSON-able)."""
+    """Map a call's positional/keyword args to parameter names (JSON-able). Parameters
+    named in ``ignore``, or whose value ``skip_value`` accepts, are left out."""
     try:
         sig = inspect.signature(fn)
         try:
@@ -27,18 +40,19 @@ def bind_arguments(
             bound = sig.bind(*args, **kwargs)
         bound.apply_defaults()
     except (TypeError, ValueError):
-        return {"args": to_jsonable(list(args)), "kwargs": to_jsonable(kwargs)}
+        return {"args": _safe_jsonable(list(args)), "kwargs": _safe_jsonable(kwargs)}
     out: dict[str, Any] = {}
     for name, value in bound.arguments.items():
         if name in ("self", "cls") or name in ignore:
             continue
         param = sig.parameters[name]
         if param.kind is inspect.Parameter.VAR_KEYWORD:
-            out.update({k: to_jsonable(v) for k, v in value.items() if k not in ignore})
+            out.update({k: _safe_jsonable(v) for k, v in value.items()
+                        if k not in ignore and not (skip_value and skip_value(v))})  # fmt: skip
         elif param.kind is inspect.Parameter.VAR_POSITIONAL:
-            out[name] = to_jsonable(list(value))
-        else:
-            out[name] = to_jsonable(value)
+            out[name] = _safe_jsonable([v for v in value if not (skip_value and skip_value(v))])
+        elif not (skip_value and skip_value(value)):
+            out[name] = _safe_jsonable(value)
     return out
 
 

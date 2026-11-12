@@ -8,7 +8,7 @@ import inspect
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from ..context import _PENDING_AGENT, AGENT_ATTR
 from ..replay.divergence import PatchedToolError, SideEffectBlockedError
@@ -16,6 +16,9 @@ from ..replay.rebuild import rebuild_exception, recancel
 from ._steps import begin_step
 from ._util import bind_arguments, first_doc_line
 from .normalize import to_jsonable
+
+if TYPE_CHECKING:
+    from ..models import Step
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -26,6 +29,20 @@ class ToolSpec:
     side_effects: bool
     description: str | None
     fake: Callable[..., Any] | None = None
+    ignore_args: tuple[str, ...] = ()
+
+
+# Framework objects passed to tools that describe the run, not the call: PydanticAI's
+# ``ctx: RunContext[Deps]`` (deps, usage, the whole conversation). Not recorded: they are
+# not tool input, hold unserializable state, and would make replay hashes run-specific.
+_FRAMEWORK_CONTEXT_TYPES = {("pydantic_ai", "RunContext")}
+
+
+def is_framework_context(value: Any) -> bool:
+    """True for a framework context object a tool receives (not recorded as an arg)."""
+    cls = type(value)
+    root = (getattr(cls, "__module__", "") or "").split(".", 1)[0]
+    return (root, cls.__name__) in _FRAMEWORK_CONTEXT_TYPES
 
 
 # tool name -> fake implementation, see :func:`fake_tool`
@@ -61,7 +78,7 @@ def _fake_for(spec: ToolSpec) -> Callable[..., Any] | None:
 
 
 def _begin(spec: ToolSpec, fn: Callable[..., Any], args: tuple, kwargs: dict):
-    call_args = bind_arguments(fn, args, kwargs)
+    call_args = bind_arguments(fn, args, kwargs, spec.ignore_args, is_framework_context)
     attrs: dict[str, Any] = {
         "gen_ai.tool.name": spec.name,
         "gen_ai.tool.type": "function",
@@ -119,6 +136,7 @@ def _serve_replay(
         pending.finish_from(src)
         if skipped:
             pending.ctx.skip_idx(src.idx, skipped)
+            _copy_served_steps(pending, rp, src, skipped)
         kind = src.attributes.get(RESULT_TYPE)
         if kind in (GEN_TYPE, AGEN_TYPE):
             items = _restore_numbers((src.response or {}).get("result") or [],
@@ -144,6 +162,35 @@ def _serve_replay(
             return False, None, fake
         _block(pending, payload)
     return False, None, fn
+
+
+def _copy_served_steps(pending: Any, rp: Any, src: Step, idxs: list[int]) -> None:
+    """The steps recorded inside a tool served whole (a sub-agent used as a tool) are
+    copied into the replay as served from the cassette, so the replayed run has the same
+    steps as the recording: @crashlab.check oracles, runtime checks, usage and exported
+    tests judge the same run, not one missing the sub-agent's calls."""
+    from .._ids import new_span_id
+
+    spans = {src.span_id: pending.span_id}
+    for i in idxs:
+        s = rp.steps.get(i)
+        if s is None:  # a replay of a 0.0.3 replay: the skipped steps were never stored
+            continue
+        span = new_span_id()
+        spans[s.span_id] = span
+        attrs = {**s.attributes, "crashlab.replay.source_step": s.idx,
+                 "crashlab.replay.served_inside": pending.idx}  # fmt: skip
+        copy = s.model_copy(
+            deep=True,
+            update={
+                "run_id": pending.ctx.run.run_id,
+                "span_id": span,
+                "parent_span_id": spans.get(s.parent_span_id or "", pending.span_id),
+                "attributes": attrs,
+                "source": "cassette",
+            },
+        )
+        pending.ctx.add_step(copy, link_tool_calls=False)
 
 
 # --- typed results ------------------------------------------------------------------
@@ -525,6 +572,7 @@ def tool(
     side_effect: bool | None = None,
     description: str | None = None,
     fake: Callable[..., Any] | None = None,
+    ignore_args: tuple[str, ...] | list[str] = (),
 ) -> Callable[[F], F]: ...
 
 
@@ -537,6 +585,7 @@ def tool(
     side_effect: bool | None = None,
     description: str | None = None,
     fake: Callable[..., Any] | None = None,
+    ignore_args: tuple[str, ...] | list[str] = (),
 ) -> Any:
     """Record a tool function's arguments, result and exceptions.
 
@@ -548,6 +597,10 @@ def tool(
     or calls ``fake`` (same signature, e.g. returns a fake order id) when one is given here
     or registered with :func:`fake_tool`, so ``verify`` can grade those trials safely.
 
+    ``ignore_args`` names parameters left out of the recorded arguments and the replay
+    hash (a per-run context, a client, a request id). PydanticAI's ``RunContext`` is left
+    out automatically.
+
     Works as ``@crashlab.tool`` or ``@crashlab.tool(...)`` on sync and async functions.
     """
 
@@ -557,6 +610,7 @@ def tool(
             side_effects=bool(side_effects or side_effect),
             description=description or first_doc_line(f),
             fake=fake,
+            ignore_args=tuple(ignore_args),
         )
         return _wrap(f, spec)
 
