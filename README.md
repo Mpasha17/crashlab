@@ -364,6 +364,7 @@ wins over pyproject:
 ```python
 @crashlab.agent(name="refund-bot", checks={"max_steps": 20, "max_cost_usd": 0.10,
                                            "circuit_breaker": True})
+def run_agent(user_msg: str) -> str: ...
 ```
 
 ```toml
