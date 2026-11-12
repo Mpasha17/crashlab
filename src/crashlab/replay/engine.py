@@ -26,6 +26,7 @@ import importlib
 import importlib.util
 import inspect
 import os
+import re
 import socket
 import sys
 import threading
@@ -604,6 +605,18 @@ def _import_target(entrypoint: str, target: str) -> Any:
     return module
 
 
+def _missing_env_hint(exc: BaseException) -> str:
+    """``os.environ["GROQ_API_KEY"]`` at import: say that replay needs no real value."""
+    name = exc.args[0] if isinstance(exc, KeyError) and exc.args else None
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", name):
+        return ""
+    return (
+        f". The module reads ${name} when it is imported. Replay and exported tests serve "
+        f"every call from the cassette, so any value works where they run (e.g. "
+        f"{name}=unused in CI), or read it inside the agent function instead"
+    )
+
+
 def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
     """``module:qualname`` or ``path/to/file.py:qualname`` -> the callable."""
     if not entrypoint or ":" not in entrypoint:
@@ -633,7 +646,10 @@ def resolve_entrypoint(entrypoint: str | None) -> Callable[..., Any]:
         raise ReplayError(_safe(str(exc))) from exc.__cause__
     except (Exception, SystemExit) as exc:  # the module failed at import: clear error
         raise ReplayError(
-            _safe(f"importing entry point module {target!r} raised {type(exc).__name__}: {exc}")
+            _safe(
+                f"importing entry point module {target!r} raised {type(exc).__name__}: {exc}"
+                + _missing_env_hint(exc)
+            )
         ) from exc
     obj: Any = module
     for part in qualname.split("."):
@@ -855,7 +871,10 @@ def replay(
     """
     store = Store(store_dir)
     source = _load_source(store, run)
-    with recorded_env(source):  # a module-level os.environ read sees the recorded value
+    # a module-level os.environ read sees the recorded value; a module-level OpenAI() /
+    # Anthropic() client can be built without a key (every call is served offline)
+    keys = placeholder_credentials() if offline else contextlib.nullcontext()
+    with recorded_env(source), keys:
         target, args, kwargs = _target(source, fn, overrides, store)
     patched = source.forked_from is not None and source.patch is not None
     replayer = (PatchedReplayer if patched and source.patch.edits_requests else Replayer)(

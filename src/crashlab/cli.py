@@ -1509,9 +1509,10 @@ def _run_oracles(console: Console, run: Run, *, quiet: bool) -> list[CheckResult
 
     if run.entrypoint:  # importing the agent's module registers its checks
         from ._import_guard import process_wide
+        from .replay.engine import placeholder_credentials
 
-        try:
-            with process_wide(run.entrypoint):
+        try:  # a module-level OpenAI() needs a key to be built, not to register checks
+            with process_wide(run.entrypoint), placeholder_credentials():
                 resolve_entrypoint(run.entrypoint)
         except ReplayError as err:
             if not quiet:
