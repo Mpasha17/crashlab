@@ -28,6 +28,11 @@ On `main` only; PyPI is still at 0.0.3.
 - Dependency floors raised to `typer>=0.16` and `pydantic>=2.6`: versions inside the old bounds broke on Python 3.10 (typer < 0.12.4: every command; typer < 0.16 with click 8.2+: "Secondary flag"; pydantic < 2.6: nested dataclass tool results came back as dicts on replay). CI now also tests the floors on Python 3.10
 - Python 3.10: `crashlab ls` / `show` / `search` / `report` crashed with "Invalid isoformat string" on timestamps with other than 3 or 6 fraction digits (written by pydantic < 2.3, about one run in ten) or a trailing `Z`
 - `crashlab flakes` is listed under "Inspect" in `crashlab --help`
+- Replay, exported tests and `crashlab check` no longer need a real `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` when the agent module builds its client at import; a module that reads another key at import (`KeyError: 'GROQ_API_KEY'`) now gets a hint that any value works there
+- `crashlab show --failing` on a run that failed only a check now shows the step the check's message cites ("step N ...") instead of the whole run
+- `crashlab diagnose` and `crashlab verify` print what to run next (fix / verify / export-test / report); diagnose no longer suggests diagnosing again after a confident verdict
+- `examples/rag_qa/agent.py` takes a question and `--fault` from the command line
+- Docs: a test parses every `crashlab` command and checks every `crashlab` Python name and keyword in README, docs and example READMEs, and runs the README's no-API-key block
 - `scripts/smoke.sh`: every CLI command end to end, offline (fake OpenAI server), run in CI
 - Diagnose: a `@crashlab.check` that crashed on a bug in its own code (`'Step' object has no attribute ...`, `NameError`, a missing import) is no longer blamed on the agent; the heuristic verdict is UNKNOWN with "the check itself is broken", and the LLM diagnoser's view marks it
 

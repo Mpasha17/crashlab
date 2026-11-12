@@ -389,7 +389,7 @@ export CRASHLAB_DIR=/tmp/crashlab-demo
 for f in examples/refund_bot/demo/*.jsonl; do crashlab import "$f"; done
 crashlab ls                        # 5 runs, with cost and findings
 crashlab show 01M57GM9Q5           # Groq gpt-oss-120b retrying an HTML 502 page 3 times
-crashlab check --all               # oracles + runtime checks, offline (exit 1: C03 fails)
+crashlab check --all               # oracles + runtime checks, offline (exit 1: 2 runs fail)
 crashlab replay 01M57GM7H9         # strict offline replay of the policy violation
 crashlab diagnose 01M57GM7H9 --heuristic   # failing step + label from checks/findings
 crashlab fork 01M57GM7H9 --at 0 --dry-run \
