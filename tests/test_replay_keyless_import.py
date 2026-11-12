@@ -85,4 +85,5 @@ def test_a_missing_env_var_at_import_names_the_fix(tmp_path, monkeypatch):
     with pytest.raises(ReplayError) as err:
         crashlab.replay(run.run_id)
     msg = str(err.value)
-    assert "GROQ_API_KEY" in msg and "any value" in msg, msg
+    assert "GROQ_API_KEY" in msg and "any value" in msg and "'unused'" in msg, msg
+    assert "REDACTED" not in msg, msg  # the redactor ate "NAME=unused"

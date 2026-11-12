@@ -612,8 +612,8 @@ def _missing_env_hint(exc: BaseException) -> str:
         return ""
     return (
         f". The module reads ${name} when it is imported. Replay and exported tests serve "
-        f"every call from the cassette, so any value works where they run (e.g. "
-        f"{name}=unused in CI), or read it inside the agent function instead"
+        f"every call from the cassette, so any value works where they run (in CI, set "
+        f"{name} to a dummy value such as 'unused'), or read it inside the agent function"
     )
 
 
