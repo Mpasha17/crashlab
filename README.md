@@ -161,8 +161,8 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
 - **Budget oracles**: `crashlab.budgets.within_budget(run, max_cost_usd=..., max_tokens=...,
   max_seconds=..., max_call_seconds=...)` inside a `@crashlab.check` fails the run when
   recorded cost / tokens / latency go over; usage the recording lacks (no token counts,
-  unpriced model, replay wall time) fails with a "cannot check" message instead of
-  passing (`unknown="pass"` to skip). See [docs/budgets-and-flakes.md](docs/budgets-and-flakes.md).
+  unpriced model) fails with a "cannot check" message instead of passing
+  (`unknown="pass"` to skip). Time limits are judged on live runs, not replays / forks. See [docs/budgets-and-flakes.md](docs/budgets-and-flakes.md).
 - **`crashlab flakes`** / `crashlab.flakes.find_flakes()`: runs of the same agent, input
   and code version that raised, failed a check or got a finding only some of the time,
   with counts, a Wilson 95% interval (assumes independent runs) and the `crashlab diff`

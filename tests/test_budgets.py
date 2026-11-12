@@ -117,17 +117,60 @@ def test_unpriced_model_cost_is_unknown_not_zero():
     assert within_budget(run, max_cost_usd=1.0, unknown="pass") is None
 
 
-def test_time_limits_unknown_on_replays_and_forks():
+def test_time_limits_on_replays_and_forks():
     for kw in ({"replay_of": "X"}, {"forked_from": "X", "fork_step": 1}):
         run = run_of(chat(0, source="cassette"), chat(1), **kw)
-        msg = within_budget(run, max_seconds=100)
+        # default: time is judged on the live recording, not on a replay / fork
+        assert within_budget(run, max_seconds=0.001) is None, kw
+        msg = within_budget(run, max_seconds=100, replay_time="fail")
         assert msg and "wall time not measurable" in msg, kw
-        assert within_budget(run, max_seconds=100, unknown="pass") is None
-    # a served step's duration is not a live latency
+    # a served step's duration is not a live latency; live steps after a fork still count
     run = run_of(chat(0, ms=9000, source="cassette"), chat(1, ms=100), forked_from="X")
     assert within_budget(run, max_call_seconds=1) is None
-    run = run_of(chat(0, ms=9000, source="cassette"), forked_from="X")
-    assert "no live LLM or tool call" in (within_budget(run, max_call_seconds=1) or "")
+    run = run_of(chat(0, ms=100, source="cassette"), chat(1, ms=3000), forked_from="X")
+    assert "3.00s at step 1 > max_call_seconds" in (within_budget(run, max_call_seconds=1)
+                                                    or "")  # fmt: skip
+    run = run_of(chat(0, ms=9000, source="cassette"), replay_of="X")
+    assert within_budget(run, max_call_seconds=1) is None
+    msg = within_budget(run, max_call_seconds=1, replay_time="fail")
+    assert "no live LLM or tool call" in (msg or "")
+    # tokens and cost of served steps are still the recorded usage
+    run = run_of(chat(0, inp=900, source="cassette"), replay_of="X")
+    assert "920 tokens > max_tokens 100" in (within_budget(run, max_tokens=100) or "")
+
+
+CLIENT: list[Any] = []
+
+
+@crashlab.agent(name="budget-replay")
+def _replay_agent() -> str:
+    r = CLIENT[0].chat.completions.create(model="m", messages=[{"role": "user", "content": "x"}])
+    return r.choices[0].message.content or ""
+
+
+@pytest.mark.requires_providers("openai")
+def test_replay_and_exported_style_check_agree_with_the_recording(tmp_path):
+    """A recorded run that passed its budget check also passes it on strict replay (what
+    an exported regression test asserts), time limits included."""
+    from crashlab.verify.oracles import unregister
+    from tests.fakes import FakeOpenAI, text_response
+
+    @crashlab.check("budget-replay")
+    def in_budget(run):
+        return within_budget(run, max_tokens=1000, max_seconds=60, max_call_seconds=30)
+
+    try:
+        CLIENT[:] = [crashlab.wrap(FakeOpenAI([text_response(1, "hi")]))]
+        _replay_agent()
+        rec = crashlab.load("last")
+        assert [c.status for c in rec.checks] == ["pass"]
+        replayed = crashlab.replay(rec)
+        assert replayed.replay_of == rec.run_id
+        assert [c.status for c in replayed.checks] == ["pass"], replayed.checks
+        assert summarize_usage(replayed).total_tokens == summarize_usage(rec).total_tokens
+    finally:
+        CLIENT.clear()
+        unregister("budget-replay")
 
 
 def test_running_run_has_no_wall_time():
@@ -154,6 +197,8 @@ def test_bad_arguments_raise():
         within_budget(run, max_tokens=-1)
     with pytest.raises(ValueError):
         within_budget(run, unknown="skip")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        within_budget(run, replay_time="no")  # type: ignore[arg-type]
 
 
 @pytest.mark.requires_providers("openai")
