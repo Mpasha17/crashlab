@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.0.4 (pre-alpha) - 2026-11-13
 
-On `main` only; PyPI is still at 0.0.3.
+Fourth public cut; matches `main` at release. `pip install crashlab`.
 
 ### Debugging many runs (see `docs/debugging.md`)
 - `crashlab search` / `crashlab.search.search_runs`: offline text search across runs (messages, tool names / args / results, errors, models, checks, findings, diagnosis labels, run ids) with `--tool`, `--model`, `--check`, `--label`, `--errors`, `--since`, `--run`, `--in`, regex and JSON output; exits 1 when nothing matched
