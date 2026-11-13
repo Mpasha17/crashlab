@@ -26,7 +26,7 @@ pip install "crashlab[openai]"
 Then try it [offline with no API key](#try-it-with-no-api-key-and-no-model) or see the
 [Quickstart](#quickstart).
 
-> **Status: pre-alpha (0.0.4).** Today crashlab **records** runs, lets you inspect them,
+> **Status: pre-alpha (0.0.5).** Today crashlab **records** runs, lets you inspect them,
 > **replays** them strictly offline, grades them with **`@crashlab.check`** oracles,
 > **forks** them at any step with typed **patches** and **diffs** two runs. It also
 > **diagnoses** failed runs, **proposes fixes** and **verifies** them with repeated live

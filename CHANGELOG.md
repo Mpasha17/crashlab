@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.0.5 (pre-alpha) - 2026-11-13
+
+Fifth public cut; matches `main` at release. `pip install crashlab`.
 
 - `crashlab export-test`: if pytest is not installed, print a hint to `pip install pytest` or `pip install "crashlab[pytest]"` (the export still succeeds). New optional extra `crashlab[pytest]` (`pytest>=8`); pytest is not a hard dependency
 
