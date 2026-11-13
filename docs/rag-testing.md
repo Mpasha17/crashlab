@@ -156,6 +156,10 @@ crashlab.replay(run.run_id)                 # offline, same outcome
 crashlab export-test last                  # writes tests/crashlab/test_<agent>_<id>.py
 ```
 
+The exported file is a pytest test; pytest is not installed by `pip install crashlab`.
+Install it with `pip install pytest` or `pip install "crashlab[pytest]"`, then run
+`pytest --crashlab tests/crashlab`.
+
 Try it from a checkout against any OpenAI-compatible endpoint (`OPENAI_BASE_URL`,
 `OPENAI_API_KEY`, `MODEL`):
 

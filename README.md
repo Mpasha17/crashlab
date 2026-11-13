@@ -495,11 +495,14 @@ policy fix VERIFIED (3/3).
 
 ```bash
 crashlab export-test 01M5GTK1FR --fix auto -o tests/crashlab   # test + cassettes
-pytest --crashlab            # (pip install pytest) exported tests only: offline, no keys, no network
+pytest --crashlab            # exported tests only: offline, no keys, no network
 crashlab report 01M5GTK1FR --html report.html   # one self-contained file to share
 ```
 
-Offline recipe: the exported test needs only `crashlab`, your agent's code and its
+The exported file is a pytest test; pytest is not installed by `pip install crashlab`.
+Install it with `pip install pytest` or `pip install "crashlab[pytest]"`.
+
+Offline recipe: the exported test needs only `crashlab`, pytest, your agent's code and its
 framework installed, with no keys and no network. To prove it in CI or locally:
 
 ```bash

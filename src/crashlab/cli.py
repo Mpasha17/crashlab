@@ -1041,6 +1041,25 @@ def export_test_cmd(
     for path in paths:
         console.print(f"wrote {_e(path)}")
     console.print(f"[dim]run it: pytest {_e(paths[-1])}[/]")
+    hint = _export_test_pytest_hint()
+    if hint:
+        console.print(Text(hint))  # Text(): [pytest] is not Rich markup
+
+
+def _pytest_is_importable() -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec("pytest") is not None
+
+
+def _export_test_pytest_hint() -> str | None:
+    """Install hint when the exported test cannot be run yet. None if pytest is present."""
+    if _pytest_is_importable():
+        return None
+    return (
+        "pytest is needed to run the exported test, install with "
+        '`pip install pytest` or `pip install "crashlab[pytest]"`.'
+    )
 
 
 def _key_from(console: Console, api_key_env: str | None) -> str | None:

@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # End-to-end CLI smoke test: every crashlab command against the installed `crashlab`,
-# offline (a local fake OpenAI server, no keys, no network). Needs the openai SDK:
+# offline (a local fake OpenAI server, no keys, no network). Needs the openai SDK
+# and pytest (the exported regression test is run with pytest --crashlab):
 #   pip install -e ".[dev,openai]" && scripts/smoke.sh
+#   # or: pip install "crashlab[openai,pytest]"
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 PY="${PYTHON:-python}"
+if ! "$PY" -c "import pytest" 2>/dev/null; then
+  echo "scripts/smoke.sh needs pytest to run the exported regression test."
+  echo 'Install with: pip install pytest   or   pip install "crashlab[pytest]"   or   pip install -e ".[dev,openai]"'
+  exit 1
+fi
 TMP="$(mktemp -d)"
 unset GROQ_API_KEY GEMINI_API_KEY ANTHROPIC_API_KEY PROVIDER
 export CRASHLAB_DIR="$TMP/store" CRASHLAB_NO_PYPROJECT=1 COLUMNS=160 NO_COLOR=1

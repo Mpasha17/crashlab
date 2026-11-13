@@ -19,3 +19,20 @@ def test_litellm_extra_brings_mcp():
     # depend on it: `pip install crashlab[litellm]` then failed every tool-calling agent
     extra = _extra("litellm")
     assert '"litellm>=' in extra and '"mcp>=' in extra
+
+
+def test_pytest_extra_is_optional_and_in_dev():
+    """Running exported tests needs pytest; it is not a hard install dependency."""
+    import sys
+
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:  # pragma: no cover
+        import tomli as tomllib
+
+    data = tomllib.loads(PYPROJECT.read_text("utf-8"))
+    hard = " ".join(data["project"]["dependencies"])
+    assert "pytest" not in hard
+    extras = data["project"]["optional-dependencies"]
+    assert extras["pytest"] == ["pytest>=8"]
+    assert "pytest>=8" in extras["dev"]

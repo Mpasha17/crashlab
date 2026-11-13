@@ -49,6 +49,7 @@ anthropic = ["anthropic>=0.30"]
 # proxy/mcp extras (ModuleNotFoundError: mcp otherwise)
 litellm = ["litellm>=1.40", "mcp>=1.0"]
 yaml = ["pyyaml>=6"]  # YAML patch files for `crashlab fork --patch fix.yaml`
+pytest = ["pytest>=8"]  # to run `crashlab export-test` output; not a hard dependency
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
