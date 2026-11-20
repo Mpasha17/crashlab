@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import typer
@@ -45,13 +46,16 @@ def stats_cmd(
     name: str | None = typer.Option(None, "--name", help="Only runs of this agent name."),
     limit: int = typer.Option(0, "--limit", "-n", help="Max runs to scan, newest first (0 = all)."),
     as_json: bool = typer.Option(False, "--json", help="Print JSON."),
+    html: Path | None = typer.Option(  # noqa: B008
+        None, "--html", help="Write a self-contained HTML fleet report to this file."
+    ),
 ) -> None:
     """Summarise recorded runs: pass / fail rates, cost, tokens, latency, tools and findings.
 
     Scans the store (newest first). Cost figures are list-price estimates, the same
-    numbers as ``crashlab show``.
+    numbers as ``crashlab show``. --html writes a shareable single file (no external assets).
     """
-    from .stats import compute_stats
+    from .stats import compute_stats, render_fleet_html
 
     store = Store()
     try:
@@ -59,10 +63,22 @@ def stats_cmd(
     except ValueError as exc:
         _console(stderr=True).print(f"[red]{_e(exc)}[/]")
         raise typer.Exit(code=2) from exc
+    html_path = None
+    if html is not None:
+        try:
+            out = Path(html)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(render_fleet_html(stats), "utf-8")
+            html_path = out
+        except OSError as exc:
+            _console(stderr=True).print(f"[red]cannot write {_e(html)}: {_e(exc)}[/]")
+            raise typer.Exit(code=2) from exc
     if as_json:
         typer.echo(json.dumps(stats.to_dict(), indent=2, default=str))
         return
     console = _console()
+    if html_path is not None:
+        console.print(f"wrote {_e(html_path)}")
     if stats.n == 0:
         extra = f" ({len(stats.unreadable)} unreadable)" if stats.unreadable else ""
         console.print(f"no runs in {_e(store.root)}{extra}")

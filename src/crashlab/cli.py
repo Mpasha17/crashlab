@@ -1,6 +1,6 @@
 """``crashlab`` command line: ``ls``, ``show``, ``search``, ``cluster``, ``tag``, ``rm``,
 ``prune``, ``replay``, ``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``,
-``eval``, ``sweep``, ``rules``,
+``eval``, ``sweep``, ``rules``, ``baseline``,
 ``export``, ``import``, ``doctor``, ``init``, ``profile``."""
 
 from __future__ import annotations
@@ -218,20 +218,6 @@ def ls(
         ]
         table.add_row(*cells)
     console.print(table)
-
-
-def _finding_diff_json(fd: Any) -> dict[str, Any]:
-    def side(fs: list[Finding]) -> list[dict[str, Any]]:
-        return [{"severity": f.severity, "steps": f.steps, "message": f.message} for f in fs]
-
-    return {
-        "kind": fd.kind,
-        "worst_a": fd.worst_a,
-        "worst_b": fd.worst_b,
-        "changed": fd.changed,
-        "a": side(fd.a),
-        "b": side(fd.b),
-    }
 
 
 def _unique_prefix_len(run_ids: Any, minimum: int = 10) -> int:
@@ -2029,29 +2015,7 @@ def diff_cmd(
         b = _resolve(store, run_b)
     rd = diff(a, b)
     if as_json:
-        typer.echo(
-            json.dumps(
-                {
-                    "a": a.run_id,
-                    "b": b.run_id,
-                    "relation": rd.relation,
-                    "outcome": [a.outcome, b.outcome],
-                    "status": [a.status, b.status],
-                    "first_divergence": rd.first_divergence,
-                    "summary": rd.summary(),
-                    "checks": {
-                        c.name: [c.a.status if c.a else None, c.b.status if c.b else None]
-                        for c in rd.checks
-                    },
-                    "steps": [
-                        {"idx": s.idx, "status": s.status, "fields": s.fields} for s in rd.steps
-                    ],
-                    "findings": [_finding_diff_json(f) for f in rd.findings],
-                    "usage": {"a": a.usage.model_dump(), "b": b.usage.model_dump()},
-                },
-                indent=2,
-            )
-        )
+        typer.echo(json.dumps(rd.to_dict(), indent=2, default=str))
         return
 
     head = Table(title=f"A {a.run_id}  vs  B {b.run_id}", title_justify="left")
@@ -2302,7 +2266,7 @@ _HELP_PANELS = (
     ("Store", ("tag", "rm", "prune")),
     ("Ops", ("doctor", "init", "profile")),
     ("Diagnose and fix", ("triage", "bisect", "diagnose", "fix", "verify", "export-test")),
-    ("Evaluate", ("eval", "sweep", "rules")),
+    ("Evaluate", ("eval", "sweep", "rules", "baseline")),
     ("Replay and fork", ("replay", "fork", "stress", "fuzz")),
     ("Share and benchmark", ("export", "import", "dataset", "bench")),
 )
@@ -2348,6 +2312,7 @@ def _tidy_help(typer_app: typer.Typer) -> None:
         _apply_help(info, callback=inst)
 
 
+from . import cli_baseline as _cli_baseline  # noqa: E402,F401  registers baseline
 from . import cli_bisect as _cli_bisect  # noqa: E402,F401  registers bisect
 from . import cli_chaos as _cli_chaos  # noqa: E402,F401  registers stress
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
@@ -2359,6 +2324,7 @@ from . import cli_rules as _cli_rules  # noqa: E402,F401  registers rules
 from . import cli_store as _cli_store  # noqa: E402,F401  registers tag / rm / prune
 
 _tidy_help(app)
+_tidy_help(_cli_baseline.baseline_app)
 _tidy_help(_cli_fuzz.dataset_app)
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from html import escape
 from typing import Any
 
 from ._runscan import ScanStats, iter_runs, parse_since
@@ -21,6 +22,7 @@ __all__ = [
     "RunCost",
     "ToolStat",
     "compute_stats",
+    "render_fleet_html",
 ]
 
 _TOP_N = 10
@@ -205,6 +207,7 @@ class FleetStats:
     p95_cost_usd: float | None = None
     total_tokens: int = 0
     mean_duration_s: float | None = None
+    p50_duration_s: float | None = None
     p95_duration_s: float | None = None
     duration_known: int = 0
     by_agent: list[AgentBreakdown] = field(default_factory=list)
@@ -362,6 +365,7 @@ def compute_stats(
     stats.median_cost_usd = _round(_median(costs))
     stats.p95_cost_usd = _round(_pct(costs, 95))
     stats.mean_duration_s = _round(_mean(durs), 4)
+    stats.p50_duration_s = _round(_pct(durs, 50), 4)
     stats.p95_duration_s = _round(_pct(durs, 95), 4)
 
     for agent, items in sorted(agent_runs.items(), key=lambda kv: (-len(kv[1]), kv[0])):
@@ -440,3 +444,275 @@ def compute_stats(
         key=lambda r: (-(r.cost_usd or 0.0), r.run_id),
     )[:_TOP_N]
     return stats
+
+
+# --- self-contained fleet HTML report -------------------------------------------------
+
+_FLEET_CSS = """
+body{font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;margin:2rem auto;max-width:1100px;
+color:#1d2330;padding:0 1rem}
+h1{font-size:1.4rem;margin:0 0 .3rem}h2{font-size:1.1rem;margin:1.8rem 0 .5rem;
+border-bottom:1px solid #dde;padding-bottom:.2rem}
+table{border-collapse:collapse;width:100%;margin:.3rem 0}
+td,th{border:1px solid #e3e6ee;padding:.3rem .5rem;text-align:left;vertical-align:top}
+th{background:#f4f6fa;font-weight:600}
+code,pre{font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+.muted{color:#6b7280}.pass{color:#137333;font-weight:600}
+.fail,.error,.critical{color:#b3261e;font-weight:600}
+.unknown,.warn{color:#a15c00;font-weight:600}
+.cards{display:flex;flex-wrap:wrap;gap:.75rem;margin:1rem 0}
+.card{flex:1 1 8.5rem;border:1px solid #e3e6ee;border-radius:.5rem;
+padding:.7rem .9rem;background:#f4f6fa}
+.card .lbl{font-size:.75rem;color:#6b7280;text-transform:uppercase;letter-spacing:.04em}
+.card .val{font-size:1.35rem;font-weight:650;margin-top:.15rem}
+td.num{text-align:right;white-space:nowrap}
+"""
+
+
+def _html(value: Any) -> str:
+    return escape("" if value is None else str(value), quote=True)
+
+
+def _cls(word: Any) -> str:
+    return f'<span class="{_html(word)}">{_html(word)}</span>'
+
+
+def _html_pct(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value * 100:.1f}%"
+
+
+def _html_dur(value: float | None) -> str:
+    if value is None:
+        return "-"
+    if value < 1:
+        return f"{value * 1000:.0f}ms"
+    return f"{value:.2f}s"
+
+
+def _html_cost(value: float | None) -> str:
+    if value is None:
+        return "?"
+    return "$0" if value == 0 else f"${value:.4f}" if value >= 0.0001 else f"${value:.6f}"
+
+
+def _html_table(
+    head: list[str], rows: list[list[str]], *, numeric: frozenset[int] | None = None
+) -> str:
+    nums = numeric or frozenset()
+    th = "".join(
+        f'<th class="num">{_html(h)}</th>' if i in nums else f"<th>{_html(h)}</th>"
+        for i, h in enumerate(head)
+    )
+    body = []
+    for row in rows:
+        cells = []
+        for i, c in enumerate(row):
+            cells.append(f'<td class="num">{c}</td>' if i in nums else f"<td>{c}</td>")
+        body.append("<tr>" + "".join(cells) + "</tr>")
+    return f"<table><tr>{th}</tr>{''.join(body)}</table>"
+
+
+def render_fleet_html(stats: FleetStats, runs: list[Run] | None = None) -> str:
+    """Self-contained HTML fleet report (inline CSS, no scripts, no external assets).
+
+    Agent names, model names, tool names, finding / check text, and run ids are
+    passed through :func:`html.escape`. ``runs`` is an optional extra table of
+    recorded runs; slowest / costliest already come from ``stats``.
+    """
+    parts: list[str] = []
+    parts.append("<h1>crashlab fleet stats</h1>")
+    if stats.n == 0:
+        extra = f" ({len(stats.unreadable)} unreadable)" if stats.unreadable else ""
+        parts.append(f'<p class="muted">No runs{_html(extra)}.</p>')
+    else:
+        parts.append(
+            f'<p class="muted">{stats.n} run(s)'
+            + (f" · {len(stats.unreadable)} unreadable" if stats.unreadable else "")
+            + "</p>"
+        )
+    cost_note = ""
+    if stats.cost_unknown:
+        cost_note = f'<div class="muted">{stats.cost_unknown} run(s) with unknown cost</div>'
+    err_label = f"{stats.n_error} ({_html_pct(stats.error_rate)})"
+    p50 = getattr(stats, "p50_duration_s", None)
+    if p50 is None:
+        p50 = stats.mean_duration_s
+    cards = [
+        ("Pass rate", _html_pct(stats.pass_rate), "pass" if stats.pass_rate >= 0.8 else ""),
+        ("Total cost", _html_cost(stats.total_cost_usd), ""),
+        ("p50 latency", _html_dur(p50), ""),
+        ("p95 latency", _html_dur(stats.p95_duration_s), ""),
+        ("Errors", err_label, "error" if stats.n_error else ""),
+        ("Runs", str(stats.n), ""),
+    ]
+    card_html = []
+    for label, value, cls in cards:
+        klass = f' class="{cls}"' if cls else ""
+        card_html.append(
+            f'<div class="card"><div class="lbl">{_html(label)}</div>'
+            f'<div class="val"{klass}>{value}</div>'
+            f"{cost_note if label == 'Total cost' else ''}</div>"
+        )
+    parts.append('<div class="cards">' + "".join(card_html) + "</div>")
+
+    if stats.by_agent:
+        parts.append("<h2>By agent</h2>")
+        rows = [
+            [
+                _html(a.name),
+                _html(a.runs),
+                _html(a.pass_n),
+                _html(a.fail_n),
+                _html(a.error_n),
+                _html(a.total_tokens),
+                _html(_html_cost(a.total_cost_usd)),
+                _html(_html_dur(a.mean_duration_s)),
+            ]
+            for a in stats.by_agent
+        ]
+        parts.append(
+            _html_table(
+                ["agent", "runs", "pass", "fail", "error", "tokens", "cost", "mean dur"],
+                rows,
+                numeric=frozenset({1, 2, 3, 4, 5, 6, 7}),
+            )
+        )
+    if stats.by_model:
+        parts.append("<h2>By model</h2>")
+        rows = [
+            [
+                _html(m.model),
+                _html(m.calls),
+                _html(f"{m.input_tokens:,}"),
+                _html(f"{m.output_tokens:,}"),
+                _html(_html_cost(m.total_cost_usd)),
+                _html(m.error_n),
+            ]
+            for m in stats.by_model
+        ]
+        parts.append(
+            _html_table(
+                ["model", "calls", "in tok", "out tok", "cost", "errors"],
+                rows,
+                numeric=frozenset({1, 2, 3, 4, 5}),
+            )
+        )
+    if stats.tools:
+        parts.append("<h2>Tools</h2>")
+        rows = [
+            [
+                _html(t.name),
+                _html(t.calls),
+                _html(t.error_n),
+                _html(_html_pct(t.error_rate)),
+                _html(_html_dur(t.p95_duration_s)),
+            ]
+            for t in stats.tools
+        ]
+        parts.append(
+            _html_table(
+                ["tool", "calls", "errors", "err rate", "p95"],
+                rows,
+                numeric=frozenset({1, 2, 3, 4}),
+            )
+        )
+    if stats.findings:
+        parts.append("<h2>Runtime findings</h2>")
+        rows = [[_html(f.kind), _cls(f.severity), _html(f.count)] for f in stats.findings]
+        parts.append(_html_table(["kind", "severity", "n"], rows, numeric=frozenset({2})))
+    if stats.failing_checks:
+        parts.append("<h2>Failing checks</h2>")
+        rows = [[_html(c.name), _html(c.fail_n), _html(c.error_n)] for c in stats.failing_checks]
+        parts.append(_html_table(["check", "fail", "error"], rows, numeric=frozenset({1, 2})))
+    if stats.slowest or stats.most_expensive:
+        parts.append("<h2>Slowest and costliest runs</h2>")
+        # side-by-side-ish: one table for slowest, one for costliest
+        if stats.slowest:
+            parts.append("<h3>Slowest</h3>")
+            rows = [
+                [
+                    f"<code>{_html(r.run_id)}</code>",
+                    _html(r.name),
+                    _cls(r.outcome),
+                    _html(_html_dur(r.duration_s)),
+                    _html(_html_cost(r.cost_usd)),
+                ]
+                for r in stats.slowest
+            ]
+            parts.append(
+                _html_table(
+                    ["run", "name", "outcome", "duration", "cost"],
+                    rows,
+                    numeric=frozenset({3, 4}),
+                )
+            )
+        if stats.most_expensive:
+            parts.append("<h3>Most expensive</h3>")
+            rows = [
+                [
+                    f"<code>{_html(r.run_id)}</code>",
+                    _html(r.name),
+                    _cls(r.outcome),
+                    _html(_html_dur(r.duration_s)),
+                    _html(_html_cost(r.cost_usd)),
+                ]
+                for r in stats.most_expensive
+            ]
+            parts.append(
+                _html_table(
+                    ["run", "name", "outcome", "duration", "cost"],
+                    rows,
+                    numeric=frozenset({3, 4}),
+                )
+            )
+    if runs:
+        parts.append("<h2>Runs</h2>")
+        rows = []
+        for run in runs:
+            cost = None
+            try:
+                cost = run_cost(run)
+            except Exception:
+                cost = getattr(run.usage, "cost_usd", None)
+            dur = None
+            if run.usage.wall_time_ms is not None:
+                dur = max(run.usage.wall_time_ms, 0.0) / 1000.0
+            elif run.ended_at is not None and run.started_at is not None:
+                dur = max((run.ended_at - run.started_at).total_seconds(), 0.0)
+            rows.append(
+                [
+                    f"<code>{_html(run.run_id)}</code>",
+                    _html(run.name),
+                    _cls(run.outcome),
+                    _html(_html_dur(dur)),
+                    _html(
+                        _html_cost(
+                            cost
+                            if isinstance(cost, (int, float)) and not isinstance(cost, bool)
+                            else None
+                        )
+                    ),
+                    _html(getattr(run.usage, "total_tokens", 0) or 0),
+                ]
+            )
+        parts.append(
+            _html_table(
+                ["run", "name", "outcome", "duration", "cost", "tokens"],
+                rows,
+                numeric=frozenset({3, 4, 5}),
+            )
+        )
+    if stats.unreadable:
+        parts.append('<p class="warn">unreadable: ' + _html(", ".join(stats.unreadable)) + "</p>")
+    generated = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    parts.append(f'<p class="muted">generated by crashlab · {_html(generated)}</p>')
+    title = "crashlab fleet stats"
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f"<title>{_html(title)}</title><style>{_FLEET_CSS}</style></head><body>"
+        + "\n".join(parts)
+        + "</body></html>\n"
+    )
