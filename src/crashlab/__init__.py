@@ -31,7 +31,7 @@ cut-offs) run while recording and store :class:`Finding` s on the run.
 
 from __future__ import annotations
 
-from . import budgets, checks, flakes, patch, pricing, rag, suite
+from . import assertions, budgets, checks, flakes, patch, pricing, rag, suite
 from ._version import __version__
 from .capture import agent, child_env, clear_fakes, fake_tool, record, tool, wrap
 from .checks import ChecksConfig, CircuitBreakerError
@@ -129,6 +129,7 @@ __all__ = [
     "__version__",
     "agent",
     "agent_scope",
+    "assertions",
     "bind_context",
     "budgets",
     "check",

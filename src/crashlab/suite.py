@@ -247,15 +247,20 @@ def _judge(
     max_seconds: float | None,
     max_steps: int | None,
     min_finding_severity: str,
+    rule_specs: list[Any] | None = None,
 ) -> EvalResult:
     working = run.model_copy()
     _import_entrypoint(working)
     results = run_checks(working)
+    cfg = resolve_config(None, base=working.check_config)
+    findings = evaluate(working, cfg, store=store)
+    if rule_specs:
+        from .verify.oracles import run_checks as _run_given
+
+        results = list(results) + _run_given(working, rule_specs)
     if results:
         apply_outcome(working, results)
     failing = [r for r in results if r.status != "pass"]
-    cfg = resolve_config(None, base=working.check_config)
-    findings = evaluate(working, cfg, store=store)
     floor = SEVERITY_RANK.get(min_finding_severity, SEVERITY_RANK["error"])
     serious = [f for f in findings if f.rank >= floor]
     budget = None
@@ -511,14 +516,17 @@ def eval_runs(
     max_seconds: float | None = None,
     max_steps: int | None = None,
     min_finding_severity: str = "error",
+    rules: str | Path | Iterable[Any] | bool | None = None,
 ) -> EvalReport:
     """Grade many recorded runs with oracles, runtime checks and optional budgets.
 
     Runs come from ``store`` (filtered by ``name`` / ``tag`` / ``outcome`` / ``since``
     / ``limit``) or from exported ``.jsonl`` cassette ``files`` (paths, directories
     or globs). ``check_modules`` are imported first so ``@crashlab.check`` oracles in
-    those files are registered. With ``replay=True`` each run is replayed offline
-    first; :class:`~crashlab.replay.DivergenceError` and
+    those files are registered. ``rules`` is a rule file path, ``"auto"`` / ``None``
+    (discover ``.crashlab/rules.*`` or ``[tool.crashlab.rules]``), ``"off"`` / ``False``
+    to skip, or an in-memory list of rules. With ``replay=True`` each run is replayed
+    offline first; :class:`~crashlab.replay.DivergenceError` and
     :class:`~crashlab.replay.ReplayError` are recorded as failures.
     """
     if min_finding_severity not in SEVERITY_RANK:
@@ -531,6 +539,12 @@ def eval_runs(
     if replay and store is None:
         store = Store()
     load_check_modules(check_modules)
+    from .assertions import RuleError, load_rules, rules_to_checks
+
+    try:
+        rule_specs = rules_to_checks(load_rules(rules)) if rules is not False else []
+    except RuleError as exc:
+        raise ValueError(str(exc)) from exc
     runs = _collect_runs(
         store, files, name=name, tag=tag, outcome=outcome, since=since, limit=limit
     )
@@ -548,6 +562,7 @@ def eval_runs(
                 max_seconds=max_seconds,
                 max_steps=max_steps,
                 min_finding_severity=min_finding_severity,
+                rule_specs=rule_specs,
             )
         except (DivergenceError, ReplayError) as exc:
             cost, tokens, duration = _usage_numbers(run)
