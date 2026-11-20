@@ -1,8 +1,8 @@
 """Provider-native request/response -> one common shape, plus request hashing.
 
-All providers (OpenAI chat.completions, OpenAI responses, Anthropic messages, LiteLLM)
-map into the same message / part model, loosely following the OpenTelemetry GenAI
-``gen_ai.input.messages`` schema::
+All providers (OpenAI chat.completions, OpenAI responses, Anthropic messages, LiteLLM,
+Google GenAI ``generate_content``) map into the same message / part model, loosely
+following the OpenTelemetry GenAI ``gen_ai.input.messages`` schema::
 
     request  = {"system": str | None, "messages": [Message], "tools": [Tool], "params": {...}}
     response = {"messages": [Message], "tool_calls": [ToolCall], "finish_reason": str | None,
@@ -362,6 +362,46 @@ def normalize_part(block: Any) -> dict[str, Any] | None:
         return tool_result_part(
             block.get("tool_use_id"), block.get("content"), block.get("is_error")
         )
+    # Google GenAI parts are often untyped: {text}, {function_call}, {function_response}
+    if not t:
+        text = block.get("text")
+        if isinstance(text, str) and text:
+            if block.get("thought"):
+                return {"type": "reasoning", "content": text}
+            return {"type": "text", "content": text}
+        fc = block.get("function_call") or block.get("functionCall")
+        if isinstance(fc, dict):
+            args = fc.get("args") if fc.get("args") is not None else fc.get("arguments")
+            return tool_call_part(fc.get("id") or block.get("id"), fc.get("name"), args)
+        fr = block.get("function_response") or block.get("functionResponse")
+        if isinstance(fr, dict):
+            return tool_result_part(
+                fr.get("id") or block.get("id"),
+                fr.get("response") if fr.get("response") is not None else fr.get("parts"),
+            )
+        inline = block.get("inline_data") or block.get("inlineData")
+        if isinstance(inline, dict):
+            mt = inline.get("mime_type") or inline.get("mimeType")
+            data = inline.get("data") or ""
+            kind = "image" if str(mt or "").startswith("image") else "file"
+            raw = data if isinstance(data, (str, bytes, bytearray)) else str(data)
+            return _drop_none(
+                {
+                    "type": kind,
+                    "source": "base64",
+                    "media_type": mt,
+                    "placeholder": binary_placeholder(raw, mt),
+                }
+            )
+        file_data = block.get("file_data") or block.get("fileData")
+        if isinstance(file_data, dict):
+            return _drop_none(
+                {
+                    "type": "file",
+                    "url": file_data.get("file_uri") or file_data.get("fileUri"),
+                    "media_type": file_data.get("mime_type") or file_data.get("mimeType"),
+                }
+            )
     data = {k: v for k, v in block.items() if k not in ("type", "cache_control")}
     return {"type": t or "unknown", "data": strip_binary(data)}
 
@@ -848,3 +888,366 @@ def normalize_openai_responses_response(resp: Any) -> tuple[dict[str, Any], dict
 def message_text(message: dict[str, Any]) -> str:
     """Concatenated text parts of a normalized message."""
     return "".join(p.get("content") or "" for p in message.get("parts", []) if p["type"] == "text")
+
+
+# --- Google GenAI (google.genai / google-genai SDK) -----------------------------------
+
+_GENAI_FINISH = {
+    "STOP": "stop",
+    "END_TURN": "stop",
+    "MAX_TOKENS": "length",
+    "MAX_OUTPUT_TOKENS": "length",
+    "SAFETY": "content_filter",
+    "RECITATION": "content_filter",
+    "BLOCKLIST": "content_filter",
+    "PROHIBITED_CONTENT": "content_filter",
+    "SPII": "content_filter",
+    "IMAGE_SAFETY": "content_filter",
+    "LANGUAGE": "stop",
+    "MALFORMED_FUNCTION_CALL": "error",
+    "OTHER": "other",
+    "FINISH_REASON_UNSPECIFIED": None,
+}
+
+
+def _as_map(value: Any) -> dict[str, Any]:
+    value = to_jsonable(value)
+    return value if isinstance(value, dict) else {}
+
+
+def _pick(data: dict[str, Any], *names: str, default: Any = None) -> Any:
+    for name in names:
+        if name in data and data[name] is not None:
+            return data[name]
+    return default
+
+
+def _role(role: Any) -> str:
+    r = str(role or "user").lower()
+    if r in ("model", "assistant"):
+        return "assistant"
+    if r in ("function", "tool"):
+        return "tool"
+    if r in ("system", "developer"):
+        return "system"
+    return "user"
+
+
+def _contents_as_messages(contents: Any) -> list[Any]:
+    """Google ``contents`` (string, Part, Content, or a list of those) -> message dicts."""
+    contents = to_jsonable(contents)
+    if contents is None or contents == []:
+        return []
+    if isinstance(contents, str):
+        return [{"role": "user", "content": contents}]
+    if isinstance(contents, dict):
+        contents = [contents]
+    if not isinstance(contents, list):
+        return [{"role": "user", "content": contents}]
+    out: list[Any] = []
+    for item in contents:
+        if item is None:
+            continue
+        if isinstance(item, str):
+            out.append({"role": "user", "content": item})
+            continue
+        if not isinstance(item, dict):
+            out.append({"role": "user", "content": item})
+            continue
+        # A Content has parts and/or a role; a bare Part has text / function_call / ...
+        if "parts" in item or "role" in item:
+            role = _role(item.get("role"))
+            parts = item.get("parts")
+            out.append({"role": role, "content": parts if parts is not None else item.get("text")})
+        else:
+            out.append({"role": "user", "content": [item]})
+    return out
+
+
+def _genai_tools(config: dict[str, Any], extra: Any = None) -> list[dict[str, Any]]:
+    raw_tools = []
+    if extra:
+        raw_tools.extend(to_jsonable(extra) or [])
+    tools = _pick(config, "tools", default=None)
+    if tools:
+        raw_tools.extend(tools if isinstance(tools, list) else [tools])
+    out: list[dict[str, Any]] = []
+    for tool in raw_tools:
+        tool = to_jsonable(tool)
+        if not isinstance(tool, dict):
+            continue
+        decls = _pick(tool, "function_declarations", "functionDeclarations", default=None)
+        if isinstance(decls, list):
+            for d in decls:
+                d = to_jsonable(d) or {}
+                if not isinstance(d, dict):
+                    continue
+                out.append(
+                    _drop_none(
+                        {
+                            "type": "function",
+                            "name": d.get("name"),
+                            "description": d.get("description"),
+                            "parameters": _pick(
+                                d, "parameters", "parameters_json_schema", "parametersJsonSchema"
+                            ),
+                        }
+                    )
+                )
+            continue
+        fn = tool.get("function") if isinstance(tool.get("function"), dict) else tool
+        if fn.get("name") or tool.get("type") == "function":
+            out.append(
+                _drop_none(
+                    {
+                        "type": "function",
+                        "name": fn.get("name") or tool.get("name"),
+                        "description": fn.get("description") or tool.get("description"),
+                        "parameters": _pick(
+                            fn, "parameters", "parameters_json_schema", "input_schema"
+                        )
+                        or _pick(tool, "parameters", "parameters_json_schema", "input_schema"),
+                    }
+                )
+            )
+            continue
+        # built-in tools (google_search, code_execution, ...)
+        config_keys = {
+            k: v
+            for k, v in tool.items()
+            if k not in ("type", "name", "function_declarations", "functionDeclarations")
+        }
+        typ = tool.get("type") or next(iter(config_keys), None)
+        out.append(
+            _drop_none({"type": typ, "name": tool.get("name"), "config": config_keys or None})
+        )
+    return out
+
+
+def normalize_google_genai_request(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """``generate_content`` / ``send_message`` kwargs (native or fork-patched) -> common request."""
+    data = _kwargs_jsonable(kwargs)
+    config = _as_map(data.pop("config", None))
+    # Fork patches (family "chat") edit top-level messages / tools / system
+    messages_kw = data.pop("messages", None)
+    tools_kw = data.pop("tools", None)
+    system_kw = data.pop("system", None)
+    contents = data.pop("contents", None)
+    if contents is not None:
+        messages = normalize_messages(_contents_as_messages(contents))
+    else:
+        messages = normalize_messages(messages_kw or [])
+    system = system_text(_pick(config, "system_instruction", "systemInstruction"))
+    if system is None:
+        system = system_text(system_kw)
+    lead, messages = split_leading_system(messages)
+    if lead:
+        system = "\n\n".join(s for s in (system, lead) if s) or None
+    tools = _genai_tools(config, tools_kw)
+    # Lift sampling fields out of config so gen_ai.request.* attributes are set
+    lifted = {}
+    for src, dest in (
+        ("temperature", "temperature"),
+        ("top_p", "top_p"),
+        ("topP", "top_p"),
+        ("top_k", "top_k"),
+        ("topK", "top_k"),
+        ("max_output_tokens", "max_tokens"),
+        ("maxOutputTokens", "max_tokens"),
+        ("seed", "seed"),
+        ("stop_sequences", "stop"),
+        ("stopSequences", "stop"),
+        ("candidate_count", "n"),
+        ("candidateCount", "n"),
+    ):
+        if src in config and dest not in lifted and dest not in data:
+            lifted[dest] = config[src]
+    # leftover config (safety, thinking, response schema, ...) stays under params.config
+    keep = {
+        k: v
+        for k, v in config.items()
+        if k
+        not in {
+            "system_instruction",
+            "systemInstruction",
+            "tools",
+            "temperature",
+            "top_p",
+            "topP",
+            "top_k",
+            "topK",
+            "max_output_tokens",
+            "maxOutputTokens",
+            "seed",
+            "stop_sequences",
+            "stopSequences",
+            "candidate_count",
+            "candidateCount",
+        }
+        and v is not None
+    }
+    data.update(lifted)
+    if keep:
+        data["config"] = keep
+    if "model" in data and isinstance(data["model"], str) and data["model"].startswith("models/"):
+        data["model"] = data["model"][7:]
+    return {
+        "system": system,
+        "messages": messages,
+        "tools": tools,
+        "params": normalize_params(data, {"max_output_tokens": "max_tokens"}),
+    }
+
+
+def _candidates(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    cands = raw.get("candidates") or []
+    return [c for c in cands if isinstance(c, dict)]
+
+
+def _parts_from_raw(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    for cand in _candidates(raw):
+        content = cand.get("content") or {}
+        if isinstance(content, dict):
+            for p in content.get("parts") or []:
+                n = normalize_part(p)
+                if n is not None:
+                    parts.append(n)
+    return parts
+
+
+def _text_from_raw(resp: Any, raw: dict[str, Any]) -> str:
+    text = getattr(resp, "text", None)
+    if isinstance(text, str):
+        return text
+    if isinstance(raw.get("text"), str):
+        return raw["text"]
+    return "".join(p["content"] for p in _parts_from_raw(raw) if p["type"] == "text")
+
+
+def _function_calls_from_raw(resp: Any, raw: dict[str, Any]) -> list[dict[str, Any]]:
+    calls = getattr(resp, "function_calls", None)
+    if calls is None:
+        calls = raw.get("function_calls")
+    out: list[dict[str, Any]] = []
+    if calls:
+        for fc in to_jsonable(calls) or []:
+            if not isinstance(fc, dict):
+                continue
+            inner = fc.get("function_call") if isinstance(fc.get("function_call"), dict) else fc
+            out.append(
+                _drop_none(
+                    {
+                        "id": inner.get("id"),
+                        "name": inner.get("name"),
+                        "args": inner.get("args")
+                        if inner.get("args") is not None
+                        else inner.get("arguments"),
+                    }
+                )
+            )
+        if out:
+            return out
+    return [
+        _drop_none({"id": p.get("id"), "name": p.get("name"), "args": p.get("arguments")})
+        for p in _parts_from_raw(raw)
+        if p["type"] == "tool_call"
+    ]
+
+
+def _provider_finish(raw: dict[str, Any]) -> str | None:
+    for cand in _candidates(raw):
+        reason = cand.get("finish_reason") or cand.get("finishReason")
+        if reason is not None:
+            return str(reason)
+    for key in ("finish_reason", "finishReason"):
+        if raw.get(key) is not None:
+            return str(raw[key])
+    return None
+
+
+def _canon_finish(provider: str | None, tool_calls: list[Any]) -> str | None:
+    if tool_calls:
+        return "tool_calls"
+    if not provider:
+        return "stop"
+    key = provider.split(".")[-1] if provider else provider
+    mapped = _GENAI_FINISH.get(
+        key, _GENAI_FINISH.get(key.upper() if key else "", key.lower() if key else None)
+    )
+    if mapped is not None or key in _GENAI_FINISH or (key or "").upper() in _GENAI_FINISH:
+        return mapped
+    return key.lower() if key else None
+
+
+def _usage_from_metadata(meta: Any) -> dict[str, Any]:
+    u = _as_map(meta)
+    inp = _pick(u, "prompt_token_count", "promptTokenCount")
+    out = _pick(u, "candidates_token_count", "candidatesTokenCount")
+    total = _pick(u, "total_token_count", "totalTokenCount")
+    cached = _pick(u, "cached_content_token_count", "cachedContentTokenCount")
+    thinking = _pick(u, "thoughts_token_count", "thoughtsTokenCount")
+    return _usage(
+        inp,
+        out,
+        total,
+        cache_read_input_tokens=cached,
+        reasoning_tokens=thinking,
+    )
+
+
+def normalize_google_genai_response(resp: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``GenerateContentResponse`` (or a stream assembly / ReplayObject) -> common + raw."""
+    raw = _as_dict(resp)
+    text = _text_from_raw(resp, raw)
+    function_calls = _function_calls_from_raw(resp, raw)
+    parts = _parts_from_raw(raw)
+    if not parts and text:
+        parts = [{"type": "text", "content": text}]
+    if not any(p["type"] == "tool_call" for p in parts) and function_calls:
+        for fc in function_calls:
+            parts.append(tool_call_part(fc.get("id"), fc.get("name"), fc.get("args")))
+    tool_calls = _tool_calls_from_parts(parts)
+    provider_reason = _provider_finish(raw)
+    reason = _canon_finish(provider_reason, tool_calls)
+    usage_meta = raw.get("usage_metadata") or raw.get("usageMetadata")
+    if usage_meta is None:
+        usage_meta = getattr(resp, "usage_metadata", None)
+    model = raw.get("model_version") or raw.get("modelVersion") or raw.get("model")
+    if not model:
+        model = getattr(resp, "model_version", None) or getattr(resp, "model", None)
+    resp_id = raw.get("response_id") or raw.get("responseId") or raw.get("id")
+    # Replay without google-genai: ReplayObject needs these computed properties as fields
+    if "text" not in raw or raw.get("text") is None:
+        raw["text"] = text
+    if raw.get("function_calls") is None:
+        raw["function_calls"] = function_calls
+    if not raw.get("candidates") and (text or function_calls):
+        raw_parts: list[dict[str, Any]] = []
+        if text:
+            raw_parts.append({"text": text})
+        for fc in function_calls:
+            raw_parts.append(
+                {
+                    "function_call": _drop_none(
+                        {"id": fc.get("id"), "name": fc.get("name"), "args": fc.get("args")}
+                    )
+                }
+            )
+        raw["candidates"] = [
+            {
+                "content": {"role": "model", "parts": raw_parts},
+                "finish_reason": provider_reason or ("STOP" if reason == "stop" else reason),
+            }
+        ]
+    normalized = {
+        "messages": [_message("assistant", parts)],
+        "tool_calls": tool_calls,
+        "finish_reason": reason,
+        "finish_reasons": [reason] if reason else [],
+        "provider_finish_reason": provider_reason,
+        "model": model,
+        "id": resp_id,
+        "usage": _usage_from_metadata(usage_meta),
+    }
+    return normalized, raw

@@ -69,9 +69,25 @@ BUILTIN: dict[str, dict[str, list[Price]]] = {
         "openai/gpt-oss-20b": [_p(0.075, 0.30, 0.0375)],
     },
     "gemini": {
+        "gemini-4-carbon": [_p(2.00, 10.00, 0.10, until="2026-11-30"), _p(4.00, 20.00, 0.20)],
+        "gemini-4-argon": [_p(2.00, 10.00, 0.10, until="2026-11-30"), _p(4.00, 20.00, 0.20)],
+        "gemini-4-neon": [_p(3.00, 15.00, 0.15)],
+        "gemini-4-hydrogen": [_p(1.50, 7.50, 0.075)],
         "gemini-3.8-flash": _GEMINI_FLASH,
         "gemini-3.7-flash": _GEMINI_FLASH,  # deprecated, served by 3.8 Flash
         "gemini-3.6-flash": _GEMINI_FLASH,
+        "gemini-3.5-flash-lite": [_p(0.30, 2.50, 0.03)],
+        "gemini-3.1-flash-lite": [_p(0.25, 1.50, 0.025)],
+        "gemini-3.1-pro-preview": [_p(2.00, 12.00, 0.20)],
+        "gemini-3-flash-preview": [_p(0.50, 3.00, 0.05)],
+        # 2.5 Pro / Flash: official rates until they reroute on 2026-12-01
+        "gemini-2.5-pro": [
+            _p(1.25, 10.00, 0.125, until="2026-11-30"),
+            _p(0.75, 3.75, 0.075, until="2026-12-31"),  # routed to 3.8 Flash
+            _p(1.50, 7.50, 0.15),
+        ],
+        "gemini-2.5-flash": [_p(0.30, 2.50, 0.03)],
+        "gemini-2.5-flash-lite": [_p(0.10, 0.40, 0.01)],
     },
 }
 
@@ -81,6 +97,7 @@ _HOSTS = {
     "api.anthropic.com": "anthropic",
     "api.groq.com": "groq",
     "generativelanguage.googleapis.com": "gemini",
+    "aiplatform.googleapis.com": "gemini",
 }
 _LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal")
 _LOCAL_PREFIXES = ("ollama/", "ollama_chat/", "lm_studio/", "hosted_vllm/", "llamafile/")
@@ -130,6 +147,8 @@ def provider_of(attributes: dict[str, Any], model: str) -> str | None:
         return _LITELLM_PREFIX.get(head, head if "/" in model else "openai")
     if name in ("openai", "anthropic"):
         return name  # SDK default endpoint
+    if name in ("google_genai", "google", "genai"):
+        return "gemini"
     return name or None
 
 
