@@ -12,11 +12,13 @@ from typing import Any
 
 from ..context import (
     AGENT_ATTR,
+    TURN_ATTR,
     RunContext,
     active_span,
     current,
     current_agent,
     current_span_id,
+    current_turn,
 )
 from ..models import ErrorInfo, Operation, Step, StepSource, utcnow
 from ..store.redact import get_redactor
@@ -242,6 +244,10 @@ def begin_step(
         scoped = current_agent()
         if scoped is not None:
             attrs[AGENT_ATTR] = scoped
+    if TURN_ATTR not in attrs:
+        turn = current_turn()
+        if turn is not None:
+            attrs[TURN_ATTR] = turn
     return PendingStep(
         ctx=ctx,
         idx=ctx.next_idx() if idx is None else idx,

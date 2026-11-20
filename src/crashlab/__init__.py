@@ -83,6 +83,7 @@ from .replay import (
     fork,
     replay,
 )
+from .simulate import Scenario, ScenarioTurn, SimulationResult, simulate
 from .store import RunNotFoundError, Store, load
 from .store import redact as redaction
 from .stress import stress_run
@@ -118,7 +119,10 @@ __all__ = [
     "Run",
     "RunDiff",
     "RunNotFoundError",
+    "Scenario",
+    "ScenarioTurn",
     "SideEffectBlockedError",
+    "SimulationResult",
     "Step",
     "Store",
     "SystemPromptPatch",
@@ -158,6 +162,7 @@ __all__ = [
     "replay",
     "run_checks",
     "run_in_thread",
+    "simulate",
     "stress_run",
     "suite",
     "tool",

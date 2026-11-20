@@ -284,6 +284,32 @@ def agent_scope(name: str) -> Iterator[None]:
         _current_agent.reset(token)
 
 
+_current_turn: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "crashlab_current_turn", default=None
+)
+
+TURN_ATTR = "crashlab.turn"
+
+
+def current_turn() -> int | None:
+    """The 1-indexed conversation turn set by the innermost :func:`turn_scope`."""
+    return _current_turn.get()
+
+
+@contextmanager
+def turn_scope(turn: int) -> Iterator[None]:
+    """Attribute every step recorded inside the block with ``crashlab.turn``
+    (1-indexed). Used by :func:`crashlab.simulate` so later checks can see which
+    turn produced a tool call or reply. Nests: the innermost number wins."""
+    if not isinstance(turn, int) or isinstance(turn, bool) or turn < 1:
+        raise ValueError("crashlab.turn_scope(): turn must be a 1-indexed positive integer")
+    token = _current_turn.set(turn)
+    try:
+        yield
+    finally:
+        _current_turn.reset(token)
+
+
 # Runs being recorded in this process, with the thread that started each. Frameworks that
 # run tools in a fresh worker thread without copying context vars (smolagents' CodeAgent
 # executes every code block in a new ThreadPoolExecutor) would otherwise drop those tool
