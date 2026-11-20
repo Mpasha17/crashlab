@@ -1,7 +1,8 @@
 """``crashlab`` command line: ``ls``, ``show``, ``search``, ``cluster``, ``tag``, ``rm``,
 ``prune``, ``replay``, ``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``,
 ``eval``, ``sweep``, ``rules``, ``simulate``, ``baseline``,
-``export``, ``import``, ``doctor``, ``init``, ``profile``."""
+``export``, ``import``, ``doctor``, ``init``, ``profile``, ``context``,
+``audit-tools``."""
 
 from __future__ import annotations
 
@@ -2251,6 +2252,8 @@ _HELP_PANELS = (
         (
             "ls",
             "show",
+            "context",
+            "audit-tools",
             "search",
             "cluster",
             "watch",
@@ -2312,6 +2315,7 @@ def _tidy_help(typer_app: typer.Typer) -> None:
         _apply_help(info, callback=inst)
 
 
+from . import cli_audit as _cli_audit  # noqa: E402,F401  registers context / audit-tools
 from . import cli_baseline as _cli_baseline  # noqa: E402,F401  registers baseline
 from . import cli_bisect as _cli_bisect  # noqa: E402,F401  registers bisect
 from . import cli_chaos as _cli_chaos  # noqa: E402,F401  registers stress
