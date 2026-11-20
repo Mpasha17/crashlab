@@ -30,7 +30,7 @@ cut-offs) run while recording and store :class:`Finding` s on the run.
 
 from __future__ import annotations
 
-from . import budgets, checks, flakes, patch, pricing, rag
+from . import budgets, checks, flakes, patch, pricing, rag, suite
 from ._version import __version__
 from .capture import agent, child_env, clear_fakes, fake_tool, record, tool, wrap
 from .checks import ChecksConfig, CircuitBreakerError
@@ -147,6 +147,7 @@ __all__ = [
     "replay",
     "run_checks",
     "run_in_thread",
+    "suite",
     "tool",
     "wrap",
 ]

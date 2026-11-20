@@ -1,5 +1,6 @@
 """``crashlab`` command line: ``ls``, ``show``, ``search``, ``cluster``, ``replay``,
-``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``, ``export``, ``import``."""
+``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``, ``eval``, ``sweep``,
+``export``, ``import``."""
 
 from __future__ import annotations
 
@@ -2201,6 +2202,7 @@ def _first_sentence(text: str, limit: int = 60) -> str:
 _HELP_PANELS = (
     ("Inspect", ("ls", "show", "search", "cluster", "watch", "report", "diff", "check", "flakes")),
     ("Diagnose and fix", ("triage", "diagnose", "fix", "verify", "export-test")),
+    ("Evaluate", ("eval", "sweep")),
     ("Replay and fork", ("replay", "fork")),
     ("Share and benchmark", ("export", "import", "bench")),
 )
@@ -2225,6 +2227,7 @@ def _tidy_help(typer_app: typer.Typer) -> None:
 
 
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
+from . import cli_eval as _cli_eval  # noqa: E402,F401  registers eval / sweep
 
 _tidy_help(app)
 
