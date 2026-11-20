@@ -2277,7 +2277,7 @@ _HELP_PANELS = (
         ),
     ),  # fmt: skip
     ("Store", ("tag", "rm", "prune")),
-    ("Diagnose and fix", ("triage", "diagnose", "fix", "verify", "export-test")),
+    ("Diagnose and fix", ("triage", "bisect", "diagnose", "fix", "verify", "export-test")),
     ("Evaluate", ("eval", "sweep")),
     ("Replay and fork", ("replay", "fork", "stress")),
     ("Share and benchmark", ("export", "import", "bench")),
@@ -2302,6 +2302,7 @@ def _tidy_help(typer_app: typer.Typer) -> None:
             info.short_help = _first_sentence(info.help)
 
 
+from . import cli_bisect as _cli_bisect  # noqa: E402,F401  registers bisect
 from . import cli_chaos as _cli_chaos  # noqa: E402,F401  registers stress
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
 from . import cli_eval as _cli_eval  # noqa: E402,F401  registers eval / sweep
