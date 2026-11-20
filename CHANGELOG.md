@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Integrations and bisect (see `docs/integrations.md`)
+- `crashlab.integrations.wrap_mcp_session(session)` (and `MCPToolResult`): records MCP `call_tool` calls as `execute_tool` steps; replay-safe, detects side-effectful MCP calls, surfaces `isError` / `structuredContent`
+- `crashlab.integrations.CrashlabCallbackHandler` (and `langchain_handler`): LangChain / LangGraph callback handler that records LLM calls, tool executions, and agent boundaries without double-recording `wrap()`
+- `crashlab bisect` / `crashlab.bisect.bisect_runs(good, bad)`: compares a passing and failing run to isolate the earliest divergence and minimal causal diff (supports `--fork` single-change revert isolation)
+
 ### Fault injection and chaos testing (see `docs/fault-injection.md`)
 - `crashlab.faults(...)`: stackable, thread-safe context manager that injects deterministic tool and LLM faults into a live recorded run (or the live steps of a fork). Rules: `tool_error`, `tool_result` (HTML 502, empty, truncated JSON, schema drift), `tool_delay`, `llm_error`, `llm_empty`, `llm_truncate`, `llm_bad_tool_call`. Triggers: `on_calls`, `after_calls`, `every`, `max_triggers`, `probability`+`seed`, `agent=`. Each injection is stored on the step as `crashlab.fault`. Strict replay serves the cassette and does not re-inject.
 - `crashlab stress` / `crashlab.stress_run(run)`: built-in chaos scenarios (`tool_502`, `tool_timeout`, `tool_empty`, `tool_schema_drift`, `llm_rate_limit`, `llm_empty_reply`, `llm_bad_tool_args`) targeting the tools and models the run used; reports survived / crashed / failed_checks / skipped / needs_live_agent. `--scenario`, `--at-step`, `--agent`, `--json`, `--fail-on-crash`.
