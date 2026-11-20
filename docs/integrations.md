@@ -6,10 +6,15 @@ a command that isolates what changed between a passing run and a failing one.
 
 - [MCP](#mcp) — record `call_tool` on an MCP client session
 - [LangChain / LangGraph](#langchain--langgraph) — a callback handler that labels nodes and fills gaps
+- [OpenAI Agents SDK](#openai-agents-sdk) — a duck-typed `TracingProcessor` for agent, generation, tool and handoff spans
+- [PydanticAI](#pydanticai) — wrap `Agent.run` / `run_sync` / `run_stream` inside `crashlab.record`
+- [CrewAI](#crewai) — `step_callback` / `task_callback` hooks and a `wrap_crew()` helper
 - [`crashlab bisect`](#crashlab-bisect) — compare two runs and isolate the minimal causal change
 
-None of these import `mcp`, `langchain`, or `langchain_core` until you use them, so a
-missing optional package never breaks `import crashlab`.
+None of these import `mcp`, `langchain`, `langchain_core`, `agents`, `pydantic_ai`, or
+`crewai` until you use them (the OpenAI Agents, PydanticAI and CrewAI adapters are
+purely duck-typed and never import those packages), so a missing optional package
+never breaks `import crashlab`.
 
 ## MCP
 
@@ -90,7 +95,113 @@ just wrote and do not record a second copy.
 wrap the OpenAI / Anthropic client as well; the handler alone is enough to inspect a
 live `crashlab.record()` run.
 
+## OpenAI Agents SDK
+
+The most reliable path for offline replay is still to wrap the underlying OpenAI
+client and pass it into the SDK (see [examples/integrations/openai-agents.md](../examples/integrations/openai-agents.md)).
+
+`OpenAIAgentsTracingProcessor` is the extra hook: it implements the SDK's
+`TracingProcessor` interface (`on_trace_start`, `on_trace_end`, `on_span_start`,
+`on_span_end`, `shutdown`, `force_flush`) without importing `agents`. Register it
+with `add_trace_processor`. Agent spans, generation spans (model, usage, input /
+output), function/tool spans and handoff spans (`from_agent -> to_agent`) become
+crashlab steps with `step.agent` attribution.
+
+```python
+import crashlab
+from agents import Runner, add_trace_processor
+from crashlab.integrations.frameworks import crashlab_tracing_processor
+
+add_trace_processor(crashlab_tracing_processor())
+
+@crashlab.agent(name="support")
+def run(msg: str) -> str:
+    result = Runner.run_sync(agent, msg)
+    return str(result.final_output)
+```
+
+If no `crashlab.record()` / `@crashlab.agent` run is already active, the processor
+starts one on `on_trace_start` (named after the trace, or `name=` on
+`crashlab_tracing_processor(name="support")`) and closes it on `on_trace_end`.
+Already-recorded LLM or tool calls from `crashlab.wrap()` / `@crashlab.tool` are
+not duplicated.
+
+A callback cannot cancel a provider call. For offline `crashlab.replay`, wrap the
+OpenAI client as well; the processor alone is enough to inspect a live
+`crashlab.record()` run.
+
+## PydanticAI
+
+`wrap_pydantic_ai_agent` wraps a PydanticAI-like `Agent` (`run`, `run_sync`, and
+`run_stream` when present) so each call runs inside `crashlab.record(name=...)`
+when no run is already active. Function tools on `agent._function_tools` (or
+`tools`) and a model `request` method are wrapped in place so usage, tool calls
+and output are captured even without wrapping the provider client.
+
+```python
+import crashlab
+from crashlab.integrations.frameworks import wrap_pydantic_ai_agent
+from pydantic_ai import Agent
+
+agent = wrap_pydantic_ai_agent(
+    Agent(model, system_prompt=PROMPT, tools=[get_price, place_order]),
+    name="shop",
+)
+result = agent.run_sync("price of tea")
+print(result.output)
+```
+
+Wrapping is idempotent. Passing the wrapped functions through `tools=[...]` still
+works; already-decorated `@crashlab.tool` callables are left alone. For offline
+replay, also wrap the OpenAI / Anthropic client you pass into the model (see
+[examples/integrations/pydantic-ai.md](../examples/integrations/pydantic-ai.md)).
+
+`PydanticAIAdapter(agent, name="shop").wrap()` is the same helper in class form.
+
+## CrewAI
+
+`CrewAICallback` provides the `step_callback` and `task_callback` hooks CrewAI
+invokes after each agent action and each task. `wrap_crew(crew, name=...)`
+installs those hooks (attributed to each agent's `role`), wraps
+`crew.kickoff(...)` (and `kickoff_async` when present) inside
+`crashlab.record(name=...)`, and records tool calls and task outputs.
+
+```python
+import crashlab
+from crashlab.integrations.frameworks import CrewAICallback, wrap_crew
+from crewai import Crew
+
+crew = wrap_crew(
+    Crew(agents=[researcher, writer], tasks=[research, write]),
+    name="research-crew",
+)
+result = crew.kickoff(inputs={"topic": "AI"})
+```
+
+You can also attach the hooks yourself:
+
+```python
+import crashlab
+from crashlab.integrations.frameworks import CrewAICallback
+
+handler = CrewAICallback()
+crew = Crew(
+    agents=[researcher],
+    tasks=[task],
+    step_callback=handler.step_callback,
+    task_callback=handler.task_callback,
+)
+
+with crashlab.record("research-crew") as run:
+    run.output = str(crew.kickoff())
+```
+
+Wrapping is idempotent. For offline replay, wrap the LLM client as well (CrewAI
+calls `with_raw_response.create`; see
+[examples/integrations/crewai.md](../examples/integrations/crewai.md)).
+
 ## `crashlab bisect`
+
 
 Given a passing run and a failing run, `crashlab bisect` reports what changed: git /
 code version, model and sampling params, system prompts, declared tool schemas and
