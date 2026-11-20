@@ -1,7 +1,7 @@
 """``crashlab`` command line: ``ls``, ``show``, ``search``, ``cluster``, ``tag``, ``rm``,
 ``prune``, ``replay``, ``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``,
 ``eval``, ``sweep``,
-``export``, ``import``."""
+``export``, ``import``, ``doctor``, ``init``, ``profile``."""
 
 from __future__ import annotations
 
@@ -2277,6 +2277,7 @@ _HELP_PANELS = (
         ),
     ),  # fmt: skip
     ("Store", ("tag", "rm", "prune")),
+    ("Ops", ("doctor", "init", "profile")),
     ("Diagnose and fix", ("triage", "bisect", "diagnose", "fix", "verify", "export-test")),
     ("Evaluate", ("eval", "sweep")),
     ("Replay and fork", ("replay", "fork", "stress")),
@@ -2307,6 +2308,7 @@ from . import cli_chaos as _cli_chaos  # noqa: E402,F401  registers stress
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
 from . import cli_eval as _cli_eval  # noqa: E402,F401  registers eval / sweep
 from . import cli_obs as _cli_obs  # noqa: E402,F401  registers stats / timeline / ui
+from . import cli_ops as _cli_ops  # noqa: E402,F401  registers doctor / init / profile
 from . import cli_store as _cli_store  # noqa: E402,F401  registers tag / rm / prune
 
 _tidy_help(app)
