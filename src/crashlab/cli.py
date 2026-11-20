@@ -1,8 +1,8 @@
 """``crashlab`` command line: ``ls``, ``show``, ``search``, ``cluster``, ``tag``, ``rm``,
 ``prune``, ``replay``, ``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``,
 ``eval``, ``sweep``, ``rules``, ``simulate``, ``baseline``,
-``export``, ``import``, ``doctor``, ``init``, ``profile``, ``context``,
-``audit-tools``."""
+``export``, ``import``, ``bundle``, ``unbundle``, ``audit-secrets``, ``redact-run``,
+``doctor``, ``init``, ``profile``, ``context``, ``audit-tools``."""
 
 from __future__ import annotations
 
@@ -2267,10 +2267,16 @@ def export_cmd(
 
 @app.command("import")
 def import_cmd(
-    paths: list[Path] = typer.Argument(..., help="Exported .jsonl files."),  # noqa: B008
+    paths: list[Path] = typer.Argument(  # noqa: B008
+        ..., help="Exported .jsonl files or .crashlab.zip debug bundles."
+    ),
     replace: bool = typer.Option(False, "--replace", help="Overwrite runs that already exist."),
 ) -> None:
-    """Add exported runs to the store ($CRASHLAB_DIR or ./.crashlab)."""
+    """Add exported runs to the store ($CRASHLAB_DIR or ./.crashlab).
+
+    A ``.zip`` / ``.crashlab.zip`` path is imported as a debug bundle
+    (``crashlab unbundle``). ``--replace`` applies to JSONL exports only.
+    """
     from .store import import_run
 
     console = _console()
@@ -2280,6 +2286,17 @@ def import_cmd(
             what = "is a directory" if path.is_dir() else "no such file"
             console.print(f"[red]{_e(path)}: {what}[/]")
             raise typer.Exit(code=2)
+        if path.suffix.lower() == ".zip":
+            from .bundle import BundleError, import_bundle
+
+            try:
+                ids = import_bundle(store, path)
+            except (OSError, ValueError, BundleError) as err:
+                console.print(f"[red]{_e(path)}: {_e(err)}[/]")
+                raise typer.Exit(code=2) from err
+            for run_id in ids:
+                console.print(f"imported: {run_id}  ({_e(path)})")
+            continue
         try:
             run_id, added = import_run(store, path, replace=replace)
         except (OSError, ValueError) as err:
@@ -2330,12 +2347,12 @@ _HELP_PANELS = (
             "ui",
         ),
     ),  # fmt: skip
-    ("Store", ("tag", "rm", "prune")),
+    ("Store", ("tag", "rm", "prune", "audit-secrets", "redact-run")),
     ("Ops", ("doctor", "init", "profile")),
     ("Diagnose and fix", ("triage", "bisect", "diagnose", "fix", "verify", "export-test")),
     ("Evaluate", ("eval", "sweep", "rules", "score", "simulate", "baseline")),
     ("Replay and fork", ("replay", "fork", "stress", "fuzz", "proxy")),
-    ("Share and benchmark", ("export", "import", "dataset", "bench")),
+    ("Share and benchmark", ("export", "import", "bundle", "unbundle", "dataset", "bench")),
 )
 
 
@@ -2382,6 +2399,7 @@ def _tidy_help(typer_app: typer.Typer) -> None:
 from . import cli_audit as _cli_audit  # noqa: E402,F401  registers context / audit-tools
 from . import cli_baseline as _cli_baseline  # noqa: E402,F401  registers baseline
 from . import cli_bisect as _cli_bisect  # noqa: E402,F401  registers bisect
+from . import cli_bundle as _cli_bundle  # noqa: E402,F401  registers bundle / unbundle / audit-secrets / redact-run
 from . import cli_chaos as _cli_chaos  # noqa: E402,F401  registers stress
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
 from . import cli_eval as _cli_eval  # noqa: E402,F401  registers eval / sweep
