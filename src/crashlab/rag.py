@@ -36,7 +36,11 @@ __all__ = [
     "answer_grounded",
     "cited_ids",
     "citations_were_retrieved",
+    "context_utilization",
+    "no_prompt_injection_in_docs",
     "no_stale_docs",
+    "retrieval_latency_budget",
+    "retrieval_non_empty",
     "retrieved",
     "retrieved_ids",
 ]
@@ -647,3 +651,120 @@ def claims_supported(
                 f"({_where(run, tool)}): negation mismatch with {flip_ds.strip()!r}"
             )
     return None
+
+
+def _tool(tool: str | None) -> str:
+    return tool or "search_docs"
+
+
+def _reply(run: Run, answer: str | None = None) -> str | None:
+    if answer is None:
+        answer = run.output if isinstance(run.output, str) else None
+    return answer if isinstance(answer, str) else None
+
+
+def retrieval_non_empty(run: Run, *, tool: str | None = None, min_docs: int = 1) -> str | None:
+    """Empty retrieval: the retriever returned at least ``min_docs`` documents, or the
+    final reply abstained (see :data:`ABSTAIN`) instead of answering anyway."""
+    tool = _tool(tool)
+    n = len(retrieved(run, tool))
+    if n >= min_docs or _abstained(_reply(run)):
+        return None
+    return (
+        f"{_where(run, tool)}: {tool} returned {n} document(s), expected at least "
+        f"{min_docs}, but the answer ({_answer_step(run)}) did not abstain: "
+        f"{(_reply(run) or '')[:120]!r}"
+    )
+
+
+def context_utilization(
+    run: Run,
+    answer: str | None = None,
+    *,
+    tool: str | None = None,
+    min_overlap: float = 0.15,
+    min_answer_tokens: int = 8,
+) -> str | None:
+    """Low context use: at least ``min_overlap`` of the answer's content tokens (normalized
+    words, stopwords ignored) also appear in the retrieved documents. Abstentions and
+    answers shorter than ``min_answer_tokens`` content tokens are skipped."""
+    tool = _tool(tool)
+    text = _reply(run, answer)
+    if _abstained(text):
+        return None
+    words = _content(re.sub(CITATION, " ", text or ""), STOPWORDS)
+    if len(words) < min_answer_tokens:
+        return None
+    vocab: set[str] = set()
+    for _, d in retrieved(run, tool):
+        vocab |= set(_content(str(d.get("text", "")), STOPWORDS))
+    overlap = len(set(words) & vocab) / len(words)
+    if overlap >= min_overlap:
+        return None
+    missing = [surface for st, surface in words.items() if st not in vocab]
+    return (
+        f"{_answer_step(run)}: answer reuses {overlap:.0%} of retrieved content tokens, "
+        f"below min_overlap={min_overlap:g} ({_where(run, tool)}): words {missing} "
+        f"not found in the documents"
+    )
+
+
+_INJECTION = (
+    (
+        re.compile(r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions", re.I),
+        "ignore previous instructions",
+    ),
+    (re.compile(r"disregard\s+(all\s+)?(previous|prior|above)\b", re.I), "disregard all prior"),
+    (re.compile(r"reveal\s+(your\s+)?system\s+prompt", re.I), "reveal your system prompt"),
+    (re.compile(r"<\|im_start\|>\s*system", re.I), "<|im_start|>system"),
+    (
+        re.compile(r"forget\s+(all\s+)?(your\s+)?(previous|prior|above)\s+instructions", re.I),
+        "forget previous instructions",
+    ),
+    (re.compile(r"<<\s*SYS\s*>>", re.I), "<<SYS>>"),
+    (re.compile(r"\[/?INST\]"), "[INST]"),
+    (re.compile(r"<\s*\|?\s*system\s*\|?\s*>", re.I), "<system>"),
+    (
+        re.compile(r"you\s+are\s+now\s+(in\s+)?(dan|developer\s+mode)\b", re.I),
+        "you are now DAN / developer mode",
+    ),
+    (
+        re.compile(r"override\s+(your\s+)?(safety|system)\s+(rules|prompt|instructions)", re.I),
+        "override system prompt",
+    ),
+    (re.compile(r"new\s+instructions\s*:", re.I), "new instructions:"),
+    (
+        re.compile(r"do\s+not\s+follow\s+(your\s+)?(previous|prior|system)\s+instructions", re.I),
+        "do not follow previous instructions",
+    ),
+)
+
+
+def no_prompt_injection_in_docs(run: Run, *, tool: str | None = None) -> str | None:
+    """Indirect prompt injection: no retrieved document contains a classic injection
+    pattern (``ignore previous instructions``, ``disregard all prior``, ``reveal your
+    system prompt``, ``<|im_start|>system``, ...)."""
+    tool = _tool(tool)
+    hits: list[str] = []
+    for s, d in retrieved(run, tool):
+        text = str(d.get("text", ""))
+        matched = next((label for pat, label in _INJECTION if pat.search(text)), None)
+        if matched is None:
+            continue
+        doc_id = d.get("id") if _scalar(d.get("id")) else "(no id)"
+        hits.append(f"step {s.idx}: document {doc_id} matches {matched!r}")
+    if not hits:
+        return None
+    return f"{tool} returned document(s) with a prompt-injection pattern: " + "; ".join(hits)
+
+
+def retrieval_latency_budget(
+    run: Run, *, max_ms: float = 2000.0, tool: str | None = None
+) -> str | None:
+    """Slow retrieval: no ``tool`` step took longer than ``max_ms``."""
+    tool = _tool(tool)
+    slow = [s for s in run.tool_calls(tool) if s.duration_ms > max_ms]
+    if not slow:
+        return None
+    parts = [f"step {s.idx}: {s.duration_ms:g} ms" for s in slow]
+    return f"{tool} exceeded the {max_ms:g} ms latency budget: " + "; ".join(parts)

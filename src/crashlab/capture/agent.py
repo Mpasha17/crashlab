@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import functools
+import hashlib
 import inspect
 import os
 import platform
@@ -42,6 +43,35 @@ from .normalize import to_jsonable
 F = TypeVar("F", bound=Callable[..., Any])
 
 _git_cache: dict[str, str | None] = {}
+
+
+def _source_hash(obj: Any) -> str | None:
+    """sha256 of ``obj``'s source, or None when ``inspect.getsource`` is unavailable."""
+    if obj is None:
+        return None
+    try:
+        src = inspect.getsource(inspect.unwrap(obj))
+    except (OSError, TypeError, ValueError):
+        return None
+    if not isinstance(src, str) or not src.strip():
+        return None
+    return hashlib.sha256(src.encode("utf-8")).hexdigest()
+
+
+def _entrypoint_source(entrypoint: str | None) -> Any:
+    """Resolve an already-imported ``module:qualname`` entry point; never imports."""
+    if not entrypoint or ":" not in entrypoint:
+        return None
+    mod_name, _, qualname = entrypoint.partition(":")
+    obj: Any = sys.modules.get(mod_name)
+    if obj is None:
+        return None
+    try:
+        for part in qualname.split("."):
+            obj = getattr(obj, part)
+    except AttributeError:
+        return None
+    return obj
 
 
 def git_version(cwd: str | None = None) -> str | None:
@@ -209,6 +239,7 @@ class record:
         self.tags = list(tags or [])
         self.store_dir = store_dir
         self.mode = check_mode(mode)
+        self._source = None
         self.ctx: RunContext | None = None
         self._token = None
         self._t0 = 0.0
@@ -241,6 +272,10 @@ class record:
             tags=list(self.tags),
             span_id=new_span_id(),
         )
+        if run.code_version is None:
+            h = _source_hash(self._source) or _source_hash(_entrypoint_source(self.entrypoint))
+            if h:
+                run.env["code_hash"] = h
         if replayer is None:
             link = self.link or _env_link()
             if link:
@@ -409,6 +444,7 @@ def _generator_agent(
         cv = contextvars.copy_context()
         inp = bind_arguments(f, args, kwargs, ignore_args)
         rec = record(agent_name, input=inp, entrypoint=ep, **record_kw)
+        rec._source = f
         cv.run(rec.__enter__)
         return rec, cv.run(f, *args, **kwargs), cv
 
@@ -610,8 +646,10 @@ def agent(
                     pending.finish({"result": to_jsonable(out)})  # type: ignore[union-attr]
                     return out
                 inp = bind_arguments(f, args, kwargs, ignore_args)
-                with record(agent_name, input=inp, entrypoint=ep, tags=tags, checks=checks,
-                            env=env) as run:  # fmt: skip
+                rec = record(agent_name, input=inp, entrypoint=ep, tags=tags, checks=checks,
+                             env=env)  # fmt: skip
+                rec._source = f
+                with rec as run:
                     out = await f(*args, **kwargs)
                     run.output = to_jsonable(out)
                     return out
@@ -632,8 +670,10 @@ def agent(
                     pending.finish({"result": to_jsonable(out)})  # type: ignore[union-attr]
                     return out
                 inp = bind_arguments(f, args, kwargs, ignore_args)
-                with record(agent_name, input=inp, entrypoint=ep, tags=tags, checks=checks,
-                            env=env) as run:  # fmt: skip
+                rec = record(agent_name, input=inp, entrypoint=ep, tags=tags, checks=checks,
+                             env=env)  # fmt: skip
+                rec._source = f
+                with rec as run:
                     out = f(*args, **kwargs)
                     run.output = to_jsonable(out)
                     return out

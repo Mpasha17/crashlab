@@ -11,6 +11,9 @@ each ``@crashlab.check``, and each runtime-check finding kind.
   redaction), compared as canonical JSON (key order does not matter, values do);
 - the same ``code_version`` (git commit; ``-dirty`` kept), unless
   ``across_versions=True``. Different commits are different code, not a flake.
+  When no git commit was recorded, a ``code_hash`` stored on ``run.env`` (a
+  sha256 of the agent function's source) is used instead, so standalone scripts
+  edited outside a git repo are not grouped as the same code.
 
 Strict replays and forks are left out (a replay serves the recording, a fork changes
 it), as are runs still recording. Model, prompt files, tools' outside state and the
@@ -121,6 +124,15 @@ def _output_key(run: Run) -> str:
     return json.dumps(run.output, sort_keys=True, default=str)
 
 
+def _code_key(run: Run) -> str | None:
+    """Git commit when present; otherwise a recorded ``env['code_hash']``, if any."""
+    if run.code_version:
+        return run.code_version
+    env = run.env or {}
+    h = env.get("code_hash")
+    return f"code_hash:{h}" if isinstance(h, str) and h else None
+
+
 def find_flakes(
     store: Any = None,
     *,
@@ -163,7 +175,7 @@ def find_flakes(
     for r in runs:
         if r.status == "running" or r.replay_of is not None or r.forked_from is not None:
             continue
-        version = None if across_versions else r.code_version
+        version = None if across_versions else _code_key(r)
         groups.setdefault((r.name, input_key(r), version), []).append(r)
     if loader is not None:
         for members in groups.values():
@@ -200,7 +212,7 @@ def find_flakes(
         if len({frozenset(_models(r)) for r in members if _models(r)}) > 1:
             g.notes.append("runs called different models: the model, not chance, may "
                            "explain the difference")  # fmt: skip
-        if across_versions and len({r.code_version for r in members}) > 1:
+        if across_versions and len({_code_key(r) for r in members}) > 1:
             g.notes.append("runs span several code versions (--across-versions)")
         elif version is not None and version.endswith("-dirty"):
             g.notes.append("uncommitted changes (-dirty): the code may differ between runs")

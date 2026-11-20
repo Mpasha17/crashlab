@@ -41,6 +41,10 @@ from a check:
 | Citation mismatch | `rag.citations_were_retrieved(run, answer)`. Recognised forms: `[doc-id]`, `[a, b]`, `[a; b]`, `【doc-id】`, `【doc-id†L1】`, `【4†doc-id】`. `[text](url)` links and bracketed text with spaces are ignored. A `#L10`, `#L10-L20`, `:3-5` or `#page=2` suffix resolves to the bare id when that was retrieved (exact ids win). Change the form with `pattern=` |
 | Answer ignores evidence (numbers) | `rag.answer_grounded(run, answer)`; with `exclude_stale=True` (opt-in) it also fails numbers that only stale documents support |
 | Unsupported / negated claim (words) | `rag.claims_supported(run, answer, min_overlap=0.5, min_words=3)` |
+| Empty retrieval without an abstention | `rag.retrieval_non_empty(run, min_docs=1)`. Fails when fewer than `min_docs` documents were retrieved and the final reply did not abstain (`rag.ABSTAIN`). Uses `run.output`. `tool=` defaults to `search_docs` |
+| Answer ignores retrieved wording | `rag.context_utilization(run, answer, min_overlap=0.15, min_answer_tokens=8)`. At least `min_overlap` of the answer's content tokens (normalized words, stopwords ignored) must appear in the retrieved documents. Abstentions and short answers are skipped. `answer` defaults to `run.output` |
+| Indirect prompt injection in retrieved docs | `rag.no_prompt_injection_in_docs(run)`. Flags classic patterns such as `ignore previous instructions`, `disregard all prior`, `reveal your system prompt`, and `<|im_start|>system`, naming the document id and the matched pattern |
+| Slow retrieval | `rag.retrieval_latency_budget(run, max_ms=2000)`. Fails if any retrieval tool step took longer than `max_ms` |
 
 `claims_supported` checks each answer sentence with at least `min_words` content words
 against the documents that sentence cites (falls back to the answer's citations, then to
@@ -58,6 +62,22 @@ spaces). Numbers are NFKC-normalized (full-width digits), and `1,000` equals `10
 @crashlab.check("support-rag")
 def citations_ok(run):
     return rag.citations_were_retrieved(run, run.output)
+
+@crashlab.check("support-rag")
+def retrieval_ok(run):
+    return rag.retrieval_non_empty(run, min_docs=1)
+
+@crashlab.check("support-rag")
+def used_the_context(run):
+    return rag.context_utilization(run, run.output, min_overlap=0.15, min_answer_tokens=8)
+
+@crashlab.check("support-rag")
+def docs_are_clean(run):
+    return rag.no_prompt_injection_in_docs(run)
+
+@crashlab.check("support-rag")
+def retrieval_was_fast(run):
+    return rag.retrieval_latency_budget(run, max_ms=2000)
 ```
 
 ### Same id, different text (versions and chunks)
