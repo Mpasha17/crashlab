@@ -2274,7 +2274,7 @@ _HELP_PANELS = (
     ("Ops", ("doctor", "init", "profile")),
     ("Diagnose and fix", ("triage", "bisect", "diagnose", "fix", "verify", "export-test")),
     ("Evaluate", ("eval", "sweep", "rules", "score", "simulate", "baseline")),
-    ("Replay and fork", ("replay", "fork", "stress", "fuzz")),
+    ("Replay and fork", ("replay", "fork", "stress", "fuzz", "proxy")),
     ("Share and benchmark", ("export", "import", "dataset", "bench")),
 )
 
@@ -2328,6 +2328,7 @@ from . import cli_eval as _cli_eval  # noqa: E402,F401  registers eval / sweep
 from . import cli_fuzz as _cli_fuzz  # noqa: E402,F401  registers dataset / fuzz
 from . import cli_obs as _cli_obs  # noqa: E402,F401  registers stats / timeline / ui
 from . import cli_ops as _cli_ops  # noqa: E402,F401  registers doctor / init / profile
+from . import cli_proxy as _cli_proxy  # noqa: E402,F401  registers proxy
 from . import cli_rubrics as _cli_rubrics  # noqa: E402,F401  registers score
 from . import cli_rules as _cli_rules  # noqa: E402,F401  registers rules
 from . import cli_sim as _cli_sim  # noqa: E402,F401  registers simulate
