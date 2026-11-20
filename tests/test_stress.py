@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from typer.testing import CliRunner
 
@@ -140,8 +141,9 @@ def test_cli_json_and_fail_on_crash():
 def test_cli_help_lists_stress():
     runner = CliRunner()
     res = runner.invoke(app, ["--help"])
-    assert res.exit_code == 0 and "stress" in res.output
+    assert res.exit_code == 0 and "stress" in re.sub(r"\x1b\[[0-9;]*m", "", res.output)
     res = runner.invoke(app, ["stress", "--help"])
     assert res.exit_code == 0
+    clean = re.sub(r"\x1b\[[0-9;]*m", "", res.output)
     for flag in ("--scenario", "--at-step", "--agent", "--json", "--fail-on-crash"):
-        assert flag in res.output
+        assert flag in clean

@@ -5,6 +5,7 @@ No module-level openai / anthropic / litellm / langchain / mcp / yaml imports.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from typer.testing import CliRunner
@@ -186,7 +187,8 @@ def test_cli_bisect_json_and_help(tmp_path, monkeypatch):
     runner = CliRunner()
     help_out = runner.invoke(app, ["bisect", "--help"])
     assert help_out.exit_code == 0
-    assert "--isolate" in help_out.output and "--agent" in help_out.output
+    clean = re.sub(r"\x1b\[[0-9;]*m", "", help_out.output)
+    assert "--isolate" in clean and "--agent" in clean
     res = runner.invoke(app, ["bisect", good.run_id, bad.run_id, "--json"])
     assert res.exit_code == 0, res.output
     import json

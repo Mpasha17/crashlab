@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -138,6 +139,7 @@ def test_ui_endpoints_and_404(crashlab_dir):
 def test_cli_ui_help_and_bad_port(crashlab_dir):
     res = runner.invoke(app, ["ui", "--help"])
     assert res.exit_code == 0
-    assert "--port" in res.output and "--no-open" in res.output
+    clean = re.sub(r"\x1b\[[0-9;]*m", "", res.output)
+    assert "--port" in clean and "--no-open" in clean
     res = runner.invoke(app, ["ui", "--port", "-3"])
     assert res.exit_code == 2
