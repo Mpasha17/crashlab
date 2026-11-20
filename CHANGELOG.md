@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.0.6 (pre-alpha) - 2026-11-20
+
+Sixth public cut; matches `main` at release. `pip install crashlab`.
 
 ### Integrations and bisect (see `docs/integrations.md`)
 - `crashlab.integrations.wrap_mcp_session(session)` (and `MCPToolResult`): records MCP `call_tool` calls as `execute_tool` steps; replay-safe, detects side-effectful MCP calls, surfaces `isError` / `structuredContent`
