@@ -663,7 +663,7 @@ def _reply(run: Run, answer: str | None = None) -> str | None:
     return answer if isinstance(answer, str) else None
 
 
-def retrieval_non_empty(run: Run, *, tool: str | None = None, min_docs: int = 1) -> str | None:
+def retrieval_non_empty(run: Run, *, tool: str = "search_docs", min_docs: int = 1) -> str | None:
     """Empty retrieval: the retriever returned at least ``min_docs`` documents, or the
     final reply abstained (see :data:`ABSTAIN`) instead of answering anyway."""
     tool = _tool(tool)
@@ -681,7 +681,7 @@ def context_utilization(
     run: Run,
     answer: str | None = None,
     *,
-    tool: str | None = None,
+    tool: str = "search_docs",
     min_overlap: float = 0.15,
     min_answer_tokens: int = 8,
 ) -> str | None:
@@ -740,7 +740,7 @@ _INJECTION = (
 )
 
 
-def no_prompt_injection_in_docs(run: Run, *, tool: str | None = None) -> str | None:
+def no_prompt_injection_in_docs(run: Run, *, tool: str = "search_docs") -> str | None:
     """Indirect prompt injection: no retrieved document contains a classic injection
     pattern (``ignore previous instructions``, ``disregard all prior``, ``reveal your
     system prompt``, ``<|im_start|>system``, ...)."""
@@ -759,7 +759,7 @@ def no_prompt_injection_in_docs(run: Run, *, tool: str | None = None) -> str | N
 
 
 def retrieval_latency_budget(
-    run: Run, *, max_ms: float = 2000.0, tool: str | None = None
+    run: Run, *, max_ms: float = 2000.0, tool: str = "search_docs"
 ) -> str | None:
     """Slow retrieval: no ``tool`` step took longer than ``max_ms``."""
     tool = _tool(tool)

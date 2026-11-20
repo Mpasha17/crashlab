@@ -23,6 +23,7 @@ DOC = (ROOT / "docs" / "rag-testing.md").read_text("utf-8")
 DEFAULTS = {"min_overlap": 0.5, "min_words": 3, "duplicates": "versions", "exclude_stale": False,
             "id_key": "id", "text_key": "text", "top_k": None, "tool": "search_docs",
             "superseded_key": "superseded_by", "require": True}  # fmt: skip
+FN_DEFAULTS = {("context_utilization", "min_overlap"): 0.15}
 
 
 def _blocks(lang):
@@ -49,8 +50,10 @@ def test_documented_defaults_match_signatures():
             continue
         for p in inspect.signature(fn).parameters.values():
             if p.name in DEFAULTS:
-                assert p.default == DEFAULTS[p.name], (name, p.name, p.default)
+                expected = FN_DEFAULTS.get((name, p.name), DEFAULTS[p.name])
+                assert p.default == expected, (name, p.name, p.default)
     assert "min_overlap=0.5, min_words=3" in DOC and '`"versions"` (default)' in DOC
+    assert "min_overlap=0.15, min_answer_tokens=8" in DOC
 
 
 def test_documented_lists_match_code():

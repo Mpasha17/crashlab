@@ -9,6 +9,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
+
+if __name__ == "__main__":
+    sys.modules.setdefault("crashlab.cli", sys.modules[__name__])
 from datetime import datetime
 from pathlib import Path
 from typing import Any
