@@ -84,6 +84,7 @@ from .replay import (
     fork,
     replay,
 )
+from .rubrics import Rubric, RubricCriterion, RubricScore, score_run, score_runs
 from .simulate import Scenario, ScenarioTurn, SimulationResult, simulate
 from .store import RunNotFoundError, Store, load
 from .store import redact as redaction
@@ -118,6 +119,9 @@ __all__ = [
     "ReplayError",
     "ReplayNetworkError",
     "Run",
+    "Rubric",
+    "RubricCriterion",
+    "RubricScore",
     "RunDiff",
     "RunNotFoundError",
     "Scenario",
@@ -165,6 +169,8 @@ __all__ = [
     "replay",
     "run_checks",
     "run_in_thread",
+    "score_run",
+    "score_runs",
     "simulate",
     "stress_run",
     "suite",
