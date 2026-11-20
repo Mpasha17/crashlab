@@ -3,17 +3,21 @@
 
 Not to be confused with ``@crashlab.check`` outcome oracles, which decide whether a run
 passed. Findings describe *how* it behaved: loops, tool error streaks, bad tool
-arguments, suspicious tool results, blown budgets, length cut-offs.
+arguments, suspicious tool results, blown budgets, length cut-offs, context bloat,
+tool-call fan-out, a leaked system prompt.
 """
 
 from .config import (
     BadToolArgsConfig,
     BudgetConfig,
     ChecksConfig,
+    ContextBloatConfig,
     LengthCutoffConfig,
     StepRepetitionConfig,
     SuspiciousToolResultConfig,
+    SystemPromptLeakConfig,
     ToolErrorStreakConfig,
+    ToolFanoutConfig,
     pyproject_section,
     resolve_config,
 )
@@ -27,10 +31,13 @@ __all__ = [
     "CheckEngine",
     "ChecksConfig",
     "CircuitBreakerError",
+    "ContextBloatConfig",
     "LengthCutoffConfig",
     "StepRepetitionConfig",
     "SuspiciousToolResultConfig",
+    "SystemPromptLeakConfig",
     "ToolErrorStreakConfig",
+    "ToolFanoutConfig",
     "classify_result",
     "evaluate",
     "max_severity",

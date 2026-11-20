@@ -223,3 +223,19 @@ each call (network included); a chat step with no known price shows `?` and is c
 separately instead of being guessed; a run with no recorded durations gets a sentence
 saying so instead of a chart. Steps served from a cassette in a replay or fork show the
 time of that run, not of the original call, and the report says so.
+
+## `crashlab tag`, `rm` and `prune`
+
+Tag a run, list only those runs, and delete or expire old recordings. Failed runs and
+tagged runs are kept by prune unless you pass `--include-failed` / `--include-tagged`.
+`rm` and `prune` are dry until `--yes`.
+
+```bash
+crashlab tag last +prod -flaky     # add / remove tags; omit the tags to list them
+crashlab tag last --json
+crashlab ls --tag prod
+crashlab rm 01M7... --yes          # prefixes are ok; several ids at once
+crashlab prune --older-than 30d --dry-run
+crashlab prune --max-runs 200 --max-bytes 500MB --yes
+```
+

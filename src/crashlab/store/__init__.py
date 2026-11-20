@@ -9,7 +9,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import threading
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +27,44 @@ ENV_DIR = "CRASHLAB_DIR"
 
 class RunNotFoundError(LookupError):
     pass
+
+
+@dataclass
+class PruneReport:
+    """What ``Store.prune`` deleted or would delete."""
+
+    deleted: list[str] = field(default_factory=list)
+    would_delete: list[str] = field(default_factory=list)
+    freed_bytes: int = 0
+    kept: int = 0
+    kept_failed: int = 0
+    kept_tagged: int = 0
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "deleted": list(self.deleted),
+            "would_delete": list(self.would_delete),
+            "freed_bytes": self.freed_bytes,
+            "kept": self.kept,
+            "kept_failed": self.kept_failed,
+            "kept_tagged": self.kept_tagged,
+        }
+
+
+_TAG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}")
+
+
+def norm_tag(value: str) -> str:
+    """A single tag: strip, reject empty / whitespace / control characters."""
+    if not isinstance(value, str):
+        raise ValueError(f"not a valid tag: {value!r}")
+    tag = value.strip()
+    if not tag or not _TAG.fullmatch(tag):
+        raise ValueError(
+            f"not a valid tag: {value!r} (letters, digits, '.', '_', ':', '/', '-' "
+            "and a letter or digit first)"
+        )
+    return tag
 
 
 # generated ids are 26-char ULIDs; tests and older tools use short names. Letters, digits,
@@ -117,8 +159,9 @@ class Store:
         *,
         flagged: str | None = None,
         trace: str | None = None,
+        tag: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self.index.list_runs(limit=limit, name=name, flagged=flagged, trace=trace)
+        return self.index.list_runs(limit=limit, name=name, flagged=flagged, trace=trace, tag=tag)
 
     def child_runs(self, run_id: str) -> list[dict[str, Any]]:
         """Index rows of the runs linked to ``run_id`` as their parent, oldest first."""
@@ -146,6 +189,207 @@ class Store:
         run = Run.model_validate(data)
         run.steps = read_cassette(self.cassette_path(run_id))
         return run
+
+    def _load_meta(self, run_id: str) -> Run:
+        """The run row without its cassette (tag / prune only need metadata)."""
+        data = self.index.get_run_json(run_id)
+        if data is None:
+            path = self.run_dir(run_id) / "run.json"
+            if not path.is_file():
+                raise RunNotFoundError(f"no run matching {run_id!r} in {self.root}")
+            data = json.loads(path.read_text("utf-8"))
+        return Run.model_validate(data)
+
+    def tag_run(
+        self, run_id: str, add: Iterable[str] = (), remove: Iterable[str] = ()
+    ) -> list[str]:
+        """Add and/or remove tags on ``run_id``. Returns the updated, deduped list
+        (existing order is preserved; new tags are appended)."""
+        run_id = self.resolve_run_id(run_id)
+        run = self._load_meta(run_id)
+        tags = list(run.tags)
+        for raw in add:
+            tag = norm_tag(raw)
+            if tag not in tags:
+                tags.append(tag)
+        if remove:
+            drop = {norm_tag(raw) for raw in remove}
+            tags = [t for t in tags if t not in drop]
+        run.tags = tags
+        self._write_run(run)
+        return list(run.tags)
+
+    def delete_run(self, run_id: str) -> None:
+        """Remove ``run_id``'s directory and its SQLite rows. The id must be one plain
+        path component (the same rule as ``run_dir``): ``../x`` is refused."""
+        # validate before touching the index or the filesystem
+        path = self.run_dir(run_id)
+        root = (self.root / "runs").resolve()
+        try:
+            path.resolve().relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"not a valid run id: {run_id!r}") from exc
+        in_index = self.index.get_run_json(run_id) is not None
+        if not in_index and not path.exists():
+            raise RunNotFoundError(f"no run matching {run_id!r} in {self.root}")
+        with self._lock:
+            self._writers.pop(run_id, None)
+        self.index.delete_run(run_id)
+        if path.exists():
+            shutil.rmtree(path)
+
+    def prune(
+        self,
+        *,
+        older_than: datetime | None = None,
+        max_runs: int | None = None,
+        max_bytes: int | None = None,
+        keep_failed: bool = True,
+        keep_tagged: bool = True,
+        dry_run: bool = True,
+    ) -> PruneReport:
+        """Drop old or excess runs. Default is a dry run. Failed and tagged runs are
+        kept unless ``keep_failed`` / ``keep_tagged`` is false.
+
+        ``older_than``: started before this instant. ``max_runs``: keep this many newest
+        (plus any protected older ones). ``max_bytes``: keep the sum of remaining run
+        directories at or under this size, deleting oldest unprotected first.
+        """
+        rows = self.index.list_runs(limit=None)
+        # newest first already; deletion walks oldest first
+        sizes = {r["run_id"]: _run_dir_size(self.run_dir(r["run_id"])) for r in rows}
+        protected: set[str] = set()
+        failed_ids: set[str] = set()
+        tagged_ids: set[str] = set()
+        for r in rows:
+            rid = r["run_id"]
+            tags = _row_tags(r)
+            is_failed = r.get("status") == "error" or r.get("outcome") == "fail"
+            if is_failed:
+                failed_ids.add(rid)
+                if keep_failed:
+                    protected.add(rid)
+            if tags:
+                tagged_ids.add(rid)
+                if keep_tagged:
+                    protected.add(rid)
+
+        def _started(row: dict[str, Any]) -> datetime | None:
+            value = row.get("started_at")
+            if isinstance(value, datetime):
+                dt = value
+            elif isinstance(value, str) and value:
+                from .._isotime import parse_iso
+
+                try:
+                    dt = parse_iso(value)
+                except ValueError:
+                    return None
+            else:
+                return None
+            if dt.tzinfo is None:
+                from datetime import timezone
+
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+
+        to_delete: list[str] = []
+        remaining = [r["run_id"] for r in rows]  # newest first
+
+        if older_than is not None:
+            cutoff = older_than
+            if cutoff.tzinfo is None:
+                from datetime import timezone
+
+                cutoff = cutoff.replace(tzinfo=timezone.utc)
+            for r in reversed(rows):  # oldest first
+                rid = r["run_id"]
+                if rid in protected or rid in to_delete:
+                    continue
+                started = _started(r)
+                if started is not None and started < cutoff:
+                    to_delete.append(rid)
+
+        remaining = [rid for rid in remaining if rid not in to_delete]
+        if max_runs is not None and max_runs >= 0:
+            extra = remaining[max_runs:]  # older than the newest max_runs
+            for rid in reversed(extra):  # still delete oldest first
+                if rid not in protected:
+                    to_delete.append(rid)
+            remaining = [rid for rid in remaining if rid not in to_delete]
+
+        if max_bytes is not None and max_bytes >= 0:
+            total = sum(sizes.get(rid, 0) for rid in remaining)
+            if total > max_bytes:
+                for rid in reversed(list(remaining)):  # oldest first
+                    if total <= max_bytes:
+                        break
+                    if rid in protected:
+                        continue
+                    to_delete.append(rid)
+                    remaining = [x for x in remaining if x != rid]
+                    total -= sizes.get(rid, 0)
+
+        # unique, oldest first (stable)
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for rid in to_delete:
+            if rid not in seen:
+                seen.add(rid)
+                ordered.append(rid)
+        freed = sum(sizes.get(rid, 0) for rid in ordered)
+        remaining_ids = [r["run_id"] for r in rows if r["run_id"] not in seen]
+        report = PruneReport(
+            deleted=[] if dry_run else list(ordered),
+            would_delete=list(ordered) if dry_run else [],
+            freed_bytes=freed,
+            kept=len(remaining_ids),
+            kept_failed=sum(1 for rid in remaining_ids if rid in failed_ids),
+            kept_tagged=sum(1 for rid in remaining_ids if rid in tagged_ids),
+        )
+        if not dry_run:
+            for rid in ordered:
+                self.delete_run(rid)
+        return report
+
+
+def _row_tags(row: dict[str, Any]) -> list[str]:
+    raw = row.get("tags_json")
+    if isinstance(raw, str) and raw:
+        try:
+            tags = json.loads(raw)
+            if isinstance(tags, list):
+                return [t for t in tags if isinstance(t, str)]
+        except ValueError:
+            pass
+    data = row.get("run_json")
+    if isinstance(data, str) and data:
+        try:
+            parsed = json.loads(data)
+            tags = (parsed or {}).get("tags") if isinstance(parsed, dict) else None
+            if isinstance(tags, list):
+                return [t for t in tags if isinstance(t, str)]
+        except ValueError:
+            pass
+    elif isinstance(row.get("tags"), list):
+        return [t for t in row["tags"] if isinstance(t, str)]
+    return []
+
+
+def _run_dir_size(path: Path) -> int:
+    total = 0
+    if not path.exists():
+        return 0
+    for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in (".", "..")]
+        for name in filenames:
+            fp = Path(dirpath) / name
+            try:
+                if fp.is_file() and not fp.is_symlink():
+                    total += fp.stat().st_size
+            except OSError:
+                continue
+    return total
 
 
 EXPORT_HEADER = "crashlab.run"
@@ -247,6 +491,7 @@ def load(ref: str = "last", *, store_dir: str | os.PathLike[str] | None = None) 
 
 __all__ = [
     "ENV_DIR",
+    "PruneReport",
     "RunNotFoundError",
     "StoreError",
     "Store",
@@ -254,4 +499,5 @@ __all__ = [
     "export_run",
     "import_run",
     "load",
+    "norm_tag",
 ]

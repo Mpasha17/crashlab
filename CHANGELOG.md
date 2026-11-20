@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- New runtime checks (on by default, conservative): `context_bloat` (input tokens at 75%/92% of a known model context window, or a 3x prompt jump of at least 20,000 tokens; unknown models skip the ratio check), `tool_fanout` (12+/25+ tool calls in one turn, or the same tool + arguments at least 3 times in a single response), `system_prompt_leak` (a verbatim 100+ character slice of the system prompt in the final reply; short prompts and user-echoes are skipped). Disable with `checks={"context_bloat": false}` (or the same for the others)
+- `crashlab tag RUN [+tag / -tag ...]` / `Store.tag_run()`: add or remove tags on a recorded run (`--json`; no tag args prints the current list). `crashlab ls --tag NAME` lists only those runs
+- `crashlab rm RUN... --yes` / `Store.delete_run()`: delete one or more recorded runs (id prefixes allowed). Without `--yes`, prints the ids and exits 1
+- `crashlab prune --older-than 30d --max-runs N --max-bytes 500MB` / `Store.prune()`: drop old or excess runs. Dry-run unless `--yes`. Failed and tagged runs are kept unless `--include-failed` / `--include-tagged`. `--json`
+
 ## 0.0.5 (pre-alpha) - 2026-11-13
 
 Fifth public cut; matches `main` at release. `pip install crashlab`.

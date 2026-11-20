@@ -163,7 +163,12 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   side-effect tool ran after it), `unhandled_tool_error` (a tool raised and the
   exception ended the run, so the model never saw it: a prompt fix cannot help),
   `empty_reply` (the model ended its turn with no text and no tool call, e.g. reasoning
-  only: frameworks take that as an empty final answer and the run still ends ok).
+  only: frameworks take that as an empty final answer and the run still ends ok),
+  `context_bloat` (prompt tokens near a known model's context window, or a sudden
+  prompt-size jump; unknown models skip the window check), `tool_fanout` (too many
+  tool calls in one turn, or the same tool + arguments repeated in a single
+  response), `system_prompt_leak` (a long verbatim slice of the system prompt appears
+  in the final reply; short prompts are skipped).
   Opt-in per-call limits: `max_call_input_tokens` (one prompt's size) and
   `max_call_seconds` (one live LLM / tool call).
   Findings are stored with the run and shown by
@@ -340,6 +345,10 @@ print(crashlab.diff(run, branch).summary())
 ```bash
 crashlab ls            # runs: id, name, status, outcome, steps, tokens, cost, findings
 crashlab ls --flagged  # only runs with runtime-check findings (--min-severity error)
+crashlab ls --tag prod # only runs with this tag
+crashlab tag last +prod -flaky   # add / remove tags (omit +tag/-tag to list them)
+crashlab rm RUN --yes  # delete a recorded run (prefixes allowed)
+crashlab prune --older-than 30d --dry-run   # then --yes to delete; failed/tagged kept
 crashlab show last     # checks, findings + step table: idx, op, name, args / result, error
 crashlab show last --failing      # steps around the first failure (--errors, --tools, --llm)
 crashlab show last --step 3       # full request / response / traceback for one step

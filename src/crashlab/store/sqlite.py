@@ -13,7 +13,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS runs (
     flag_count INTEGER NOT NULL DEFAULT 0,
     cost_usd REAL,
     max_severity TEXT,
+    tags_json TEXT,
     run_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS runs_name ON runs(name);
@@ -167,6 +168,8 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     if "cost_usd" not in cols:  # v2 -> v3: cost and findings severity for `ls`
         _add_column(conn, "runs", "cost_usd", "REAL")
         _add_column(conn, "runs", "max_severity", "TEXT")
+    if "tags_json" not in cols:  # v4 -> v5: `crashlab tag` / `ls --tag`
+        _add_column(conn, "runs", "tags_json", "TEXT")
     dcols = {r["name"] for r in conn.execute("PRAGMA table_info(diagnoses)")}
     if "cache_key" not in dcols:  # v3 -> v4: `crashlab diagnose` cache
         _add_column(conn, "diagnoses", "cache_key", "TEXT")
@@ -257,6 +260,7 @@ class SQLiteIndex:
                 key=lambda sev: _RANK.get(sev, 0),
                 default=None,
             ),
+            "tags_json": json.dumps(list(run.get("tags") or []), ensure_ascii=False, default=str),
             "run_json": json.dumps(run, ensure_ascii=False, default=str),
         }
         cols = ", ".join(row)
@@ -320,10 +324,12 @@ class SQLiteIndex:
         flagged: str | None = None,
         trace: str | None = None,
         parent: str | None = None,
+        tag: str | None = None,
     ) -> list[dict[str, Any]]:
         """Newest first. ``flagged``: only runs with a finding of at least that severity.
         ``trace``: the runs of one trace (the root run and every run linked under it);
-        ``parent``: the runs linked to this parent run (``run.env["link"]``)."""
+        ``parent``: the runs linked to this parent run (``run.env["link"]``).
+        ``tag``: only runs that have this tag (``run.tags`` / ``tags_json``)."""
         if not self.exists():
             return []
         sql = "SELECT * FROM runs"
@@ -341,6 +347,15 @@ class SQLiteIndex:
             levels = [k for k, v in _RANK.items() if v >= _RANK.get(flagged, 0)]
             where.append(f"max_severity IN ({', '.join('?' for _ in levels)})")
             args += levels
+        if tag:
+            # tags_json is filled on write; older rows fall back to run_json.tags
+            where.append(
+                "EXISTS (SELECT 1 FROM json_each(CASE "
+                "WHEN tags_json IS NOT NULL AND tags_json != '' THEN tags_json "
+                "ELSE COALESCE(json_extract(run_json, '$.tags'), '[]') END) "
+                "WHERE json_each.value = ?)"
+            )
+            args.append(tag)
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY run_id DESC"
@@ -396,6 +411,14 @@ class SQLiteIndex:
                 "SELECT * FROM flags WHERE run_id = ? ORDER BY id", (run_id,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def delete_run(self, run_id: str) -> None:
+        """Remove a run's index rows (``runs``, ``steps``, ``flags``, ``diagnoses``)."""
+        with closing(self._connect()) as conn, conn:
+            conn.execute("DELETE FROM steps WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM flags WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM diagnoses WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
 
     # diagnoses -----------------------------------------------------------------------
     def insert_diagnosis(self, diagnosis: dict[str, Any], cache_key: str | None) -> None:
