@@ -1,5 +1,6 @@
-"""``crashlab`` command line: ``ls``, ``show``, ``search``, ``cluster``, ``replay``,
-``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``, ``eval``, ``sweep``,
+"""``crashlab`` command line: ``ls``, ``show``, ``search``, ``cluster``, ``tag``, ``rm``,
+``prune``, ``replay``, ``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``,
+``eval``, ``sweep``,
 ``export``, ``import``."""
 
 from __future__ import annotations
@@ -143,6 +144,7 @@ def ls(
     trace: str | None = typer.Option(
         None, "--trace", help="Only runs of the trace of this run (linked runs, any of them)."
     ),
+    tag: str | None = typer.Option(None, "--tag", help="Only runs with this tag."),
 ) -> None:
     """List recorded runs, newest first."""
     console = _console()
@@ -156,12 +158,18 @@ def ls(
         name=name,
         flagged=min_severity if flagged else None,
         trace=trace_id,
+        tag=tag,
     )
     if not rows and trace_id:
         console.print(f"No runs in trace {_e(trace_id)} in [bold]{_e(store.root)}[/].")
         raise typer.Exit(code=1)
     if not rows:
-        what = "flagged runs" if flagged else "runs recorded yet"
+        if tag:
+            what = f"runs tagged {tag!r}"
+        elif flagged:
+            what = "flagged runs"
+        else:
+            what = "runs recorded yet"
         console.print(f"No {what} in [bold]{_e(store.root)}[/].")
         return
     narrow = console.width < 130
@@ -2259,6 +2267,7 @@ _HELP_PANELS = (
             "ui",
         ),
     ),  # fmt: skip
+    ("Store", ("tag", "rm", "prune")),
     ("Diagnose and fix", ("triage", "diagnose", "fix", "verify", "export-test")),
     ("Evaluate", ("eval", "sweep")),
     ("Replay and fork", ("replay", "fork")),
@@ -2287,6 +2296,7 @@ def _tidy_help(typer_app: typer.Typer) -> None:
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
 from . import cli_eval as _cli_eval  # noqa: E402,F401  registers eval / sweep
 from . import cli_obs as _cli_obs  # noqa: E402,F401  registers stats / timeline / ui
+from . import cli_store as _cli_store  # noqa: E402,F401  registers tag / rm / prune
 
 _tidy_help(app)
 

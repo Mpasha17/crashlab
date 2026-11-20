@@ -985,6 +985,365 @@ class UnhandledToolError(Detector):
         )]  # fmt: skip
 
 
+# --- context_bloat ---------------------------------------------------------------------
+
+# Longest prefix wins. Windows are published sizes (or a generous figure when a family
+# is known to be large); unknown names return None and the ratio check is skipped.
+_CONTEXT_WINDOWS: tuple[tuple[str, int], ...] = (
+    # OpenAI
+    ("gpt-4o-mini", 128_000),
+    ("gpt-4o", 128_000),
+    ("gpt-4.1-nano", 1_047_576),
+    ("gpt-4.1-mini", 1_047_576),
+    ("gpt-4.1", 1_047_576),
+    ("gpt-4-turbo", 128_000),
+    ("gpt-4-32k", 32_768),
+    ("gpt-5-nano", 400_000),
+    ("gpt-5-mini", 400_000),
+    ("gpt-5", 400_000),
+    ("o1-mini", 128_000),
+    ("o1-pro", 200_000),
+    ("o1", 200_000),
+    ("o3-mini", 200_000),
+    ("o3-pro", 200_000),
+    ("o3", 200_000),
+    ("o4-mini", 200_000),
+    ("o4", 200_000),
+    # Anthropic (claude-sonnet-4, claude-3-5-sonnet, claude-3.7-sonnet, ...)
+    ("claude-3-7-sonnet", 200_000),
+    ("claude-3.7-sonnet", 200_000),
+    ("claude-3-5-sonnet", 200_000),
+    ("claude-3.5-sonnet", 200_000),
+    ("claude-3-5-haiku", 200_000),
+    ("claude-3.5-haiku", 200_000),
+    ("claude-3-opus", 200_000),
+    ("claude-3-sonnet", 200_000),
+    ("claude-3-haiku", 200_000),
+    ("claude-3-7", 200_000),
+    ("claude-3.7", 200_000),
+    ("claude-3-5", 200_000),
+    ("claude-3.5", 200_000),
+    ("claude-sonnet-4", 200_000),
+    ("claude-opus-4", 200_000),
+    ("claude-haiku-4", 200_000),
+    ("claude-4-opus", 200_000),
+    ("claude-4-sonnet", 200_000),
+    ("claude-4-haiku", 200_000),
+    ("claude-4", 200_000),
+    ("claude-3", 200_000),
+    # Gemini
+    ("gemini-1.5-pro", 2_097_152),
+    ("gemini-1.5-flash", 1_048_576),
+    ("gemini-1.5", 1_048_576),
+    ("gemini-2.0-flash", 1_048_576),
+    ("gemini-2.0", 1_048_576),
+    ("gemini-2.5-pro", 1_048_576),
+    ("gemini-2.5-flash", 1_048_576),
+    ("gemini-2.5", 1_048_576),
+    # Groq / Llama / Qwen / gpt-oss
+    ("llama-3.3", 131_072),
+    ("llama-3.1", 131_072),
+    ("llama-3.2", 131_072),
+    ("llama3.3", 131_072),
+    ("llama3.2", 131_072),
+    ("llama3.1", 131_072),
+    ("llama-4", 1_000_000),
+    ("llama3", 8_192),
+    ("llama-3", 8_192),
+    ("qwen2.5", 131_072),
+    ("qwen3", 131_072),
+    ("qwen2", 32_768),
+    ("qwen", 32_768),
+    ("gpt-oss", 131_072),
+)
+# llama3 is 8k on some Groq aliases (llama3-8b-8192); llama-3.1+ is 128k. Longest prefix
+# already prefers llama-3.1 over llama-3.
+
+
+def _model_basename(model: str) -> str:
+    name = model.strip().lower()
+    if "/" in name:
+        name = name.rsplit("/", 1)[-1]
+    return name
+
+
+def context_window(model: str | None) -> int | None:
+    """Built-in context window for a known model name, or None when unknown.
+
+    Provider prefixes (``openai/gpt-4o``, ``groq/llama-3.1-8b-instant``) are stripped.
+    The longest matching prefix wins so ``gpt-4o-mini`` is not scored as ``gpt-4``.
+    """
+    if not model or not isinstance(model, str):
+        return None
+    name = _model_basename(model)
+    if not name:
+        return None
+    best: tuple[int, int] | None = None  # (prefix_len, window)
+    for prefix, window in _CONTEXT_WINDOWS:
+        if (name == prefix or name.startswith(prefix)) and (best is None or len(prefix) > best[0]):
+            best = (len(prefix), window)
+    return None if best is None else best[1]
+
+
+def _step_model(step: Step) -> str | None:
+    for key in ("gen_ai.request.model", "gen_ai.response.model"):
+        value = step.attributes.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    model = (step.response or {}).get("model")
+    if isinstance(model, str) and model.strip():
+        return model
+    if step.operation == "chat" and isinstance(step.name, str) and step.name.strip():
+        return step.name
+    return None
+
+
+def _input_tokens(step: Step) -> int | None:
+    value = step.attributes.get("gen_ai.usage.input_tokens")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+class ContextBloat(Detector):
+    """Input tokens close to a known context window, or a sudden prompt-size jump."""
+
+    kind = "context_bloat"
+
+    def on_step(self, step: Step, h: History) -> list[Finding]:
+        if step.operation != "chat":
+            return []
+        inp = _input_tokens(step)
+        if inp is None or inp <= 0:
+            return []
+        out: list[Finding] = []
+        window = context_window(_step_model(step))
+        if window:
+            ratio = inp / window
+            if ratio >= self.cfg.critical_ratio:
+                sev, key, what = "critical", "window:critical", "near the context limit"
+            elif ratio >= self.cfg.warn_ratio:
+                sev, key, what = "warn", "window:warn", "a large share of the context window"
+            else:
+                sev = None
+            if sev:
+                model = _step_model(step) or "this model"
+                out.append(self.finding(
+                    severity=sev, step=step.idx, steps=[step.idx], key=key,
+                    message=f"the prompt is {what}: {inp:,} input tokens is "
+                            f"{round(100 * ratio)}% of {model}'s {window:,}-token window",
+                ))  # fmt: skip
+        if self.cfg.spike and self.cfg.spike_factor > 0 and self.cfg.min_spike_tokens > 0:
+            prev = None
+            for s in reversed(h.chat_steps()):
+                if s.idx >= step.idx:
+                    continue
+                if s.agent != step.agent:
+                    continue
+                prev = _input_tokens(s)
+                if prev is not None:
+                    break
+            if prev is not None and prev > 0:
+                grew = inp - prev
+                if (inp >= prev * self.cfg.spike_factor
+                        and grew >= self.cfg.min_spike_tokens):  # fmt: skip
+                    out.append(self.finding(
+                        severity="warn", step=step.idx, steps=[step.idx], key="spike",
+                        message=f"the prompt jumped from {prev:,} to {inp:,} input tokens "
+                                f"({grew:,} more, {inp / prev:.1f}x) in one turn",
+                    ))  # fmt: skip
+        return out
+
+
+# --- tool_fanout -----------------------------------------------------------------------
+
+
+class ToolFanout(Detector):
+    """One model turn issued a large parallel batch, or the same tool + args repeatedly
+    in that single response (``step_repetition`` counts across a window of steps)."""
+
+    kind = "tool_fanout"
+
+    def on_step(self, step: Step, h: History) -> list[Finding]:
+        if step.operation != "chat" or step.error is not None:
+            return []
+        calls = _tool_calls(step)
+        if not calls:
+            return []
+        out: list[Finding] = []
+        n = len(calls)
+        if n >= self.cfg.critical_calls:
+            sev = "critical"
+        elif n >= self.cfg.warn_calls:
+            sev = "warn"
+        else:
+            sev = None
+        if sev:
+            names = ", ".join(str(c.get("name") or "?") for c in calls[:8])
+            more = "" if n <= 8 else f", … ({n - 8} more)"
+            out.append(self.finding(
+                severity=sev, step=step.idx, steps=[step.idx], key="count",
+                message=f"the model issued {n} tool calls in one turn "
+                        f"({names}{more})",
+            ))  # fmt: skip
+        if self.cfg.duplicate_in_turn and self.cfg.duplicate_at >= 2:
+            groups: dict[tuple[str, str], list[int]] = {}
+            for i, call in enumerate(calls):
+                name = str(call.get("name") or "")
+                key = (name, canonical(call.get("arguments")))
+                groups.setdefault(key, []).append(i)
+            for (name, _args_key), idxs in groups.items():
+                if len(idxs) < self.cfg.duplicate_at:
+                    continue
+                args = next(c.get("arguments") for i, c in enumerate(calls) if i == idxs[0])
+                out.append(self.finding(
+                    severity="warn", step=step.idx, steps=[step.idx],
+                    key=f"duplicate:{name}:{_digest(args)}",
+                    message=f"the model called {name} {len(idxs)} times with the same "
+                            f"arguments in one turn ({excerpt(as_text(args), 0, 120)})",
+                    evidence=[_ev(step, f"response.tool_calls[{idxs[0]}].arguments", args)],
+                ))  # fmt: skip
+        return out
+
+
+# --- system_prompt_leak ----------------------------------------------------------------
+
+
+def _message_text(msg: dict[str, Any]) -> str:
+    out: list[str] = []
+    content = msg.get("content")
+    if isinstance(content, str):
+        out.append(content)
+    elif isinstance(content, list):
+        out += [p.get("text") or p.get("content") or "" for p in content
+                if isinstance(p, dict) and p.get("type", "text") == "text"]  # fmt: skip
+    for p in msg.get("parts") or []:
+        if isinstance(p, dict) and p.get("type") == "text":
+            text = p.get("content", p.get("text"))
+            out.append(text if isinstance(text, str) else "")
+    return "\n".join(t for t in out if t)
+
+
+def system_text(step: Step) -> str:
+    """The request's system prompt (``request.system`` plus any system-role messages)."""
+    parts: list[str] = []
+    raw = (step.request or {}).get("system")
+    if isinstance(raw, str) and raw.strip():
+        parts.append(raw)
+    for msg in (step.request or {}).get("messages") or []:
+        if isinstance(msg, dict) and msg.get("role") == "system":
+            text = _message_text(msg)
+            if text.strip() and text not in parts:
+                parts.append(text)
+    return "\n\n".join(parts)
+
+
+def _final_reply(run: Run, h: History) -> tuple[str, Step | None]:
+    """The concluding assistant text: ``run.output`` when it is a string, else the last
+    chat step that replied with text and no tool call."""
+    if isinstance(run.output, str) and run.output.strip():
+        chats = [s for s in h.chat_steps() if s.error is None and response_text(s).strip()
+                 and not _tool_calls(s)]  # fmt: skip
+        step = chats[-1] if chats else None
+        return run.output, step
+    for step in reversed(h.chat_steps()):
+        if step.error is not None or _tool_calls(step):
+            continue
+        text = response_text(step)
+        if text.strip():
+            return text, step
+    return "", None
+
+
+def _user_text(run: Run, h: History) -> str:
+    parts = [as_text(run.input)] if run.input else []
+    for step in h.chat_steps():
+        for msg in (step.request or {}).get("messages") or []:
+            if isinstance(msg, dict) and msg.get("role") == "user":
+                text = _message_text(msg)
+                if text:
+                    parts.append(text)
+    return "\n".join(parts)
+
+
+def _trivial_snippet(text: str) -> bool:
+    """Whitespace, punctuation, or a short alphabet: not a meaningful prompt leak."""
+    compact = "".join(text.split())
+    if len(compact) < 80:
+        return True
+    letters = sum(ch.isalnum() for ch in compact)
+    if letters < 40 or letters * 2 < len(compact):
+        return True
+    return len(set(compact.lower())) < 12
+
+
+def _longest_leak(system: str, reply: str, min_chars: int) -> str | None:
+    """The longest verbatim slice of ``system`` that appears in ``reply``, or None."""
+    if len(system) < min_chars or len(reply) < min_chars:
+        return None
+    best: str | None = None
+    i, n = 0, len(system)
+    while i <= n - min_chars:
+        window = system[i : i + min_chars]
+        if _trivial_snippet(window):
+            i += 1
+            continue
+        pos = reply.find(window)
+        if pos < 0:
+            i += 1
+            continue
+        start_s, start_r = i, pos
+        end_s, end_r = i + min_chars, pos + min_chars
+        while start_s > 0 and start_r > 0 and system[start_s - 1] == reply[start_r - 1]:
+            start_s -= 1
+            start_r -= 1
+        while end_s < n and end_r < len(reply) and system[end_s] == reply[end_r]:
+            end_s += 1
+            end_r += 1
+        snippet = system[start_s:end_s]
+        if best is None or len(snippet) > len(best):
+            best = snippet
+        i = end_s
+    return best
+
+
+class SystemPromptLeak(Detector):
+    """A long verbatim slice of the system prompt appears in the final assistant reply."""
+
+    kind = "system_prompt_leak"
+
+    def on_end(self, run: Run, h: History) -> list[Finding]:
+        reply, step = _final_reply(run, h)
+        if not reply.strip():
+            return []
+        min_chars = max(int(self.cfg.min_chars), 1)
+        # the last chat request's system is what was in force for the final reply
+        chats = [s for s in h.chat_steps() if system_text(s)]
+        if not chats:
+            return []
+        prompt = system_text(chats[-1])
+        if len(prompt) < min_chars:
+            return []
+        leak = _longest_leak(prompt, reply, min_chars)
+        if leak is None:
+            return []
+        # the model is quoting the user, not leaking a hidden prompt
+        if leak in _user_text(run, h):
+            return []
+        ev_step = step or chats[-1]
+        field = "output" if step is None or (isinstance(run.output, str) and leak in run.output) \
+            else "response.text"  # fmt: skip
+        source = run.output if field == "output" else reply
+        start = source.find(leak) if isinstance(source, str) else reply.find(leak)
+        return [self.finding(
+            severity="warn", step=ev_step.idx, steps=[ev_step.idx], key="run",
+            message="the final reply repeats a verbatim slice of the system prompt "
+                    f"({len(leak)} characters)",
+            evidence=[_ev(ev_step, field, source if isinstance(source, str) else reply,
+                          max(start, 0))],
+        )]  # fmt: skip
+
+
 def build(cfg: ChecksConfig) -> list[Detector]:
     out: list[Detector] = []
     if not cfg.enabled:
@@ -1011,6 +1370,12 @@ def build(cfg: ChecksConfig) -> list[Detector]:
         out.append(ToolResultInstructions(cfg.tool_result_instructions))
     if cfg.unhandled_tool_error.enabled:
         out.append(UnhandledToolError(cfg.unhandled_tool_error))
+    if cfg.context_bloat.enabled:
+        out.append(ContextBloat(cfg.context_bloat))
+    if cfg.tool_fanout.enabled:
+        out.append(ToolFanout(cfg.tool_fanout))
+    if cfg.system_prompt_leak.enabled:
+        out.append(SystemPromptLeak(cfg.system_prompt_leak))
     return out
 
 
@@ -1026,4 +1391,7 @@ KINDS = (
     "tool_result_instructions",
     "unhandled_tool_error",
     "empty_reply",
+    "context_bloat",
+    "tool_fanout",
+    "system_prompt_leak",
 )

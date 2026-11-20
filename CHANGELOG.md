@@ -2,12 +2,17 @@
 
 ## Unreleased
 
+### Runtime checks and store retention
+- New runtime checks (on by default, conservative): `context_bloat` (input tokens at 75%/92% of a known model context window, or a 3x prompt jump of at least 20,000 tokens; unknown models skip the ratio check), `tool_fanout` (12+/25+ tool calls in one turn, or the same tool + arguments at least 3 times in a single response), `system_prompt_leak` (a verbatim 100+ character slice of the system prompt in the final reply; short prompts and user-echoes are skipped). Disable with `checks={"context_bloat": false}` (or the same for the others)
+- `crashlab tag RUN [+tag / -tag ...]` / `Store.tag_run()`: add or remove tags on a recorded run (`--json`; no tag args prints the current list). `crashlab ls --tag NAME` lists only those runs
+- `crashlab rm RUN... --yes` / `Store.delete_run()`: delete one or more recorded runs (id prefixes allowed). Without `--yes`, prints the ids and exits 1
+- `crashlab prune --older-than 30d --max-runs N --max-bytes 500MB` / `Store.prune()`: drop old or excess runs. Dry-run unless `--yes`. Failed and tagged runs are kept unless `--include-failed` / `--include-tagged`. `--json`
+
 ### Observability and visual debugging (see `docs/observability.md`)
 - `crashlab export --format otel|chrome-trace` (and `crashlab.otel.to_otlp` / `to_chrome_trace`): OTLP/JSON with GenAI semantic conventions, root / step / child-run parent links, error and finding events; Chrome `traceEvents` for Perfetto. Linked child runs are included when they are in the store. The default `--format jsonl` is unchanged
 - `crashlab stats` / `crashlab.stats.compute_stats`: fleet pass / fail / error rates, cost / token / latency totals and percentiles, breakdowns by agent and model, a tool leaderboard, top findings and failing checks, slowest and most expensive runs; `--since`, `--name`, `--limit`, `--json`
 - `crashlab timeline` / `crashlab.timeline.render_timeline`: terminal ASCII waterfall (timing bar, tokens, cost, errors, findings, handoffs) with indented child-run subtrees; `--no-children`, `--json`
 - `crashlab ui`: zero-dependency localhost trace explorer (waterfall, chat, tools, findings, diagnosis, child runs, side-by-side diff) and JSON API; `--port`, `--no-open`. Binds 127.0.0.1 only
-
 
 ## 0.0.5 (pre-alpha) - 2026-11-13
 

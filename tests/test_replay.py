@@ -341,8 +341,9 @@ def test_index_schema_v1_is_migrated(tmp_path):
     assert "replay_of" in {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
     cols = {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
     assert {"cost_usd", "max_severity"} <= cols  # v3
+    assert "tags_json" in cols  # v5
     assert {"cache_key", "model"} <= {r[1] for r in conn.execute("PRAGMA table_info(diagnoses)")}
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("4",)
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("5",)
 
 
 def test_missing_script_entry_point_says_to_run_from_the_recording_directory(tmp_path, monkeypatch):

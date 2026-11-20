@@ -120,6 +120,35 @@ class UnhandledToolErrorConfig(_Cfg):
     """A tool raised and the exception ended the run (the model never saw it)."""
 
 
+class ContextBloatConfig(_Cfg):
+    """Prompt / input tokens approaching a known model's context window, or a sudden
+    jump in prompt size. Unknown models skip the window-ratio check. Spike thresholds
+    are high so ordinary multi-turn chats do not fire."""
+
+    warn_ratio: float = 0.75
+    critical_ratio: float = 0.92
+    spike: bool = True
+    min_spike_tokens: int = 20_000
+    spike_factor: float = 3.0
+
+
+class ToolFanoutConfig(_Cfg):
+    """One LLM turn issued too many tool calls, or the same tool + arguments several
+    times in a single response (a parallel-call duplicate batch)."""
+
+    warn_calls: int = 12
+    critical_calls: int = 25
+    duplicate_in_turn: bool = True
+    duplicate_at: int = 3
+
+
+class SystemPromptLeakConfig(_Cfg):
+    """A long, non-trivial verbatim slice of the system prompt appears in the final
+    assistant reply. Prompts shorter than ``min_chars`` are skipped."""
+
+    min_chars: int = 100
+
+
 class ChecksConfig(BaseModel):
     """Which built-in runtime checks run, with what thresholds."""
 
@@ -144,6 +173,9 @@ class ChecksConfig(BaseModel):
     )
     unhandled_tool_error: UnhandledToolErrorConfig = Field(default_factory=UnhandledToolErrorConfig)
     empty_reply: EmptyReplyConfig = Field(default_factory=EmptyReplyConfig)
+    context_bloat: ContextBloatConfig = Field(default_factory=ContextBloatConfig)
+    tool_fanout: ToolFanoutConfig = Field(default_factory=ToolFanoutConfig)
+    system_prompt_leak: SystemPromptLeakConfig = Field(default_factory=SystemPromptLeakConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -171,6 +203,9 @@ _SECTIONS = (
     "tool_result_instructions",
     "unhandled_tool_error",
     "empty_reply",
+    "context_bloat",
+    "tool_fanout",
+    "system_prompt_leak",
 )
 
 

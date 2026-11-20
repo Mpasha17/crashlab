@@ -54,6 +54,11 @@ GOOD=$(crashlab search A17 --outcome pass --json | "$PY" -c \
 step 0 "crashlab [0-9]"        -- --version
 step 0 "refund-bot"            -- ls
 step 0 "refund-bot"            -- ls --trace "$BAD"
+step 0 "prod"                  -- tag "$GOOD" +prod
+step 0 "prod"                  -- ls --tag prod
+step 0 '"tags"'                -- tag "$GOOD" --json
+step 1 "Pass --yes"            -- rm "$GOOD"
+step 0 "would delete|Nothing to delete|kept" -- prune --max-runs 100 --dry-run
 step 0 "refund_within_policy"  -- show "$BAD"
 for flag in --tools --llm --errors --failing; do
   step 0 "refund_within_policy" -- show "$BAD" "$flag"
