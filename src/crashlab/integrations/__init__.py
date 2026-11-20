@@ -1,5 +1,9 @@
 """Integrations with LLM libraries and protocols that are not plain clients.
 
+``crashlab.instrument()`` / ``uninstrument()`` / ``instrumented()`` auto-patch
+provider SDKs (OpenAI, Anthropic, LiteLLM, Google GenAI) so frameworks that
+construct a client internally are recorded without a private ``_client`` hook.
+
 ``crashlab.integrations.litellm`` (``patch`` / ``unpatch``), ``.mcp``
 (``wrap_mcp_session``) and ``.langchain`` (``CrashlabCallbackHandler``). Optional
 packages are imported only when the corresponding integration is used, so a missing
@@ -10,11 +14,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from .instrument import instrument, instrumented, uninstrument
+
 __all__ = [
     "CrashlabCallbackHandler",
+    "instrument",
+    "instrumented",
     "langchain",
     "litellm",
     "mcp",
+    "uninstrument",
     "wrap_mcp_session",
 ]
 
