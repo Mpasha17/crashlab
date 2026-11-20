@@ -48,6 +48,7 @@ from .dataset import build_dataset, inspect_dataset
 from .diagnose import DiagnoseError, diagnose, propose_fixes, try_fix
 from .faults import faults
 from .fuzz import fuzz_agent, fuzz_run
+from .integrations.instrument import instrument, instrumented, uninstrument
 from .models import (
     CheckResult,
     Diagnosis,
@@ -151,6 +152,8 @@ __all__ = [
     "fuzz_agent",
     "fuzz_run",
     "inspect_dataset",
+    "instrument",
+    "instrumented",
     "is_replaying",
     "load",
     "patch",
@@ -166,5 +169,6 @@ __all__ = [
     "stress_run",
     "suite",
     "tool",
+    "uninstrument",
     "wrap",
 ]
