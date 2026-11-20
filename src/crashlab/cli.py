@@ -1,6 +1,6 @@
 """``crashlab`` command line: ``ls``, ``show``, ``search``, ``cluster``, ``tag``, ``rm``,
 ``prune``, ``replay``, ``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``,
-``eval``, ``sweep``, ``rules``,
+``eval``, ``sweep``, ``rules``, ``simulate``,
 ``export``, ``import``, ``doctor``, ``init``, ``profile``."""
 
 from __future__ import annotations
@@ -2302,7 +2302,7 @@ _HELP_PANELS = (
     ("Store", ("tag", "rm", "prune")),
     ("Ops", ("doctor", "init", "profile")),
     ("Diagnose and fix", ("triage", "bisect", "diagnose", "fix", "verify", "export-test")),
-    ("Evaluate", ("eval", "sweep", "rules")),
+    ("Evaluate", ("eval", "sweep", "rules", "simulate")),
     ("Replay and fork", ("replay", "fork", "stress", "fuzz")),
     ("Share and benchmark", ("export", "import", "dataset", "bench")),
 )
@@ -2356,6 +2356,7 @@ from . import cli_fuzz as _cli_fuzz  # noqa: E402,F401  registers dataset / fuzz
 from . import cli_obs as _cli_obs  # noqa: E402,F401  registers stats / timeline / ui
 from . import cli_ops as _cli_ops  # noqa: E402,F401  registers doctor / init / profile
 from . import cli_rules as _cli_rules  # noqa: E402,F401  registers rules
+from . import cli_sim as _cli_sim  # noqa: E402,F401  registers simulate
 from . import cli_store as _cli_store  # noqa: E402,F401  registers tag / rm / prune
 
 _tidy_help(app)
