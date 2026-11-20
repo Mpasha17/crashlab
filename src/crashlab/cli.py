@@ -1,6 +1,6 @@
 """``crashlab`` command line: ``ls``, ``show``, ``search``, ``cluster``, ``tag``, ``rm``,
 ``prune``, ``replay``, ``check``, ``diagnose``, ``fix``, ``report``, ``fork``, ``diff``,
-``eval``, ``sweep``,
+``eval``, ``sweep``, ``rules``,
 ``export``, ``import``, ``doctor``, ``init``, ``profile``."""
 
 from __future__ import annotations
@@ -1485,10 +1485,17 @@ def check_cmd(
     fail_on: str | None = typer.Option(
         None, "--fail-on", help="Exit 1 if a finding is at least: info, warn, error, critical."
     ),
+    rules: str | None = typer.Option(
+        "auto",
+        "--rules",
+        help="Declarative rule file (JSON, TOML or YAML). 'auto' discovers "
+        ".crashlab/rules.* or [tool.crashlab.rules] in pyproject.toml; 'off' skips.",
+    ),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable results."),
 ) -> None:
-    """Check stored runs: the @crashlab.check outcome oracles (pass / fail) and the
-    built-in runtime checks (findings). Exit 1 if an oracle fails (or --fail-on hits)."""
+    """Check stored runs: the @crashlab.check outcome oracles (pass / fail), optional
+    declarative rules, and the built-in runtime checks (findings). Exit 1 if an
+    oracle or rule fails (or --fail-on hits)."""
     from .checks import evaluate, replace_findings, resolve_config
 
     console = _console()
@@ -1518,6 +1525,15 @@ def check_cmd(
         overrides["budget"] = {k: v for k, v in budget.items() if v is not None}
     if baseline is not None:
         overrides["suspicious_tool_result"] = {"baseline_runs": baseline}
+    loaded_rules = []
+    if not findings_only:
+        from .assertions import RuleError, load_rules
+
+        try:
+            loaded_rules = load_rules(rules)
+        except RuleError as exc:
+            console.print(f"[red]{_e(exc)}[/]")
+            raise typer.Exit(code=2) from exc
     many = len(refs) > 1
     failed = False
     report = []
@@ -1540,6 +1556,13 @@ def check_cmd(
             from .pricing import run_cost
 
             run.usage.cost_usd = run_cost(run)
+        if loaded_rules:
+            from .assertions import evaluate_rules
+            from .verify.oracles import apply_outcome
+
+            extra = evaluate_rules(run, loaded_rules)
+            results = list(results or []) + extra
+            apply_outcome(run, results)
         if results is not None and run.outcome == "fail":
             failed = True
         if found and fail_on and any(f.rank >= SEVERITY_RANK[fail_on] for f in found):
@@ -2279,10 +2302,19 @@ _HELP_PANELS = (
     ("Store", ("tag", "rm", "prune")),
     ("Ops", ("doctor", "init", "profile")),
     ("Diagnose and fix", ("triage", "bisect", "diagnose", "fix", "verify", "export-test")),
-    ("Evaluate", ("eval", "sweep")),
+    ("Evaluate", ("eval", "sweep", "rules")),
     ("Replay and fork", ("replay", "fork", "stress", "fuzz")),
     ("Share and benchmark", ("export", "import", "dataset", "bench")),
 )
+
+
+def _tidy_command_help(info: Any) -> None:
+    doc = info.help or (info.callback.__doc__ if getattr(info, "callback", None) else None)
+    if not doc:
+        return
+    info.help = _unwrap(doc)
+    if info.short_help is None:
+        info.short_help = _first_sentence(info.help)
 
 
 def _tidy_help(typer_app: typer.Typer) -> None:
@@ -2303,6 +2335,12 @@ def _tidy_help(typer_app: typer.Typer) -> None:
         if info.short_help is None:
             info.short_help = _first_sentence(info.help)
 
+    for info in getattr(typer_app, "registered_groups", []):
+        typ = getattr(info, "typer_instance", None)
+        if typ is not None:
+            for sub in typ.registered_commands:
+                _tidy_command_help(sub)
+
     for info in typer_app.registered_commands:
         _apply_help(info, callback=info.callback)
     for info in getattr(typer_app, "registered_groups", []):
@@ -2317,6 +2355,7 @@ from . import cli_eval as _cli_eval  # noqa: E402,F401  registers eval / sweep
 from . import cli_fuzz as _cli_fuzz  # noqa: E402,F401  registers dataset / fuzz
 from . import cli_obs as _cli_obs  # noqa: E402,F401  registers stats / timeline / ui
 from . import cli_ops as _cli_ops  # noqa: E402,F401  registers doctor / init / profile
+from . import cli_rules as _cli_rules  # noqa: E402,F401  registers rules
 from . import cli_store as _cli_store  # noqa: E402,F401  registers tag / rm / prune
 
 _tidy_help(app)

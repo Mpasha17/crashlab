@@ -88,6 +88,12 @@ def eval_cmd(
         "--min-finding-severity",
         help="Fail a run if a runtime finding is at least this: info, warn, error, critical.",
     ),
+    rules: str | None = typer.Option(
+        "auto",
+        "--rules",
+        help="Declarative rule file (JSON, TOML or YAML). 'auto' discovers "
+        ".crashlab/rules.* or [tool.crashlab.rules] in pyproject.toml; 'off' skips.",
+    ),
     junit: Path | None = typer.Option(  # noqa: B008
         None, "--junit", help="Write JUnit XML to this file.", metavar="PATH"
     ),
@@ -128,6 +134,7 @@ def eval_cmd(
             max_seconds=max_seconds,
             max_steps=max_steps,
             min_finding_severity=min_finding_severity,
+            rules=rules,
         )
     except (FileNotFoundError, ValueError, OSError, ImportError) as exc:
         console.print(f"[red]{_e(exc)}[/]")
