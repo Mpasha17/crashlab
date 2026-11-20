@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Observability and visual debugging (see `docs/observability.md`)
+- `crashlab export --format otel|chrome-trace` (and `crashlab.otel.to_otlp` / `to_chrome_trace`): OTLP/JSON with GenAI semantic conventions, root / step / child-run parent links, error and finding events; Chrome `traceEvents` for Perfetto. Linked child runs are included when they are in the store. The default `--format jsonl` is unchanged
+- `crashlab stats` / `crashlab.stats.compute_stats`: fleet pass / fail / error rates, cost / token / latency totals and percentiles, breakdowns by agent and model, a tool leaderboard, top findings and failing checks, slowest and most expensive runs; `--since`, `--name`, `--limit`, `--json`
+- `crashlab timeline` / `crashlab.timeline.render_timeline`: terminal ASCII waterfall (timing bar, tokens, cost, errors, findings, handoffs) with indented child-run subtrees; `--no-children`, `--json`
+- `crashlab ui`: zero-dependency localhost trace explorer (waterfall, chat, tools, findings, diagnosis, child runs, side-by-side diff) and JSON API; `--port`, `--no-open`. Binds 127.0.0.1 only
+
+
 ## 0.0.5 (pre-alpha) - 2026-11-13
 
 Fifth public cut; matches `main` at release. `pip install crashlab`.

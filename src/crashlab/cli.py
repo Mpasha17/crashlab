@@ -2136,21 +2136,63 @@ def flakes_cmd(
 def export_cmd(
     run_ref: str = typer.Argument("last", help="Run id, unique id prefix, or 'last'."),
     output: Path | None = typer.Option(  # noqa: B008
-        None, "--output", "-o", help="File to write (default: <run_id>.jsonl)."
+        None,
+        "--output",
+        "-o",
+        help="File to write (default: <run_id>.jsonl or .otel.json / .trace.json).",
+    ),
+    fmt: str = typer.Option(
+        "jsonl",
+        "--format",
+        help="jsonl (portable cassette), otel (OTLP/JSON) or chrome-trace (Perfetto / chrome://tracing).",
     ),
 ) -> None:
-    """Write one run (metadata + cassette) to a portable JSONL file, e.g. to share a failing
-    run or check it into a repo. Redaction runs again on the way out."""
+    """Write one run as JSONL, OTLP/JSON or a Chrome trace.
+
+    JSONL is the shareable cassette (redaction runs again on the way out). ``otel`` and
+    ``chrome-trace`` include linked child runs when they are in the store.
+    """
     from .store import export_run
 
+    kind = fmt.strip().lower().replace("_", "-")
+    aliases = {
+        "jsonl": "jsonl",
+        "otel": "otel",
+        "otlp": "otel",
+        "otlp/json": "otel",
+        "chrome-trace": "chrome-trace",
+        "chrome": "chrome-trace",
+        "perfetto": "chrome-trace",
+    }
+    if kind not in aliases:
+        _console().print("[red]--format must be jsonl, otel or chrome-trace[/]")
+        raise typer.Exit(code=2)
+    kind = aliases[kind]
     store = Store()
     try:
         run_id = store.resolve_run_id(run_ref)
     except RunNotFoundError as exc:
         _console().print(f"[red]{_e(exc)}[/]")
         raise typer.Exit(code=1) from exc
-    path = export_run(store, run_id, output or Path(f"{run_id}.jsonl"))
-    _console().print(f"exported {run_id} -> {_e(path)}")
+    if kind == "jsonl":
+        path = export_run(store, run_id, output or Path(f"{run_id}.jsonl"))
+        _console().print(f"exported {run_id} -> {_e(path)}")
+        return
+    run = store.load_run(run_id)
+    if kind == "otel":
+        from .otel import to_otlp
+
+        payload = to_otlp(run, store=store)
+        dest = output or Path(f"{run_id}.otel.json")
+    else:
+        from .otel import to_chrome_trace
+
+        payload = to_chrome_trace(run, store=store)
+        dest = output or Path(f"{run_id}.trace.json")
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str) + "\n", "utf-8")
+    _console().print(f"exported {run_id} ({kind}) -> {_e(dest)}")
 
 
 @app.command("import")
@@ -2199,7 +2241,23 @@ def _first_sentence(text: str, limit: int = 60) -> str:
 
 # `crashlab --help`: the commands grouped in the order a failing run is handled
 _HELP_PANELS = (
-    ("Inspect", ("ls", "show", "search", "cluster", "watch", "report", "diff", "check", "flakes")),
+    (
+        "Inspect",
+        (
+            "ls",
+            "show",
+            "search",
+            "cluster",
+            "watch",
+            "report",
+            "diff",
+            "check",
+            "flakes",
+            "stats",
+            "timeline",
+            "ui",
+        ),
+    ),  # fmt: skip
     ("Diagnose and fix", ("triage", "diagnose", "fix", "verify", "export-test")),
     ("Replay and fork", ("replay", "fork")),
     ("Share and benchmark", ("export", "import", "bench")),
@@ -2225,6 +2283,7 @@ def _tidy_help(typer_app: typer.Typer) -> None:
 
 
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
+from . import cli_obs as _cli_obs  # noqa: E402,F401  registers stats / timeline / ui
 
 _tidy_help(app)
 
