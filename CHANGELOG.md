@@ -23,6 +23,63 @@
 - `crashlab timeline` / `crashlab.timeline.render_timeline`: terminal ASCII waterfall (timing bar, tokens, cost, errors, findings, handoffs) with indented child-run subtrees; `--no-children`, `--json`
 - `crashlab ui`: zero-dependency localhost trace explorer (waterfall, chat, tools, findings, diagnosis, child runs, side-by-side diff) and JSON API; `--port`, `--no-open`. Binds 127.0.0.1 only
 
+
+### Native Google GenAI (see `docs/genai.md`)
+- `crashlab.wrap(client)` records a `google.genai.Client` the same way it records OpenAI and Anthropic: `models.generate_content` / `generate_content_stream`, `chats.create` + `send_message` / `send_message_stream`, and the async `client.aio` API. The SDK is optional; replay still exposes `response.text` and `function_calls`
+
+### Declarative policy rules (see `docs/rules.md`)
+- `crashlab.assertions` / `crashlab rules`: grade a run from a JSON, TOML or YAML rule file (`must_call`, `must_not_call`, `tool_order`, and other predicates) via `crashlab check`, `crashlab eval --rules`, `crashlab rules test`, or the Python API. Nothing here calls a model
+
+### Ops and profiling (see `docs/ops-and-profiling.md`)
+- `crashlab doctor`: inspect the local store, optional packages, redaction and pricing (`--fix`, `--json`)
+- `crashlab init`: scaffold a CI eval workflow and a starter `crashlab_checks.py`
+- `crashlab profile`: break down a run's time, tokens, cost and prompt-cache opportunities
+
+### Golden datasets and adversarial fuzzing (see `docs/fuzzing-and-datasets.md`)
+- `crashlab dataset build` / `inspect`: portable, redacted JSONL golden datasets from recorded runs
+- `crashlab fuzz` / `crashlab.fuzz`: seeded mutation libraries (`prompt_injection`, `tool_poison`, `edge_inputs`) against a recorded run or a live entry point
+
+### Alert sinks and webhook watch (see `docs/alerts.md`)
+- `crashlab.alerts` and `crashlab watch --webhook` / `--slack-webhook` / `--alert-file`: fire when a run fails, a finding is serious enough, or cost / latency exceeds a cap (stdlib delivery only)
+
+### Zero-config auto-instrumentation (see `docs/auto-instrumentation.md`)
+- `crashlab.instrument()` / `uninstrument()` / `instrumented()`: patch OpenAI, Anthropic, LiteLLM and Google GenAI so frameworks that construct a client internally are recorded without a private `_client` hook. Missing SDKs are skipped, not an error
+
+### Multi-turn conversation simulator (see `docs/simulation.md`)
+- `crashlab.simulate` / `crashlab simulate`: drive a live agent through a scripted persona or policy scenario; the whole scenario is one recorded run with `crashlab.turn` tags
+
+### Enhanced RAG checks and flake fingerprints (see `docs/rag-testing.md`)
+- New `crashlab.rag` oracles: `retrieval_non_empty`, `context_utilization`, `no_prompt_injection_in_docs`, `retrieval_latency_budget`
+- `crashlab.flakes` can group runs by a recorded non-git `code_hash` when no git commit is available
+
+### Fleet HTML reports, trajectory diffs and CI baselines (see `docs/observability.md`)
+- `crashlab stats --html`: a self-contained HTML fleet report
+- `crashlab.diff` reports tool-trajectory edit distance and a normalized trajectory similarity
+- `crashlab baseline save` / `check` / `crashlab.baseline`: snapshot fleet metrics and fail CI on pass-rate, cost or latency regressions
+
+### Language-agnostic local HTTP/SSE proxy (see `docs/proxy.md`)
+- `crashlab proxy`: a localhost-only HTTP proxy that records OpenAI `/v1/chat/completions` and `/v1/responses` plus Anthropic `/v1/messages` (including `stream: true` SSE) and can later replay the cassette offline, for any language or framework
+
+### Native pytest plugin (see `docs/pytest-plugin.md`)
+- Auto-loaded `pytest11` plugin (opt-in): fixtures `crashlab_store`, `crashlab_record`, `crashlab_replay`, `@pytest.mark.crashlab`, and `--crashlab-save-failures`. pytest remains an optional extra
+
+### Prompt context debugger and tool-schema auditor (see `docs/context-and-tools.md`)
+- `crashlab context`: break a run's prompt into sections (system, tools, messages, tool results) with estimated tokens and growth
+- `crashlab audit-tools`: flag provider-breaking tool schemas (required fields missing from properties, vague or missing descriptions, duplicates, unused tools)
+
+### Weighted rubric scoring (see `docs/rubrics.md`)
+- `crashlab.rubrics` / `crashlab score` / `crashlab eval --rubric`: grade recorded runs 0–100 across weighted criteria (outcome, safety, tool efficiency, cost, latency), with a built-in default rubric
+
+### Portable debug bundles and secret/PII audit (see `docs/bundles-and-security.md`)
+- `crashlab bundle` / `unbundle`: pack a run into a shareable `.crashlab.zip` (JSONL, diagnosis, prompt / tool-schema summary, HTML report; secrets redacted by default)
+- `crashlab audit-secrets` / `redact-run`: scan or clean leaked API keys, tokens, private keys, or optional PII already in the store
+
+### Interactive HTML and PR Markdown diffs
+- `crashlab diff --html` / `--markdown` / `--fail-on-regression`: interactive side-by-side HTML, a GitHub-flavored Markdown summary for PR comments, and a CI gate when run B failed, grew a new finding, or a check flipped from pass to fail
+
+### Framework adapters (see `docs/integrations.md`)
+- First-class, duck-typed adapters in `crashlab.integrations`: OpenAI Agents SDK (`crashlab_tracing_processor`), PydanticAI (`wrap_pydantic_ai_agent`), and CrewAI (`wrap_crew` / `CrewAICallback`). Those packages are never imported, so a missing extra never breaks `import crashlab`
+
 ## 0.0.5 (pre-alpha) - 2026-11-13
 
 Fifth public cut; matches `main` at release. `pip install crashlab`.

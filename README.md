@@ -10,7 +10,7 @@ ship it.
 
 crashlab is an open-source, framework-agnostic Python library that turns agent failures into fixes you can trust. It works today:
 
-- **Record** every LLM and tool call from your existing agent loop (OpenAI, Anthropic, LiteLLM), with no rewrite.
+- **Record** every LLM and tool call from your existing agent loop (OpenAI, Anthropic, LiteLLM, Google GenAI), with no rewrite.
 - **Replay** any failed run exactly, offline, and fork it at any step.
 - **Diagnose** the failing step and its root cause, backed by verbatim evidence from the trace.
 - **Verify** a proposed fix by rerunning the failure and your past good runs.
@@ -87,6 +87,9 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   - OpenAI `OpenAI` / `AsyncOpenAI` and any OpenAI-compatible endpoint (Ollama, vLLM,
     LiteLLM proxy ...): `chat.completions.create` and `responses.create`.
   - Anthropic `Anthropic` / `AsyncAnthropic`: `messages.create` and `messages.stream(...)`.
+  - Google GenAI `google.genai.Client`: `models.generate_content` / `generate_content_stream`,
+    chats, and the async `client.aio` API. See
+    [docs/genai.md](https://github.com/Mpasha17/crashlab/blob/main/docs/genai.md).
 - **LiteLLM:** `crashlab.integrations.litellm.patch()` (or `crashlab.wrap(litellm)`) records
   `litellm.completion` / `litellm.acompletion`; `unpatch()` restores them.
 - **Streaming:** with `stream=True` (and Anthropic's `messages.stream()`), chunks reach your
@@ -237,9 +240,45 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   only; there is no server or hosted view. See
   [docs/debugging.md](https://github.com/Mpasha17/crashlab/blob/main/docs/debugging.md).
 - **CLI:** `ls`, `show`, `search`, `cluster`, `triage`, `watch`, `flakes`, `report`, `diff`, `check`,
-  `diagnose`, `fix`, `verify`, `export-test`, `replay`, `fork`, `export`, `import`, `bench`
+  `diagnose`, `fix`, `verify`, `export-test`, `replay`, `fork`, `export`, `import`, `bench`,
+  `stats`, `timeline`, `ui`, `eval`, `sweep`, `bisect`, `score`, `baseline`, `rules`,
+  `doctor`, `init`, `profile`, `context`, `audit-tools`, `dataset`, `fuzz`, `simulate`,
+  `proxy`, `bundle`, `unbundle`, `audit-secrets`, `redact-run`, `tag`, `rm`, `prune`
   (`crashlab --help`); in Python, `crashlab.load("last")`. `scripts/smoke.sh` runs every
   command end to end offline against a fake model server, in CI.
+
+- **Auto-instrumentation:** `crashlab.instrument()` / `uninstrument()` patches OpenAI,
+  Anthropic, LiteLLM and Google GenAI so frameworks that construct a client internally
+  are recorded without a private hook. See
+  [docs/auto-instrumentation.md](https://github.com/Mpasha17/crashlab/blob/main/docs/auto-instrumentation.md).
+- **Policy rules, rubrics and evals:** `crashlab.assertions` / `crashlab rules` grade a run
+  from a JSON, TOML or YAML file; `crashlab.rubrics` / `crashlab score` / `eval --rubric`
+  score runs 0–100 across weighted criteria; `crashlab eval` and `crashlab baseline`
+  are CI-friendly. See [docs/rules.md](https://github.com/Mpasha17/crashlab/blob/main/docs/rules.md),
+  [docs/rubrics.md](https://github.com/Mpasha17/crashlab/blob/main/docs/rubrics.md) and
+  [docs/observability.md](https://github.com/Mpasha17/crashlab/blob/main/docs/observability.md).
+- **Datasets, fuzzing and simulation:** `crashlab dataset` builds redacted golden JSONL
+  datasets; `crashlab fuzz` runs seeded adversarial mutations; `crashlab simulate` drives
+  a multi-turn persona or policy scenario. See
+  [docs/fuzzing-and-datasets.md](https://github.com/Mpasha17/crashlab/blob/main/docs/fuzzing-and-datasets.md)
+  and [docs/simulation.md](https://github.com/Mpasha17/crashlab/blob/main/docs/simulation.md).
+- **Ops, context and security:** `crashlab doctor` / `init` / `profile`, `crashlab context`
+  / `audit-tools`, `crashlab bundle` / `unbundle` / `audit-secrets` / `redact-run`, and
+  `crashlab watch --webhook`. See
+  [docs/ops-and-profiling.md](https://github.com/Mpasha17/crashlab/blob/main/docs/ops-and-profiling.md),
+  [docs/context-and-tools.md](https://github.com/Mpasha17/crashlab/blob/main/docs/context-and-tools.md),
+  [docs/bundles-and-security.md](https://github.com/Mpasha17/crashlab/blob/main/docs/bundles-and-security.md)
+  and [docs/alerts.md](https://github.com/Mpasha17/crashlab/blob/main/docs/alerts.md).
+- **Proxy, pytest and frameworks:** `crashlab proxy` records or replays LLM HTTP/SSE
+  traffic on localhost for any language; the native `pytest11` plugin adds
+  `crashlab_store`, `crashlab_record`, `crashlab_replay` and `@pytest.mark.crashlab`;
+  `crashlab.integrations` has duck-typed adapters for the OpenAI Agents SDK, PydanticAI
+  and CrewAI. See [docs/proxy.md](https://github.com/Mpasha17/crashlab/blob/main/docs/proxy.md),
+  [docs/pytest-plugin.md](https://github.com/Mpasha17/crashlab/blob/main/docs/pytest-plugin.md)
+  and [docs/integrations.md](https://github.com/Mpasha17/crashlab/blob/main/docs/integrations.md).
+- **Shareable diffs and fleet reports:** `crashlab diff --html` / `--markdown` /
+  `--fail-on-regression`, and `crashlab stats --html`. See
+  [docs/observability.md](https://github.com/Mpasha17/crashlab/blob/main/docs/observability.md).
 
 **Recording format and compatibility.** Runs are stored as full JSONL cassettes by default.
 crashlab can read a compact cassette format (much smaller files on long chats: about
@@ -256,7 +295,7 @@ error instead of recursing. Under `crashlab check` this also covers threads, thr
 process pools it uses; `multiprocessing.Process`/`Pool` with spawn, other subprocesses and
 custom queues are not covered.
 
-Not yet: a live HTML viewer server. Streamed calls replay as a synthetic stream rebuilt from the recorded
+`crashlab ui` is a localhost-only trace explorer (not a hosted service). Streamed calls replay as a synthetic stream rebuilt from the recorded
 final response, cut at the recorded chunk boundaries (OpenAI-style chat, Anthropic and
 Responses streams), so per-chunk consumers see the same pieces.
 Also not intercepted yet: OpenAI `with_streaming_response.create` (raw HTTP body; crashlab
@@ -573,6 +612,34 @@ database, which a prompt patch can't repair, so the rejections are correct. On G
 gpt-oss-120b the LLM diagnoser labelled only **3/11 (10–57%)** on the held-out agent.
 Samples are small and the intervals are wide; details, all CIs and caveats in
 [bench/README.md](https://github.com/Mpasha17/crashlab/blob/main/bench/README.md#seed-results).
+
+## Docs
+
+| Topic | Doc |
+|---|---|
+| Debugging many runs | [docs/debugging.md](https://github.com/Mpasha17/crashlab/blob/main/docs/debugging.md) |
+| Budgets and flakes | [docs/budgets-and-flakes.md](https://github.com/Mpasha17/crashlab/blob/main/docs/budgets-and-flakes.md) |
+| RAG testing | [docs/rag-testing.md](https://github.com/Mpasha17/crashlab/blob/main/docs/rag-testing.md) |
+| Multi-agent runs | [docs/multi-agent.md](https://github.com/Mpasha17/crashlab/blob/main/docs/multi-agent.md) |
+| Fault injection | [docs/fault-injection.md](https://github.com/Mpasha17/crashlab/blob/main/docs/fault-injection.md) |
+| CI and evals | [docs/ci-and-evals.md](https://github.com/Mpasha17/crashlab/blob/main/docs/ci-and-evals.md) |
+| Compatibility | [docs/compatibility.md](https://github.com/Mpasha17/crashlab/blob/main/docs/compatibility.md) |
+| Observability, stats, UI, baselines | [docs/observability.md](https://github.com/Mpasha17/crashlab/blob/main/docs/observability.md) |
+| Google GenAI | [docs/genai.md](https://github.com/Mpasha17/crashlab/blob/main/docs/genai.md) |
+| Declarative policy rules | [docs/rules.md](https://github.com/Mpasha17/crashlab/blob/main/docs/rules.md) |
+| Ops, init and profiling | [docs/ops-and-profiling.md](https://github.com/Mpasha17/crashlab/blob/main/docs/ops-and-profiling.md) |
+| Golden datasets and fuzzing | [docs/fuzzing-and-datasets.md](https://github.com/Mpasha17/crashlab/blob/main/docs/fuzzing-and-datasets.md) |
+| Alert sinks and `watch --webhook` | [docs/alerts.md](https://github.com/Mpasha17/crashlab/blob/main/docs/alerts.md) |
+| Auto-instrumentation | [docs/auto-instrumentation.md](https://github.com/Mpasha17/crashlab/blob/main/docs/auto-instrumentation.md) |
+| Multi-turn simulation | [docs/simulation.md](https://github.com/Mpasha17/crashlab/blob/main/docs/simulation.md) |
+| Localhost HTTP/SSE proxy | [docs/proxy.md](https://github.com/Mpasha17/crashlab/blob/main/docs/proxy.md) |
+| pytest plugin | [docs/pytest-plugin.md](https://github.com/Mpasha17/crashlab/blob/main/docs/pytest-plugin.md) |
+| Prompt context and tool audits | [docs/context-and-tools.md](https://github.com/Mpasha17/crashlab/blob/main/docs/context-and-tools.md) |
+| Weighted rubric scoring | [docs/rubrics.md](https://github.com/Mpasha17/crashlab/blob/main/docs/rubrics.md) |
+| Debug bundles and secret audits | [docs/bundles-and-security.md](https://github.com/Mpasha17/crashlab/blob/main/docs/bundles-and-security.md) |
+| Framework integrations | [docs/integrations.md](https://github.com/Mpasha17/crashlab/blob/main/docs/integrations.md) |
+| Case studies | [docs/case-studies/](https://github.com/Mpasha17/crashlab/blob/main/docs/case-studies/README.md) |
+| Terminal demo | [docs/demo/](https://github.com/Mpasha17/crashlab/blob/main/docs/demo/README.md) |
 
 ## Development
 

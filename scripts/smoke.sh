@@ -96,4 +96,31 @@ CRASHLAB_DIR="$TMP/store2" step 0 "already there" -- import "$TMP/run.jsonl"
 CRASHLAB_DIR="$TMP/store2" step 0 "refund-bot" -- show "${BAD}"
 step 0 "spec_drop"             -- bench --offline --runs-dir bench/runs/seed-gemini-flash-lite-latest \
   --label smoke --out-dir "$TMP/bench"
+
+# Wave 1–5 commands, still 100% offline against the local fake server / store
+step 0 "runs"                  -- stats
+step 0 "wrote"                 -- stats --html "$TMP/stats.html"
+grep -q "<html" "$TMP/stats.html"
+step 0 "refund"                -- timeline "$BAD"
+step 0 "crashlab eval"         -- eval --outcome pass
+step 0 "fixed|unchanged|verdict" -- sweep "$BAD" --patch examples/refund_bot/restore_policy.json --at-step 2 --json
+step 0 "first_divergence|outcome" -- bisect "$GOOD" "$BAD" --json
+step 0 "min_score|passed"      -- score "$GOOD" --min-score 0
+step 0 "wrote"                 -- baseline save --out "$TMP/baseline.json"
+step 0 "no regressions"        -- baseline check "$TMP/baseline.json"
+step 0 "store check"           -- doctor
+step 0 "profile"               -- profile "$GOOD"
+step 0 "context"               -- context "$GOOD"
+step 0 "no schema issues|called:|issue_refund|get_order" -- audit-tools "$GOOD"
+step 0 "wrote"                 -- dataset build "$GOOD" --out "$TMP/dataset.jsonl"
+step 0 "case"                  -- dataset inspect "$TMP/dataset.jsonl"
+step 0 "needs_live_agent|survived|mutation" -- fuzz "$BAD" --mutation tool_poison --max-cases 1
+step 0 "wrote html"            -- diff "$BAD" "$GOOD" --html "$TMP/diff.html"
+step 0 "wrote markdown"        -- diff "$BAD" "$GOOD" --markdown "$TMP/diff.md"
+step 1 "fail|regression"       -- diff "$GOOD" "$BAD" --fail-on-regression
+step 0 "bundled"               -- bundle "$BAD" -o "$TMP/run.crashlab.zip"
+CRASHLAB_DIR="$TMP/store3" step 0 "imported" -- unbundle "$TMP/run.crashlab.zip"
+step 0 "audit-secrets|no secrets found|hit" -- audit-secrets "$GOOD"
+step 0 "exported"              -- export "$BAD" --format otel -o "$TMP/run.otel.json"
+step 0 "exported"              -- export "$BAD" --format chrome-trace -o "$TMP/run.trace.json"
 echo "SMOKE OK: $n crashlab commands"

@@ -19,7 +19,7 @@ _MUTATION_HELP = ", ".join(MUTATIONS)
 
 dataset_app = typer.Typer(
     name="dataset",
-    help="Build and inspect portable golden datasets from recorded runs.",
+    help="Build and inspect redacted golden datasets from recorded runs.",
     no_args_is_help=True,
     add_completion=False,
     rich_markup_mode="rich",
@@ -179,7 +179,13 @@ def _print_summary(console: Any, summary: DatasetSummary) -> None:
     console.print(table)
 
 
-app.add_typer(dataset_app, name="dataset", rich_help_panel="Share and benchmark")
+app.add_typer(
+    dataset_app,
+    name="dataset",
+    help="Build and inspect redacted golden datasets from recorded runs.",
+    rich_help_panel="Share and benchmark",
+    no_args_is_help=True,
+)
 
 
 def _looks_like_entrypoint(value: str) -> bool:
