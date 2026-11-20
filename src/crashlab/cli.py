@@ -2279,8 +2279,8 @@ _HELP_PANELS = (
     ("Store", ("tag", "rm", "prune")),
     ("Diagnose and fix", ("triage", "bisect", "diagnose", "fix", "verify", "export-test")),
     ("Evaluate", ("eval", "sweep")),
-    ("Replay and fork", ("replay", "fork", "stress")),
-    ("Share and benchmark", ("export", "import", "bench")),
+    ("Replay and fork", ("replay", "fork", "stress", "fuzz")),
+    ("Share and benchmark", ("export", "import", "dataset", "bench")),
 )
 
 
@@ -2291,25 +2291,34 @@ def _tidy_help(typer_app: typer.Typer) -> None:
     typer_app.registered_commands.sort(
         key=lambda c: (order.get(c.name or "", 99), rank.index(c.name) if c.name in rank else 99)
     )
-    for info in typer_app.registered_commands:
+
+    def _apply_help(info, *, callback=None) -> None:
         if info.name in panel and not isinstance(info.rich_help_panel, str):
             info.rich_help_panel = panel[info.name]
-        doc = info.help or (info.callback.__doc__ if info.callback else None)
+        doc = info.help or (callback.__doc__ if callback else None)
         if not doc:
-            continue
+            return
         info.help = _unwrap(doc)
         if info.short_help is None:
             info.short_help = _first_sentence(info.help)
+
+    for info in typer_app.registered_commands:
+        _apply_help(info, callback=info.callback)
+    for info in getattr(typer_app, "registered_groups", []):
+        inst = getattr(info, "typer_instance", None)
+        _apply_help(info, callback=inst)
 
 
 from . import cli_bisect as _cli_bisect  # noqa: E402,F401  registers bisect
 from . import cli_chaos as _cli_chaos  # noqa: E402,F401  registers stress
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
 from . import cli_eval as _cli_eval  # noqa: E402,F401  registers eval / sweep
+from . import cli_fuzz as _cli_fuzz  # noqa: E402,F401  registers dataset / fuzz
 from . import cli_obs as _cli_obs  # noqa: E402,F401  registers stats / timeline / ui
 from . import cli_store as _cli_store  # noqa: E402,F401  registers tag / rm / prune
 
 _tidy_help(app)
+_tidy_help(_cli_fuzz.dataset_app)
 
 
 def run() -> None:

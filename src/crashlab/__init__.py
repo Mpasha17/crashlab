@@ -44,8 +44,10 @@ from .context import (
     is_replaying,
     run_in_thread,
 )
+from .dataset import build_dataset, inspect_dataset
 from .diagnose import DiagnoseError, diagnose, propose_fixes, try_fix
 from .faults import faults
+from .fuzz import fuzz_agent, fuzz_run
 from .models import (
     CheckResult,
     Diagnosis,
@@ -131,6 +133,7 @@ __all__ = [
     "agent_scope",
     "bind_context",
     "budgets",
+    "build_dataset",
     "check",
     "checks",
     "clear_fakes",
@@ -140,6 +143,9 @@ __all__ = [
     "faults",
     "flakes",
     "fork",
+    "fuzz_agent",
+    "fuzz_run",
+    "inspect_dataset",
     "is_replaying",
     "load",
     "patch",
