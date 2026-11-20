@@ -85,14 +85,34 @@ tools). Existing `RunDiff` fields and `.summary()` are unchanged.
 
 ```bash
 crashlab diff last prev --json
+crashlab diff last prev --html compare.html
+crashlab diff last prev --markdown compare.md
+crashlab diff last prev --markdown - --fail-on-regression
 ```
 
+`--html PATH` writes a self-contained, interactive side-by-side report (inline
+CSS and vanilla JS, no external assets): an executive header (status, duration,
+cost, tokens, findings, trajectory edit distance / similarity), regression and
+improvement pills, and an aligned step table that highlights diverged steps,
+new or resolved findings, tool-call differences, and per-step cost / latency
+deltas. `--markdown PATH` writes a GitHub-flavored Markdown summary table ready
+for a PR comment (`gh pr comment --body-file`); use `-` to print it to stdout.
+`--fail-on-regression` exits `1` when Run B regressed versus Run A (status or
+outcome became a failure, a new error/warn finding appeared, or a check flipped
+from pass to fail). Existing flags (`--json`, `--full`) are unchanged.
+
 ```python
+from pathlib import Path
+
 import crashlab
+from crashlab.diff_report import has_regression, render_diff_html, render_diff_markdown
 
 d = crashlab.diff(crashlab.load("last"), crashlab.load("prev"))
 print(d.summary(), d.tool_edit_distance, d.trajectory_similarity)
 print(d.to_dict()["tool_alignment"])
+Path("compare.html").write_text(render_diff_html(d, d.a, d.b), encoding="utf-8")
+print(render_diff_markdown(d, d.a, d.b))
+print(has_regression(d))
 ```
 
 ## CI regression baselines

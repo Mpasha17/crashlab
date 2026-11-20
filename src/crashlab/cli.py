@@ -1995,6 +1995,36 @@ def _usage_rows(a: Run, b: Run) -> list[tuple[str, str, str, str]]:
     return rows
 
 
+def _write_text_path(path: str, text: str) -> Path | None:
+    """Write ``text`` to ``path``. ``-`` prints to stdout and returns None."""
+    body = text if text.endswith("\n") else text + "\n"
+    if path == "-":
+        typer.echo(body, nl=False)
+        return None
+    dest = Path(path)
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(body, "utf-8")
+    except OSError as exc:
+        _console(stderr=True).print(f"[red]cannot write {_e(path)}: {_e(exc)}[/]")
+        raise typer.Exit(code=2) from exc
+    return dest
+
+
+def _write_diff_reports(*, html: str | None, markdown: str | None, diff_result: Any,
+                        run_a: Run, run_b: Run, console: Any) -> None:  # fmt: skip
+    from .diff_report import render_diff_html, render_diff_markdown
+
+    if html is not None:
+        out = _write_text_path(html, render_diff_html(diff_result, run_a, run_b))
+        if out is not None and console is not None:
+            console.print(f"wrote html {_e(out)}")
+    if markdown is not None:
+        out = _write_text_path(markdown, render_diff_markdown(diff_result, run_a, run_b))
+        if out is not None and console is not None:
+            console.print(f"wrote markdown {_e(out)}")
+
+
 @app.command("diff")
 def diff_cmd(
     run_a: str = typer.Argument(..., help="First run (id, prefix or 'last')."),
@@ -2003,9 +2033,33 @@ def diff_cmd(
     ),
     full: bool = typer.Option(False, "--full", help="Show the diff of every differing step."),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable summary."),
+    html: str | None = typer.Option(
+        None,
+        "--html",
+        help="Write a self-contained HTML side-by-side report to this file (or - for stdout).",
+        metavar="PATH",
+    ),
+    markdown: str | None = typer.Option(
+        None,
+        "--markdown",
+        help="Write a GitHub-flavored Markdown summary to this file (or - for stdout).",
+        metavar="PATH",
+    ),
+    fail_on_regression: bool = typer.Option(
+        False,
+        "--fail-on-regression",
+        help="Exit 1 if Run B regressed versus Run A (CI).",
+    ),
 ) -> None:
-    """Compare two runs: outcome and checks, usage side by side, step-by-step divergence."""
+    """Compare two runs: outcome and checks, usage side by side, step-by-step divergence.
+
+    --html writes an interactive, self-contained side-by-side report. --markdown writes a
+    GitHub-flavored summary (use - for stdout, e.g. ``gh pr comment --body-file``).
+    --fail-on-regression exits 1 when Run B failed, grew a new error/warn finding, or a
+    check flipped from pass to fail.
+    """
     from .compare import diff
+    from .diff_report import has_regression
 
     console = _console()
     store = Store()
@@ -2019,8 +2073,12 @@ def diff_cmd(
     else:
         b = _resolve(store, run_b)
     rd = diff(a, b)
+    _write_diff_reports(html=html, markdown=markdown, diff_result=rd, run_a=a, run_b=b,
+                        console=None if as_json else console)  # fmt: skip
     if as_json:
         typer.echo(json.dumps(rd.to_dict(), indent=2, default=str))
+        if fail_on_regression and has_regression(rd):
+            raise typer.Exit(code=1)
         return
 
     head = Table(title=f"A {a.run_id}  vs  B {b.run_id}", title_justify="left")
@@ -2099,6 +2157,8 @@ def diff_cmd(
             )
         )
     console.print(rd.summary())
+    if fail_on_regression and has_regression(rd):
+        raise typer.Exit(code=1)
 
 
 @app.command("flakes")
