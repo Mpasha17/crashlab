@@ -403,6 +403,26 @@ def watch_cmd(
         0, "--timeout", help="Stop after this many seconds (0 = until Ctrl-C)."
     ),
     as_json: bool = typer.Option(False, "--json", help="One JSON object per event."),
+    webhook: str | None = typer.Option(None, "--webhook", help="POST matching alerts to this URL."),
+    webhook_format: str = typer.Option("json", "--webhook-format", help="json, slack or discord."),
+    slack_webhook: str | None = typer.Option(
+        None, "--slack-webhook", help="POST Slack-formatted alerts to this URL."
+    ),
+    alert_file: str | None = typer.Option(
+        None, "--alert-file", help="Append JSONL alert events to this file."
+    ),
+    min_severity: str = typer.Option(
+        "warn", "--min-severity", help="Lowest finding severity that raises an alert."
+    ),
+    max_cost_usd: float | None = typer.Option(
+        None, "--max-cost-usd", help="Alert when a run's cost exceeds this USD."
+    ),
+    max_latency_ms: float | None = typer.Option(
+        None, "--max-latency-ms", help="Alert when a run's wall time exceeds this many ms."
+    ),
+    cooldown: float = typer.Option(
+        300.0, "--cooldown", help="Seconds before the same alert can fire again."
+    ),
 ) -> None:
     """Print runs as they start and finish (polls the store; Ctrl-C to stop).
 
@@ -411,14 +431,40 @@ def watch_cmd(
     """
     import time
 
+    from .models import SEVERITY_RANK
     from .watch import watch_runs
 
     console = _console()
     if interval <= 0:
         console.print("[red]--interval must be > 0[/]")
         raise typer.Exit(code=2)
+    if min_severity not in SEVERITY_RANK:
+        console.print(f"[red]--min-severity must be one of {', '.join(SEVERITY_RANK)}[/]")
+        raise typer.Exit(code=2)
+    if webhook_format not in ("json", "slack", "discord"):
+        console.print("[red]--webhook-format must be json, slack or discord[/]")
+        raise typer.Exit(code=2)
+    if cooldown < 0:
+        console.print("[red]--cooldown must be >= 0[/]")
+        raise typer.Exit(code=2)
+    if max_cost_usd is not None and max_cost_usd < 0:
+        console.print("[red]--max-cost-usd must be >= 0[/]")
+        raise typer.Exit(code=2)
+    if max_latency_ms is not None and max_latency_ms < 0:
+        console.print("[red]--max-latency-ms must be >= 0[/]")
+        raise typer.Exit(code=2)
     polls = None if timeout <= 0 else max(int(timeout / interval), 0) + 1
     store = Store()
+    dispatcher = _watch_dispatcher(
+        webhook=webhook,
+        webhook_format=webhook_format,
+        slack_webhook=slack_webhook,
+        alert_file=alert_file,
+        min_severity=min_severity,
+        max_cost_usd=max_cost_usd,
+        max_latency_ms=max_latency_ms,
+        cooldown=cooldown,
+    )
     if not as_json:
         console.print(f"[dim]watching {_e(store.root)} every {interval:g}s (Ctrl-C to stop)[/]")
     try:
@@ -433,22 +479,61 @@ def watch_cmd(
         ):
             if as_json:
                 typer.echo(json.dumps(ev.to_dict(), ensure_ascii=False))
-                continue
-            line = Text(_local_time(ev.started_at)[11:] + "  ", style="dim")
-            line.append(ev.run_id, style="cyan").append(f"  {ev.name}  ")
-            if ev.kind == "started":
-                line.append("started", style="yellow")
             else:
-                line.append(ev.status, style=_STATUS_STYLE.get(ev.status, "")).append(" ")
-                line.append(ev.outcome, style=_OUTCOME_STYLE.get(ev.outcome, ""))
-                line.append(f"  {ev.steps} steps")
-                if ev.cost_usd is not None:
-                    line.append(f"  {_cost_text(ev.cost_usd)}")
-                if ev.failure:
-                    line.append("\n  → " + " · ".join(ev.failure), style="red")
-            console.print(line)
+                line = Text(_local_time(ev.started_at)[11:] + "  ", style="dim")
+                line.append(ev.run_id, style="cyan").append(f"  {ev.name}  ")
+                if ev.kind == "started":
+                    line.append("started", style="yellow")
+                else:
+                    line.append(ev.status, style=_STATUS_STYLE.get(ev.status, "")).append(" ")
+                    line.append(ev.outcome, style=_OUTCOME_STYLE.get(ev.outcome, ""))
+                    line.append(f"  {ev.steps} steps")
+                    if ev.cost_usd is not None:
+                        line.append(f"  {_cost_text(ev.cost_usd)}")
+                    if ev.failure:
+                        line.append("\n  → " + " · ".join(ev.failure), style="red")
+                console.print(line)
+            if dispatcher is not None and ev.kind == "finished":
+                try:
+                    run = store.load_run(ev.run_id)
+                except Exception:
+                    continue
+                dispatcher.dispatch(run)
     except KeyboardInterrupt:
         pass
+
+
+def _watch_dispatcher(
+    *,
+    webhook: str | None,
+    webhook_format: str,
+    slack_webhook: str | None,
+    alert_file: str | None,
+    min_severity: str,
+    max_cost_usd: float | None,
+    max_latency_ms: float | None,
+    cooldown: float,
+) -> Any:
+    from .alerts import AlertDispatcher, AlertRule, JsonlSink, WebhookSink
+
+    sinks: list[Any] = []
+    if webhook:
+        sinks.append(WebhookSink(webhook, format=webhook_format))
+    if slack_webhook:
+        sinks.append(WebhookSink(slack_webhook, format="slack"))
+    if alert_file:
+        sinks.append(JsonlSink(alert_file))
+    if not sinks:
+        return None
+    return AlertDispatcher(
+        AlertRule(
+            min_severity=min_severity,
+            max_cost_usd=max_cost_usd,
+            max_latency_ms=max_latency_ms,
+            cooldown_seconds=cooldown,
+        ),
+        sinks=sinks,
+    )
 
 
 # --- crashlab show helpers ----------------------------------------------------------
