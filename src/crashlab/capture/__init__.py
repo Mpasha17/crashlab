@@ -19,10 +19,14 @@ def wrap(client: Any, *, provider: str | None = None, agent: str | None = None) 
       LiteLLM proxy, OpenRouter ...): ``chat.completions.create`` and ``responses.create``.
     - ``anthropic.Anthropic`` / ``AsyncAnthropic``: ``messages.create`` and
       ``messages.stream``.
+    - ``google.genai.Client`` (the ``google-genai`` SDK, not required):
+      ``models.generate_content`` / ``generate_content_stream`` and ``chats.create``
+      (``send_message`` / ``send_message_stream``), plus the async API on ``client.aio``.
     - the ``litellm`` module: same as ``crashlab.integrations.litellm.patch()``.
 
-    ``provider`` forces the adapter (``"openai"``, ``"anthropic"``, ``"litellm"``); other
-    values are treated as OpenAI-compatible and used as ``gen_ai.provider.name``.
+    ``provider`` forces the adapter (``"openai"``, ``"anthropic"``, ``"litellm"``,
+    ``"google_genai"``); other values are treated as OpenAI-compatible and used as
+    ``gen_ai.provider.name``.
 
     ``agent`` names the agent that owns this client in a multi-agent app (one client per
     agent, as OpenAI Agents SDK, AutoGen, CrewAI and PydanticAI agents allow): every
@@ -50,8 +54,14 @@ def wrap(client: Any, *, provider: str | None = None, agent: str | None = None) 
         return client
 
     from .anthropic import looks_like_anthropic, wrap_anthropic
+    from .genai import looks_like_genai, wrap_genai
     from .openai import looks_like_openai, wrap_openai
 
+    if root in ("google_genai", "genai") or (
+        looks_like_genai(client)
+        and (root == "google" or (provider is None and not looks_like_openai(client)))
+    ):
+        return wrap_genai(client, agent=agent)
     if root == "anthropic" or (provider is None and not looks_like_openai(client)
                                and looks_like_anthropic(client)):  # fmt: skip
         return wrap_anthropic(client, agent=agent)
@@ -61,7 +71,8 @@ def wrap(client: Any, *, provider: str | None = None, agent: str | None = None) 
         f"crashlab.wrap(): don't know how to wrap {type(client).__module__}."
         f"{type(client).__qualname__}. Supported: OpenAI-compatible clients "
         "(chat.completions.create or responses.create), Anthropic clients "
-        "(messages.create), the litellm module."
+        "(messages.create), google.genai.Client (models.generate_content), "
+        "the litellm module."
     )
 
 
