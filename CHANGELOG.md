@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fault injection and chaos testing (see `docs/fault-injection.md`)
+- `crashlab.faults(...)`: stackable, thread-safe context manager that injects deterministic tool and LLM faults into a live recorded run (or the live steps of a fork). Rules: `tool_error`, `tool_result` (HTML 502, empty, truncated JSON, schema drift), `tool_delay`, `llm_error`, `llm_empty`, `llm_truncate`, `llm_bad_tool_call`. Triggers: `on_calls`, `after_calls`, `every`, `max_triggers`, `probability`+`seed`, `agent=`. Each injection is stored on the step as `crashlab.fault`. Strict replay serves the cassette and does not re-inject.
+- `crashlab stress` / `crashlab.stress_run(run)`: built-in chaos scenarios (`tool_502`, `tool_timeout`, `tool_empty`, `tool_schema_drift`, `llm_rate_limit`, `llm_empty_reply`, `llm_bad_tool_args`) targeting the tools and models the run used; reports survived / crashed / failed_checks / skipped / needs_live_agent. `--scenario`, `--at-step`, `--agent`, `--json`, `--fail-on-crash`.
+
 ### Runtime checks and store retention
 - New runtime checks (on by default, conservative): `context_bloat` (input tokens at 75%/92% of a known model context window, or a 3x prompt jump of at least 20,000 tokens; unknown models skip the ratio check), `tool_fanout` (12+/25+ tool calls in one turn, or the same tool + arguments at least 3 times in a single response), `system_prompt_leak` (a verbatim 100+ character slice of the system prompt in the final reply; short prompts and user-echoes are skipped). Disable with `checks={"context_bloat": false}` (or the same for the others)
 - `crashlab tag RUN [+tag / -tag ...]` / `Store.tag_run()`: add or remove tags on a recorded run (`--json`; no tag args prints the current list). `crashlab ls --tag NAME` lists only those runs

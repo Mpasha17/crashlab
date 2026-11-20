@@ -585,6 +585,17 @@ def print_step_detail(console: Any, run: Run, idx: int, *, as_json: bool) -> Non
         cost = attrs.get("crashlab.usage.cost_usd")
         cost = step_cost(step) if cost is None else cost
         meta.add_row("est. cost", _cost_text(cost))
+    fault = attrs.get("crashlab.fault")
+    if isinstance(fault, dict) and fault:
+        kind = fault.get("kind") or "fault"
+        bits = [kind]
+        if fault.get("tool"):
+            bits.append(str(fault["tool"]))
+        if fault.get("mode"):
+            bits.append(str(fault["mode"]))
+        if fault.get("status") is not None:
+            bits.append(f"status {fault['status']}")
+        meta.add_row("fault", " ".join(bits) + " (injected)")
     if step.error is not None:
         meta.add_row("error", Text(f"{step.error.type}: {step.error.detail}", style="red"))
     marks = [

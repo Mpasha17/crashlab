@@ -40,6 +40,11 @@ def semantic_response(step: Step) -> Any:
     out: dict[str, Any] = {"response": _strip(resp)}
     if step.error is not None:
         out["error"] = {"type": step.error.type, "message": step.error.message}
+    fault = step.attributes.get("crashlab.fault")
+    if isinstance(fault, dict) and fault:
+        out["fault"] = {
+            k: fault[k] for k in ("kind", "tool", "mode", "status", "name") if k in fault
+        }
     return out
 
 

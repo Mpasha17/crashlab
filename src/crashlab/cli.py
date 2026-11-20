@@ -307,9 +307,18 @@ def _step_io(step: Step) -> tuple[str, str]:
             out += " (stream" + (
                 ")" if step.attributes.get("crashlab.stream.complete", True) else ", incomplete)"
             )
+        fault = step.attributes.get("crashlab.fault")
+        if isinstance(fault, dict) and fault.get("kind"):
+            out += f" [fault:{fault['kind']}]"
         return inp, out
     if step.operation in ("execute_tool", "invoke_agent"):
-        return _short(step.args, 50), _short(step.result, 60) if step.response else ""
+        out = _short(step.result, 60) if step.response else ""
+        if step.error is not None and not out:
+            out = _short(step.error.message, 60)
+        fault = step.attributes.get("crashlab.fault")
+        if isinstance(fault, dict) and fault.get("kind"):
+            out = (out + " " if out else "") + f"[fault:{fault['kind']}]"
+        return _short(step.args, 50), out
     return _short(step.request, 50), _short(step.response, 60)
 
 
@@ -2270,7 +2279,7 @@ _HELP_PANELS = (
     ("Store", ("tag", "rm", "prune")),
     ("Diagnose and fix", ("triage", "diagnose", "fix", "verify", "export-test")),
     ("Evaluate", ("eval", "sweep")),
-    ("Replay and fork", ("replay", "fork")),
+    ("Replay and fork", ("replay", "fork", "stress")),
     ("Share and benchmark", ("export", "import", "bench")),
 )
 
@@ -2293,6 +2302,7 @@ def _tidy_help(typer_app: typer.Typer) -> None:
             info.short_help = _first_sentence(info.help)
 
 
+from . import cli_chaos as _cli_chaos  # noqa: E402,F401  registers stress
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
 from . import cli_eval as _cli_eval  # noqa: E402,F401  registers eval / sweep
 from . import cli_obs as _cli_obs  # noqa: E402,F401  registers stats / timeline / ui

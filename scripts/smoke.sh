@@ -83,6 +83,7 @@ step 0 "reproduced: 5/5"       -- replay "$BAD"
 step 0 "outcome: fail -> pass" -- fork "$BAD" --at 2 --patch examples/refund_bot/restore_policy.json
 step 0 "patch"                 -- fork "$BAD" --at 2 --system-append "x" --dry-run
 step 0 "refund_within_policy"  -- diff "$BAD" "$GOOD"
+step 0 "scenario"              -- stress "$GOOD" --scenario tool_empty --json
 step 0 "verdict: (VERIFIED|LIKELY)" -- verify "$BAD" --fix examples/refund_bot/restore_policy.json \
   -k 2 --regress "$GOOD"
 step 0 "wrote"                 -- export-test "$BAD" -o "$TMP/tests"
