@@ -101,13 +101,21 @@ def eval_cmd(
         None, "--markdown", help="Write a Markdown summary to this file.", metavar="PATH"
     ),
     as_json: bool = typer.Option(False, "--json", help="Print the report as JSON."),
+    rubric: Path | None = typer.Option(  # noqa: B008
+        None, "--rubric", help="Rubric file (JSON, TOML or YAML) for 0–100 scoring.", metavar="PATH"
+    ),
+    min_score: float | None = typer.Option(
+        None, "--min-score", help="Fail a run if its rubric score is below this (0–100)."
+    ),
 ) -> None:
     """Grade many recorded runs for CI: oracles, runtime checks and optional budgets.
 
     Pass exported .jsonl cassettes (files, directories or globs) or, with no files, scan
     the store. Exit 0 if every run passes, 1 if any fail, 2 if there are no runs or the
     inputs are invalid. --junit and --markdown write CI reports; when GITHUB_STEP_SUMMARY
-    is set the Markdown is also appended there.
+    is set the Markdown is also appended there. --rubric PATH (and optional
+    --min-score) grades each run 0–100 with a weighted rubric and fails runs
+    that score below the threshold; omitted, behavior is unchanged.
     """
     from .suite import eval_runs
 
@@ -135,6 +143,8 @@ def eval_cmd(
             max_steps=max_steps,
             min_finding_severity=min_finding_severity,
             rules=rules,
+            rubric=rubric,
+            min_score=min_score,
         )
     except (FileNotFoundError, ValueError, OSError, ImportError) as exc:
         console.print(f"[red]{_e(exc)}[/]")

@@ -248,6 +248,7 @@ def _judge(
     max_steps: int | None,
     min_finding_severity: str,
     rule_specs: list[Any] | None = None,
+    rubric: Any | None = None,
 ) -> EvalResult:
     working = run.model_copy()
     _import_entrypoint(working)
@@ -300,6 +301,19 @@ def _judge(
         status = "pass"
 
     cost, tokens, duration = _usage_numbers(working)
+    score = grade = rubric_passed = None
+    if rubric is not None:
+        from .rubrics import score_run
+
+        scored = score_run(working, rubric)
+        score, grade, rubric_passed = scored.score, scored.grade, scored.passed
+        if not scored.passed:
+            reasons.append(
+                f"rubric score {scored.score:.1f} ({scored.grade}) "
+                f"below min_score {rubric.min_score:g}"
+            )
+            if status == "pass":
+                status = "fail"
     return EvalResult(
         run_id=working.run_id,
         name=working.name,
@@ -311,6 +325,9 @@ def _judge(
         tokens=tokens,
         duration_seconds=duration,
         outcome=working.outcome,
+        score=score,
+        grade=grade,
+        rubric_passed=rubric_passed,
     )
 
 
@@ -332,6 +349,9 @@ class EvalResult:
     duration_seconds: float | None = None
     outcome: str = "unknown"
     path: str | None = None
+    score: float | None = None
+    grade: str | None = None
+    rubric_passed: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -437,30 +457,32 @@ class EvalReport:
             f"of {self.total} runs ({rate} pass). "
             f"Cost ${_fmt_cost(self.total_cost_usd)}, {self.total_tokens:,} tokens.\n"
         )
+        has_scores = any(r.score is not None for r in self.results)
+        headers = ["run", "agent", "result", "checks", "findings", "cost", "tokens", "duration"]
+        if has_scores:
+            headers[3:3] = ["score", "grade"]
         rows = [
-            "| run | agent | result | checks | findings | cost | tokens | duration |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| " + " | ".join(headers) + " |",
+            "| " + " | ".join("---" for _ in headers) + " |",
         ]
         for r in self.results:
             checks = ", ".join(r.failing_checks) or "—"
             findings = ", ".join(f"{f['kind']}:{f['severity']}" for f in r.findings) or "—"
             dur = f"{r.duration_seconds:.2f}s" if r.duration_seconds is not None else "—"
-            rows.append(
-                "| "
-                + " | ".join(
-                    [
-                        _md(r.run_id),
-                        _md(r.name),
-                        r.status,
-                        _md(checks),
-                        _md(findings),
-                        f"${_fmt_cost(r.cost_usd)}" if r.cost_usd is not None else "—",
-                        f"{r.tokens:,}",
-                        dur,
-                    ]
-                )
-                + " |"
-            )
+            cells = [
+                _md(r.run_id),
+                _md(r.name),
+                r.status,
+                _md(checks),
+                _md(findings),
+                f"${_fmt_cost(r.cost_usd)}" if r.cost_usd is not None else "—",
+                f"{r.tokens:,}",
+                dur,
+            ]
+            if has_scores:
+                score = f"{r.score:.1f}" if r.score is not None else "—"
+                cells[3:3] = [score, r.grade or "—"]
+            rows.append("| " + " | ".join(cells) + " |")
         body = "\n".join(rows)
         fails = [r for r in self.results if r.status != "pass"]
         if fails:
@@ -497,6 +519,24 @@ def _md(value: Any) -> str:
     return " ".join(str(value).replace("|", "\\|").split())
 
 
+def _load_eval_rubric(rubric: str | Path | Any | None, *, min_score: float | None) -> Any | None:
+    """Return a Rubric when ``rubric`` or ``min_score`` is set, else None."""
+    if rubric is None and min_score is None:
+        return None
+    from .rubrics import DEFAULT_RUBRIC, Rubric, RubricError, load_rubric
+
+    if rubric is None:
+        loaded = DEFAULT_RUBRIC
+    elif isinstance(rubric, Rubric):
+        loaded = rubric
+    else:
+        try:
+            loaded = load_rubric(rubric)
+        except RubricError as exc:
+            raise ValueError(str(exc)) from exc
+    return loaded.with_min_score(min_score)
+
+
 # --- eval_runs -----------------------------------------------------------------------
 
 
@@ -517,6 +557,8 @@ def eval_runs(
     max_steps: int | None = None,
     min_finding_severity: str = "error",
     rules: str | Path | Iterable[Any] | bool | None = None,
+    rubric: str | Path | Any | None = None,
+    min_score: float | None = None,
 ) -> EvalReport:
     """Grade many recorded runs with oracles, runtime checks and optional budgets.
 
@@ -525,7 +567,10 @@ def eval_runs(
     or globs). ``check_modules`` are imported first so ``@crashlab.check`` oracles in
     those files are registered. ``rules`` is a rule file path, ``"auto"`` / ``None``
     (discover ``.crashlab/rules.*`` or ``[tool.crashlab.rules]``), ``"off"`` / ``False``
-    to skip, or an in-memory list of rules. With ``replay=True`` each run is replayed
+    to skip, or an in-memory list of rules. ``rubric`` is a rubric file path or a
+    :class:`~crashlab.rubrics.Rubric`; ``min_score`` overrides the rubric's passing
+    score. When either is set, each run is also graded 0–100 and fails the suite if
+    it scores below the threshold. With ``replay=True`` each run is replayed
     offline first; :class:`~crashlab.replay.DivergenceError` and
     :class:`~crashlab.replay.ReplayError` are recorded as failures.
     """
@@ -545,6 +590,7 @@ def eval_runs(
         rule_specs = rules_to_checks(load_rules(rules)) if rules is not False else []
     except RuleError as exc:
         raise ValueError(str(exc)) from exc
+    rubric_obj = _load_eval_rubric(rubric, min_score=min_score)
     runs = _collect_runs(
         store, files, name=name, tag=tag, outcome=outcome, since=since, limit=limit
     )
@@ -563,6 +609,7 @@ def eval_runs(
                 max_steps=max_steps,
                 min_finding_severity=min_finding_severity,
                 rule_specs=rule_specs,
+                rubric=rubric_obj,
             )
         except (DivergenceError, ReplayError) as exc:
             cost, tokens, duration = _usage_numbers(run)
