@@ -4,6 +4,10 @@ Steps are aligned by index. Two steps are *the same* when they are the same oper
 the same model / tool with semantically equal requests and responses. Volatile values that
 differ between any two live calls (response ids, tool-call ids, usage, Gemini thought
 signatures) are ignored; ``exact`` additionally says whether the request hashes match.
+
+:class:`RunDiff` also reports a tool-sequence Levenshtein distance
+(:attr:`RunDiff.tool_edit_distance`) and a normalized trajectory similarity
+(:attr:`RunDiff.trajectory_similarity`).
 """
 
 from __future__ import annotations
@@ -163,6 +167,75 @@ class RunDiff:
         same = sum(1 for s in self.steps if s.same)
         return f"first divergence at step {fd}: {what}; {same}/{len(self.steps)} steps the same"
 
+    @property
+    def tool_sequence_a(self) -> list[str]:
+        return _tool_sequence(self.a)
+
+    @property
+    def tool_sequence_b(self) -> list[str]:
+        return _tool_sequence(self.b)
+
+    @property
+    def tool_edit_distance(self) -> int:
+        """Levenshtein edit distance between the two tool-name sequences."""
+        return _tool_levenshtein(self.tool_sequence_a, self.tool_sequence_b)[0]
+
+    @property
+    def trajectory_similarity(self) -> float:
+        """``1 - distance / max(len(a), len(b))``, or ``1.0`` when both sequences are empty."""
+        a, b = self.tool_sequence_a, self.tool_sequence_b
+        dist, _ = _tool_levenshtein(a, b)
+        return _trajectory_similarity(len(a), len(b), dist)
+
+    @property
+    def tool_alignment(self) -> list[dict[str, Any]]:
+        """Equal / replace / delete / insert ops that turn A's tools into B's."""
+        return _tool_levenshtein(self.tool_sequence_a, self.tool_sequence_b)[1]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Machine-readable summary (the same shape ``crashlab diff --json`` prints)."""
+
+        def finding_side(fs: list[Finding]) -> list[dict[str, Any]]:
+            return [{"severity": f.severity, "steps": f.steps, "message": f.message} for f in fs]
+
+        seq_a, seq_b = self.tool_sequence_a, self.tool_sequence_b
+        dist, alignment = _tool_levenshtein(seq_a, seq_b)
+        return {
+            "a": self.a.run_id,
+            "b": self.b.run_id,
+            "relation": self.relation,
+            "outcome": [self.a.outcome, self.b.outcome],
+            "status": [self.a.status, self.b.status],
+            "first_divergence": self.first_divergence,
+            "summary": self.summary(),
+            "identical_steps": self.identical_steps,
+            "checks": {
+                c.name: [c.a.status if c.a else None, c.b.status if c.b else None]
+                for c in self.checks
+            },
+            "steps": [
+                {"idx": s.idx, "status": s.status, "fields": s.fields, "exact": s.exact}
+                for s in self.steps
+            ],
+            "findings": [
+                {
+                    "kind": f.kind,
+                    "worst_a": f.worst_a,
+                    "worst_b": f.worst_b,
+                    "changed": f.changed,
+                    "a": finding_side(f.a),
+                    "b": finding_side(f.b),
+                }
+                for f in self.findings
+            ],
+            "usage": {"a": self.a.usage.model_dump(), "b": self.b.usage.model_dump()},
+            "tool_sequence_a": list(seq_a),
+            "tool_sequence_b": list(seq_b),
+            "tool_edit_distance": dist,
+            "trajectory_similarity": _trajectory_similarity(len(seq_a), len(seq_b), dist),
+            "tool_alignment": alignment,
+        }
+
 
 def _top_fields(paths: list[str]) -> list[str]:
     out: list[str] = []
@@ -213,6 +286,50 @@ def diff(a: Run, b: Run) -> RunDiff:
         for k in kinds
     ]
     return RunDiff(a, b, steps, checks, findings)
+
+
+def _tool_sequence(run: Run) -> list[str]:
+    return [s.name for s in run.steps if s.operation == "execute_tool"]
+
+
+def _trajectory_similarity(len_a: int, len_b: int, distance: int) -> float:
+    denom = max(len_a, len_b)
+    if denom == 0:
+        return 1.0
+    return 1.0 - (distance / denom)
+
+
+def _tool_levenshtein(a: list[str], b: list[str]) -> tuple[int, list[dict[str, Any]]]:
+    """Return (edit distance, alignment ops) for two tool-name sequences."""
+    n, m = len(a), len(b)
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        dp[i][0] = i
+    for j in range(1, m + 1):
+        dp[0][j] = j
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            dp[i][j] = min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
+    alignment: list[dict[str, Any]] = []
+    i, j = n, m
+    while i > 0 or j > 0:
+        if i > 0 and j > 0 and a[i - 1] == b[j - 1] and dp[i][j] == dp[i - 1][j - 1]:
+            alignment.append({"op": "equal", "a": a[i - 1], "b": b[j - 1]})
+            i -= 1
+            j -= 1
+        elif i > 0 and j > 0 and dp[i][j] == dp[i - 1][j - 1] + 1:
+            alignment.append({"op": "replace", "a": a[i - 1], "b": b[j - 1]})
+            i -= 1
+            j -= 1
+        elif i > 0 and dp[i][j] == dp[i - 1][j] + 1:
+            alignment.append({"op": "delete", "a": a[i - 1], "b": None})
+            i -= 1
+        else:
+            alignment.append({"op": "insert", "a": None, "b": b[j - 1]})
+            j -= 1
+    alignment.reverse()
+    return dp[n][m], alignment
 
 
 __all__ = ["CheckDiff", "FindingDiff", "RunDiff", "StepDiff", "compare_steps", "diff"]
