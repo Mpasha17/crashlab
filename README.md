@@ -137,6 +137,7 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   from the cassette; `side_effects=True` tools never run live (an identical call gets the
   recorded result, anything else is blocked and recorded as an attempt). The fork is a new
   run linked by `forked_from`, `fork_step` and the patch.
+- **Fault injection and chaos testing:** `with crashlab.faults(crashlab.faults.tool_error(tool="get_order", status=502, on_calls=[1])):` injects a deterministic tool or LLM failure into a live recorded run (or the live steps of a fork). Supported faults: `tool_error`, `tool_result` (HTML 502, empty, truncated JSON, schema drift), `tool_delay`, `llm_error` (rate limit / timeout), `llm_empty`, `llm_truncate`, `llm_bad_tool_call`. Each injection is stored on the step as `crashlab.fault` (`crashlab show`, `diff` and `diagnose` can see it). Strict `crashlab.replay` never re-injects; it serves the cassette. `crashlab stress RUN` / `crashlab.stress_run(run)` re-runs built-in chaos scenarios against the tools and models that run used and reports whether the agent recovered. See [docs/fault-injection.md](https://github.com/Mpasha17/crashlab/blob/main/docs/fault-injection.md).
 - **Typed patches** (pydantic, JSON/YAML-serializable, composable with `+`, each renders a
   human-readable diff): `SystemPromptPatch` (replace / append / prepend / insert, replace
   or delete a line / substitute; optional `when` scopes to one agent's prompt), `MessagePatch`, `InjectMessagePatch`, `ToolResultPatch`

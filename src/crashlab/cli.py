@@ -298,9 +298,18 @@ def _step_io(step: Step) -> tuple[str, str]:
             out += " (stream" + (
                 ")" if step.attributes.get("crashlab.stream.complete", True) else ", incomplete)"
             )
+        fault = step.attributes.get("crashlab.fault")
+        if isinstance(fault, dict) and fault.get("kind"):
+            out += f" [fault:{fault['kind']}]"
         return inp, out
     if step.operation in ("execute_tool", "invoke_agent"):
-        return _short(step.args, 50), _short(step.result, 60) if step.response else ""
+        out = _short(step.result, 60) if step.response else ""
+        if step.error is not None and not out:
+            out = _short(step.error.message, 60)
+        fault = step.attributes.get("crashlab.fault")
+        if isinstance(fault, dict) and fault.get("kind"):
+            out = (out + " " if out else "") + f"[fault:{fault['kind']}]"
+        return _short(step.args, 50), out
     return _short(step.request, 50), _short(step.response, 60)
 
 
@@ -2201,7 +2210,7 @@ def _first_sentence(text: str, limit: int = 60) -> str:
 _HELP_PANELS = (
     ("Inspect", ("ls", "show", "search", "cluster", "watch", "report", "diff", "check", "flakes")),
     ("Diagnose and fix", ("triage", "diagnose", "fix", "verify", "export-test")),
-    ("Replay and fork", ("replay", "fork")),
+    ("Replay and fork", ("replay", "fork", "stress")),
     ("Share and benchmark", ("export", "import", "bench")),
 )
 
@@ -2224,6 +2233,7 @@ def _tidy_help(typer_app: typer.Typer) -> None:
             info.short_help = _first_sentence(info.help)
 
 
+from . import cli_chaos as _cli_chaos  # noqa: E402,F401  registers stress
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
 
 _tidy_help(app)

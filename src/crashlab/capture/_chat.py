@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..context import current
+from ..faults import FAULT_ATTR, take_llm_fault
 from ..models import Step
 from . import normalize as N
 from ._steps import begin_step
@@ -272,7 +273,29 @@ def _parsed_for_record(result: Any) -> Any:
     return result
 
 
+def _apply_llm_fault(call: ChatCall) -> None:
+    """Inject an LLM fault on a live call (record / fork past the fork step)."""
+    fault = take_llm_fault(call)
+    if fault is None:
+        return
+    if call.pending is not None:
+        call.pending.attributes[FAULT_ATTR] = fault.as_dict()
+    call._fault = fault  # type: ignore[attr-defined]
+    if fault.kind == "llm_error":
+        exc = fault.exception()
+        call.fail(exc)
+        raise exc
+
+
+def _mutated(call: ChatCall, result: Any) -> Any:
+    fault = getattr(call, "_fault", None)
+    if fault is None or call.stream or fault.kind == "llm_error":
+        return result
+    return fault.mutate_response(result)
+
+
 def _wrap_result(call: ChatCall, result: Any, *, is_async: bool) -> Any:
+    result = _mutated(call, result)
     if call.stream and call.active:
         asm = call.adapter.new_assembler()
         if is_async or (hasattr(result, "__aiter__") and not hasattr(result, "__iter__")):
@@ -349,6 +372,7 @@ def invoke(
         if is_async is None:
             is_async = inspect.iscoroutinefunction(fn)
         return call.serve_replay(src, is_async=is_async, raw=raw)
+    _apply_llm_fault(call)
     try:
         result = fn(*args, **kwargs)
     except BaseException as exc:

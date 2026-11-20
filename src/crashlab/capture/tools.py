@@ -5,12 +5,14 @@ from __future__ import annotations
 import dataclasses
 import functools
 import inspect
+import time
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from ..context import _PENDING_AGENT, AGENT_ATTR
+from ..faults import FAULT_ATTR, take_tool_fault
 from ..replay.divergence import PatchedToolError, SideEffectBlockedError
 from ..replay.rebuild import rebuild_exception, recancel
 from ._steps import begin_step
@@ -569,6 +571,29 @@ async def _replay_agen(items: list[Any], error: BaseException | None) -> Any:
         raise error
 
 
+def _pre_live_fault(pending: Any, tool_name: str) -> Any:
+    """Apply a pre-call tool fault. Raises, or returns the rule (maybe None)."""
+    fault = take_tool_fault(pending, tool_name)
+    if fault is None:
+        return None
+    if pending is not None:
+        pending.attributes[FAULT_ATTR] = fault.as_dict()
+    if fault.kind == "tool_error":
+        exc = fault.exception()
+        if pending is not None:
+            pending.fail(exc, is_tool_error=True)
+        raise exc
+    if fault.kind == "tool_delay" and fault.seconds:
+        time.sleep(fault.seconds)
+    return fault
+
+
+def _maybe_corrupt(result: Any, fault: Any) -> Any:
+    if fault is not None and fault.kind == "tool_result":
+        return fault.materialize(result)
+    return result
+
+
 def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
     if inspect.iscoroutinefunction(fn):
 
@@ -585,6 +610,11 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             if served:
                 return value
             faked = impl is not fn
+            fault = _pre_live_fault(pending, spec.name)
+            if fault is not None and fault.replaces_call():
+                result = fault.materialize(None)
+                _done(pending, result, faked)
+                return result
             try:
                 with pending.activate():
                     result = impl(*args, **kwargs)  # type: ignore[misc]
@@ -594,6 +624,7 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
                 pending.fail(exc, is_tool_error=True, attributes=FAKE_ATTR if faked else None,
                              source="fake" if faked else None)  # fmt: skip
                 raise
+            result = _maybe_corrupt(result, fault)
             _done(pending, result, faked)
             return result
 
@@ -609,6 +640,11 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             if served:
                 return value
             faked = impl is not fn
+            fault = _pre_live_fault(pending, spec.name)
+            if fault is not None and fault.replaces_call():
+                result = fault.materialize(None)
+                _done(pending, result, faked)
+                return result
             try:
                 with pending.activate():
                     result = impl(*args, **kwargs)  # type: ignore[misc]
@@ -620,6 +656,7 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
                 return _record_gen(pending, result, faked)
             if inspect.isasyncgen(result):
                 return _record_agen(pending, result, faked)
+            result = _maybe_corrupt(result, fault)
             _done(pending, result, faked)
             return result
 

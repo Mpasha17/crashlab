@@ -3,7 +3,8 @@
 Record every LLM and tool call from your existing agent loop into a local store
 (``.crashlab/``), inspect runs with ``crashlab ls`` / ``crashlab show``, replay them
 offline with ``crashlab.replay(run)``, judge them with ``@crashlab.check`` oracles, and
-ask "what if" with ``crashlab.fork(run, at_step=N, patch=...)``. Built-in runtime checks
+ask "what if" with ``crashlab.fork(run, at_step=N, patch=...)`` or inject faults with
+``crashlab.faults(...)`` / ``crashlab stress``. Built-in runtime checks
 (loops, tool error streaks, bad tool arguments, suspicious tool results, budgets, length
 cut-offs) run while recording and store :class:`Finding` s on the run.
 
@@ -44,6 +45,7 @@ from .context import (
     run_in_thread,
 )
 from .diagnose import DiagnoseError, diagnose, propose_fixes, try_fix
+from .faults import faults
 from .models import (
     CheckResult,
     Diagnosis,
@@ -81,6 +83,7 @@ from .replay import (
 )
 from .store import RunNotFoundError, Store, load
 from .store import redact as redaction
+from .stress import stress_run
 from .verify import VerifyError, check, run_checks, verify
 
 __all__ = [
@@ -134,6 +137,7 @@ __all__ = [
     "copy_context_to_thread",
     "diff",
     "fake_tool",
+    "faults",
     "flakes",
     "fork",
     "is_replaying",
@@ -147,6 +151,7 @@ __all__ = [
     "replay",
     "run_checks",
     "run_in_thread",
+    "stress_run",
     "tool",
     "wrap",
 ]
