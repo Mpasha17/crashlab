@@ -202,6 +202,9 @@ class record:
     ``$CRASHLAB_PARENT_RUN`` / ``$CRASHLAB_TRACE_ID`` (set them with
     :func:`crashlab.child_env`). Replays and forks are not linked.
 
+    ``prompt_version`` names the prompt version this run uses (``"support-v3"``); chat steps
+    carry it next to their prompt id, see :mod:`crashlab.prompts`.
+
     The yielded :class:`~crashlab.models.Run` can be mutated, e.g. ``run.output = answer``
     or ``run.outcome = "pass"``; it is persisted when the block exits. An exception marks
     the run ``status="error"`` and ``outcome="fail"`` and is re-raised.
@@ -220,7 +223,13 @@ class record:
         env: list[str] | tuple[str, ...] | None = None,
         parent: Run | str | None = None,
         trace: str | None = None,
+        prompt_version: str | None = None,
     ) -> None:
+        if prompt_version is not None and (
+            not isinstance(prompt_version, str) or not prompt_version.strip()
+        ):
+            raise ValueError("record(): prompt_version must be a non-empty string")
+        self.prompt_version = prompt_version.strip() if prompt_version else None
         self.link: dict[str, str] | None = None
         if parent is not None:
             pid = _link_id(parent.run_id if isinstance(parent, Run) else parent, "parent")
@@ -272,6 +281,8 @@ class record:
             tags=list(self.tags),
             span_id=new_span_id(),
         )
+        if self.prompt_version:
+            run.env["prompt_version"] = self.prompt_version
         if run.code_version is None:
             h = _source_hash(self._source) or _source_hash(_entrypoint_source(self.entrypoint))
             if h:

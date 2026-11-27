@@ -2437,7 +2437,7 @@ _HELP_PANELS = (
         "Diagnose and fix",
         ("triage", "bisect", "diagnose", "fix", "verify", "export-test", "guard-report"),
     ),
-    ("Evaluate", ("eval", "sweep", "rules", "score", "judge", "simulate", "baseline")),
+    ("Evaluate", ("eval", "sweep", "rules", "score", "judge", "simulate", "baseline", "prompts")),
     ("Replay and fork", ("replay", "fork", "stress", "fuzz", "proxy")),
     ("Share and benchmark", ("export", "import", "bundle", "unbundle", "dataset", "bench")),
 )
@@ -2495,6 +2495,7 @@ from . import cli_guard as _cli_guard  # noqa: E402,F401  registers guard-report
 from . import cli_judges as _cli_judges  # noqa: E402,F401  registers judge
 from . import cli_obs as _cli_obs  # noqa: E402,F401  registers stats / timeline / ui
 from . import cli_ops as _cli_ops  # noqa: E402,F401  registers doctor / init / profile
+from . import cli_prompts as _cli_prompts  # noqa: E402,F401  registers prompts
 from . import cli_proxy as _cli_proxy  # noqa: E402,F401  registers proxy
 from . import cli_rubrics as _cli_rubrics  # noqa: E402,F401  registers score
 from . import cli_rules as _cli_rules  # noqa: E402,F401  registers rules
