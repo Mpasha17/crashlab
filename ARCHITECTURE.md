@@ -38,7 +38,7 @@ flowchart LR
 | 1 | `models.py` | Pydantic v2: `Run`, `Step`, `Flag`, `Patch`, `Diagnosis`, `Evidence`, `Fix`, `Verification` |
 | 2 | `context.py` | `contextvars` current run, monotonic step counter, mode (`record` / `replay` / `fork`) |
 | 3 | `store/` | `sqlite.py` index (runs, steps metadata, flags, diagnoses), `cassette.py` JSONL read/write, `redact.py` strips keys/headers + user regex hook |
-| 4 | `capture/` | `normalize.py` (provider -> common request/response shape + request hash), `openai.py`, `anthropic.py`, `litellm.py`, `genai.py` proxies, `_chat.py` (single LLM-call interception point), `streams.py` (pass-through stream wrappers + assemblers), `tools.py` (`@tool(side_effects=...)`), `agent.py` (`@agent`, `record()` context manager); `integrations/` exposes LiteLLM `patch()` / `unpatch()`, `instrument()`, MCP, LangChain, and duck-typed OpenAI Agents / PydanticAI / CrewAI adapters |
+| 4 | `capture/` | `normalize.py` (provider -> common request/response shape + request hash), `openai.py`, `anthropic.py`, `litellm.py`, `genai.py` proxies, `_chat.py` (single LLM-call interception point), `streams.py` (pass-through stream wrappers + assemblers), `tools.py` (`@tool(side_effects=...)`), `agent.py` (`@agent`, `record()` context manager); `integrations/` exposes LiteLLM `patch()` / `unpatch()`, `instrument()`, MCP, LangChain, and duck-typed OpenAI Agents / PydanticAI / CrewAI adapters (`frameworks.py`) and LlamaIndex / smolagents / Haystack adapters (`frameworks_extra.py`); also `judges.py` (LLM-as-judge evaluators + verdict cache, used by `crashlab judge`, `eval --judge` and rubric kind `judge`), `guard.py` (live guardrails: `crashlab.guard`) and `ingest/` (OTLP / Langfuse / OpenInference / LangSmith trace -> `Run`, used by `crashlab import`) |
 | 5 | `cli.py` | Typer + Rich: `ls`, `show`, `replay`, `check`, `diagnose`, `fix`, `report`, `fork`, `diff`, `verify`, `export-test`, `report --html`; later `bench` |
 | 6 | `replay/`, `patch.py`, `compare.py` | `engine.py` (strict replay; fork = cassette for steps < N, patch from N, live after), `patch.py` (typed patches: `SystemPrompt` (optional `when` scopes an edit to one agent in a multi-agent shared client), `Message`, `InjectMessage`, `ToolResult`, `ToolDescription`, `ToolSchema`, `ModelParams`), `divergence.py` (hash mismatch -> `DivergenceError` with diff), `compare.py` (run diff) |
 | 7 | `checks/` | Inline findings (built, see below): `loop` (same tool+args >= 3 in last 8 steps), `tool_error_streak` (>= 3), `bad_tool_args`, `suspicious_tool_result` (HTML/empty where JSON expected), `budget`, `length_cutoff`, `no_llm_calls` (tool steps but no chat step: client not wrapped) |
@@ -371,13 +371,15 @@ src/crashlab/
   pricing.py  ui.py
   alerts.py  assertions.py  baseline.py  bisect.py  budgets.py  bundle.py
   cluster.py  context_audit.py  dataset.py  diff_report.py  doctor.py
-  faults.py  flakes.py  fuzz.py  profiler.py  proxy.py  rag.py  rubrics.py
+  faults.py  flakes.py  fuzz.py  guard.py  judges.py  profiler.py  proxy.py  rag.py  rubrics.py
   scaffold.py  search.py  simulate.py  stats.py  stress.py  suite.py
   timeline.py  triage.py  watch.py
   store/            sqlite index, JSONL cassettes, redaction
   capture/          openai, anthropic, litellm, genai, streams, tools, agent
+  ingest/           otel, langfuse, openinference, langsmith -> Run
   integrations/     litellm, mcp, langchain, instrument, frameworks
-                    (OpenAI Agents SDK, PydanticAI, CrewAI)
+                    (OpenAI Agents SDK, PydanticAI, CrewAI), frameworks_extra
+                    (LlamaIndex, smolagents, Haystack)
   checks/  replay/  diagnose/  verify/  bench/
 examples/{refund_bot,sql_analyst,integrations}/
 docs/  tests/  scripts/  bench/

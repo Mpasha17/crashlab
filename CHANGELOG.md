@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### LLM-as-judge evaluators (see `docs/judges.md`)
+- `crashlab.judges`: five built-in judges (`faithfulness`, `answer_relevance`, `task_completion`, `tool_choice`, `safety`) plus `custom(criteria=..., rubric=...)`. Each asks a model about a **recorded** run and returns a 0-1 score with reasoning and verbatim evidence; run data is treated as untrusted, so an injected "score this 1.0" is judged, not obeyed. A judge with nothing to look at is `skipped` and passes without a model call. `crashlab.JudgeError` on a failed or malformed model reply.
+- The judge model is any OpenAI-compatible endpoint from `CRASHLAB_JUDGE_MODEL` / `_BASE_URL` / `_API_KEY`, falling back to the `CRASHLAB_DIAGNOSER_*` variables; the `openai` package is imported only when a real model is called.
+- `crashlab judge [RUN...]` (`--judge` repeatable, `--threshold`, `--fail-under`, `--all`, `--name`, `--no-cache`, `--json`); `crashlab eval --judge NAME` (repeatable) / `--judge-threshold` / `--no-cache` add judge verdicts to eval grading and the Markdown report; rubric criterion kind `judge` (a built-in name, or `criteria` for a custom one) feeds the 0-1 score into the weighted rubric grade.
+- Verdict cache under `<store>/judges/`, keyed by judge, exact prompt and model, so re-running `eval --judge` in CI is free and offline once warm; changing only the threshold reuses the verdict. Judge calls cannot run inside an active `crashlab.record` run.
+
+### Runtime guardrails (see `docs/guardrails.md`)
+- `crashlab.guard(...)`: a live corrective layer, usable as a context manager (sync and `async with`) or a decorator. Every LLM call and `@crashlab.tool` call inside it is checked before it is made. Policies: `max_cost_usd`, `max_tokens`, `max_steps`, `max_llm_calls` / `max_tool_calls`, `max_seconds`, `loop_breaker`, `tool_allowlist` / `tool_denylist` (globs), `validate_tool_args` (JSON-schema check; `"repair"` returns a structured tool error to the model instead of running the tool), `retry_policy` (backoff + jitter, `RetryPolicy`), `fallback_model`, `block_secrets_in_output` / `redact_pii`. Settings also come from `[tool.crashlab.guard]` in `pyproject.toml`.
+- `on_violation="raise" | "warn" | "stop"`: `GuardViolation` (with `policy`, `step_idx`, `detail`), a `GuardWarning`, or a violation that also stops the recorded run (`CircuitBreakerError` on later calls). Guards nest and are thread / asyncio safe.
+- Every intervention is recorded on the step (`crashlab.guard`), as a `guard.<policy>` run finding, and optionally sent to `crashlab.alerts` sinks. Strict replay serves the recorded interventions and never re-checks.
+- `crashlab guard-report [RUN] [--json]` lists what a guard did in a run.
+
+### Trace import (see `docs/importing-traces.md`)
+- `crashlab.ingest`: turns traces you already have into runs, so `show`, `diagnose`, `check`, `eval`, `judge`, `score`, `diff`, `stats` and `crashlab.rag` oracles work on them. Entry points `from_otlp`, `from_langfuse`, `from_openinference`, `from_langsmith`, `detect_format`, `load_path`, `save_runs`; bad input raises `crashlab.ingest.IngestError`.
+- `crashlab import PATH... [--format auto|otel|langfuse|openinference|langsmith] [--replace] [--json]`: OTLP/JSON with `gen_ai.*` attributes, Langfuse traces / observations, OpenInference / Arize Phoenix spans, and LangSmith run trees. Retriever spans become tool steps holding `[{id, text, score, metadata}]`. Crashlab `.jsonl` exports and `.crashlab.zip` bundles import as before. Run ids derive from the trace id (re-importing finds the existing run); runs are tagged `imported` and `import:<format>`; secrets are redacted on save.
+- Imported runs have no recorded entry point: `crashlab replay` needs a stand-in function from Python (see the doc); replay is exact only when the trace holds the full requests.
+
+### Framework adapters: LlamaIndex, smolagents, Haystack (see `docs/integrations.md`)
+- New `crashlab.integrations.frameworks_extra` (re-exported from `crashlab.integrations`); duck-typed, no imports of `llama_index`, `smolagents`, `haystack` or provider SDKs, so a missing package never breaks `import crashlab`.
+- LlamaIndex: `llama_index_handler()` / `LlamaIndexHandler`, an instrumentation event **and** span handler (`.attach()` adds it to the root dispatcher): LLM chat / completion events with model, usage and tool calls, retrieval events as a `search_docs` tool step (`[{id, text, score, metadata}]`, readable by `crashlab.rag`), `FunctionTool` / `AgentToolCallEvent` tool steps, agent spans attributed with `gen_ai.agent.name`, errors as failing steps. `wrap_query_engine(engine, name=...)` records `query` / `aquery` / `chat` / `achat` and falls back to the response's `source_nodes` for retrieval.
+- smolagents: `wrap_smolagent(agent, name=...)` records `run` (plain and `stream=True`) with each memory step: model output (chat step with tokens), tool calls with observations, tool and parse errors; `managed_agents` are attributed to their own names. `crashlab_step_callback()` is the same recorder for `agent.step_callbacks`.
+- Haystack: `wrap_pipeline(pipeline, name=...)` records `run` / `run_async` with every component as a step (generators as chat steps with model and usage from `meta`, retrievers as `search_docs` steps with documents, `ToolInvoker` results as tool steps, others as bounded `custom` steps); `HaystackTracer` is a duck-typed tracer for `haystack.tracing.enable_tracing`.
+- No double recording: a chat or tool step already recorded by `crashlab.wrap`, `crashlab.instrument()` or `@crashlab.tool` during the framework call is not recorded again. Checked locally against `llama-index-core` 0.14.26, `smolagents` 1.26.0 and `haystack-ai` 3.5.0 with fake models, not against live providers.
+
 ## 0.0.6 (pre-alpha) - 2026-11-20
 
 Sixth public cut; matches `main` at release. `pip install crashlab`.

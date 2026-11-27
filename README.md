@@ -243,8 +243,8 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   `diagnose`, `fix`, `verify`, `export-test`, `replay`, `fork`, `export`, `import`, `bench`,
   `stats`, `timeline`, `ui`, `eval`, `sweep`, `bisect`, `score`, `baseline`, `rules`,
   `doctor`, `init`, `profile`, `context`, `audit-tools`, `dataset`, `fuzz`, `simulate`,
-  `proxy`, `bundle`, `unbundle`, `audit-secrets`, `redact-run`, `tag`, `rm`, `prune`
-  (`crashlab --help`); in Python, `crashlab.load("last")`. `scripts/smoke.sh` runs every
+  `proxy`, `bundle`, `unbundle`, `audit-secrets`, `redact-run`, `tag`, `rm`, `prune`,
+  `judge`, `guard-report` (`crashlab --help`); in Python, `crashlab.load("last")`. `scripts/smoke.sh` runs every
   command end to end offline against a fake model server, in CI.
 
 - **Auto-instrumentation:** `crashlab.instrument()` / `uninstrument()` patches OpenAI,
@@ -257,6 +257,18 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   are CI-friendly. See [docs/rules.md](https://github.com/Mpasha17/crashlab/blob/main/docs/rules.md),
   [docs/rubrics.md](https://github.com/Mpasha17/crashlab/blob/main/docs/rubrics.md) and
   [docs/observability.md](https://github.com/Mpasha17/crashlab/blob/main/docs/observability.md).
+- **LLM-as-judge and live guardrails:** `crashlab judge` / `eval --judge` score a recorded run
+  with a model you configure (faithfulness, answer relevance, task completion, tool choice,
+  safety, or your own criteria), cache the verdicts and add a `judge` rubric kind; they
+  complement the deterministic checks and send run data to that model. `crashlab.guard(...)`
+  enforces cost, step, time, loop, tool allow/deny, argument-validation, retry and
+  secret-redaction policies *while the agent runs*, and `crashlab guard-report` lists what it
+  did. See [docs/judges.md](https://github.com/Mpasha17/crashlab/blob/main/docs/judges.md) and
+  [docs/guardrails.md](https://github.com/Mpasha17/crashlab/blob/main/docs/guardrails.md).
+- **Import traces you already have:** `crashlab import trace.json` turns OpenTelemetry GenAI,
+  Langfuse, OpenInference / Phoenix and LangSmith traces into runs you can `show`, `check`,
+  `diagnose` and `judge` (replay needs a stand-in function; see the doc). See
+  [docs/importing-traces.md](https://github.com/Mpasha17/crashlab/blob/main/docs/importing-traces.md).
 - **Datasets, fuzzing and simulation:** `crashlab dataset` builds redacted golden JSONL
   datasets; `crashlab fuzz` runs seeded adversarial mutations; `crashlab simulate` drives
   a multi-turn persona or policy scenario. See
@@ -272,8 +284,9 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
 - **Proxy, pytest and frameworks:** `crashlab proxy` records or replays LLM HTTP/SSE
   traffic on localhost for any language; the native `pytest11` plugin adds
   `crashlab_store`, `crashlab_record`, `crashlab_replay` and `@pytest.mark.crashlab`;
-  `crashlab.integrations` has duck-typed adapters for the OpenAI Agents SDK, PydanticAI
-  and CrewAI. See [docs/proxy.md](https://github.com/Mpasha17/crashlab/blob/main/docs/proxy.md),
+  `crashlab.integrations` has duck-typed adapters for the OpenAI Agents SDK, PydanticAI,
+  CrewAI, LlamaIndex (`llama_index_handler`, `wrap_query_engine`), smolagents
+  (`wrap_smolagent`) and Haystack (`wrap_pipeline`). See [docs/proxy.md](https://github.com/Mpasha17/crashlab/blob/main/docs/proxy.md),
   [docs/pytest-plugin.md](https://github.com/Mpasha17/crashlab/blob/main/docs/pytest-plugin.md)
   and [docs/integrations.md](https://github.com/Mpasha17/crashlab/blob/main/docs/integrations.md).
 - **Shareable diffs and fleet reports:** `crashlab diff --html` / `--markdown` /
@@ -637,6 +650,9 @@ Samples are small and the intervals are wide; details, all CIs and caveats in
 | Prompt context and tool audits | [docs/context-and-tools.md](https://github.com/Mpasha17/crashlab/blob/main/docs/context-and-tools.md) |
 | Weighted rubric scoring | [docs/rubrics.md](https://github.com/Mpasha17/crashlab/blob/main/docs/rubrics.md) |
 | Debug bundles and secret audits | [docs/bundles-and-security.md](https://github.com/Mpasha17/crashlab/blob/main/docs/bundles-and-security.md) |
+| LLM-as-judge evaluators | [docs/judges.md](https://github.com/Mpasha17/crashlab/blob/main/docs/judges.md) |
+| Live guardrails | [docs/guardrails.md](https://github.com/Mpasha17/crashlab/blob/main/docs/guardrails.md) |
+| Importing traces | [docs/importing-traces.md](https://github.com/Mpasha17/crashlab/blob/main/docs/importing-traces.md) |
 | Framework integrations | [docs/integrations.md](https://github.com/Mpasha17/crashlab/blob/main/docs/integrations.md) |
 | Case studies | [docs/case-studies/](https://github.com/Mpasha17/crashlab/blob/main/docs/case-studies/README.md) |
 | Terminal demo | [docs/demo/](https://github.com/Mpasha17/crashlab/blob/main/docs/demo/README.md) |

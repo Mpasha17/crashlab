@@ -123,4 +123,13 @@ CRASHLAB_DIR="$TMP/store3" step 0 "imported" -- unbundle "$TMP/run.crashlab.zip"
 step 0 "audit-secrets|no secrets found|hit" -- audit-secrets "$GOOD"
 step 0 "exported"              -- export "$BAD" --format otel -o "$TMP/run.otel.json"
 step 0 "exported"              -- export "$BAD" --format chrome-trace -o "$TMP/run.trace.json"
+# Today's features: judges (no model needed for --help), guard-report, trace import
+step 0 "Usage: crashlab judge" -- judge --help
+step 0 "no guard interventions" -- guard-report "$GOOD"
+step 0 '"interventions"|no guard interventions' -- guard-report "$GOOD" --json
+CRASHLAB_DIR="$TMP/store4" step 0 "otel, 3 steps" -- import tests/fixtures/ingest/otel_genai.json --format otel
+CRASHLAB_DIR="$TMP/store4" step 0 "langsmith, 2 steps" -- import tests/fixtures/ingest/langsmith_rag_run.json --format langsmith
+CRASHLAB_DIR="$TMP/store4" step 0 "langfuse" -- import tests/fixtures/ingest/langfuse_trace.json --format langfuse
+CRASHLAB_DIR="$TMP/store4" step 0 "imported|already there" -- import tests/fixtures/ingest/openinference_phoenix.json --format openinference
+CRASHLAB_DIR="$TMP/store4" step 0 "outcome|steps|rag_chain|llm" -- show last
 echo "SMOKE OK: $n crashlab commands"
