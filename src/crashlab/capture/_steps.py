@@ -248,6 +248,10 @@ def begin_step(
         turn = current_turn()
         if turn is not None:
             attrs[TURN_ATTR] = turn
+    if operation == "chat":
+        from ..prompts import stamp_step
+
+        stamp_step(ctx, attrs, request)
     return PendingStep(
         ctx=ctx,
         idx=ctx.next_idx() if idx is None else idx,
