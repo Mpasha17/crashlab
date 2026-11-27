@@ -76,6 +76,7 @@ from .patch import (
     ToolResultPatch,
     ToolSchemaPatch,
 )
+from .repair import RepairError, RepairResult, repair
 from .replay import (
     DivergenceError,
     ForkError,
@@ -100,6 +101,9 @@ __all__ = [
     "try_fix",
     "verify",
     "VerifyError",
+    "repair",
+    "RepairError",
+    "RepairResult",
     "CheckResult",
     "ChecksConfig",
     "CircuitBreakerError",
