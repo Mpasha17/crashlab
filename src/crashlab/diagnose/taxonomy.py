@@ -25,7 +25,9 @@ DEFINITIONS: dict[TaxonomyLabel, str] = {
     TaxonomyLabel.TASK_SPEC_VIOLATION: (
         "An action or output violates an explicit instruction or constraint: one in the "
         "agent's context (system prompt, user message, tool description) or a business rule "
-        "stated by a failed @crashlab.check oracle."
+        "stated by a failed @crashlab.check oracle. Also: forgetting, re-asking for or "
+        "contradicting a fact the conversation already established (user-given details, an "
+        "earlier answer, a newer tool result)."
     ),
     TaxonomyLabel.EXTERNAL_FAILURE: (
         "The root cause is outside the agent (an API or tool down, rate limited, wrong "

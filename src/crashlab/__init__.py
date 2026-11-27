@@ -31,7 +31,7 @@ cut-offs) run while recording and store :class:`Finding` s on the run.
 
 from __future__ import annotations
 
-from . import assertions, budgets, checks, flakes, judges, patch, pricing, rag, suite
+from . import assertions, budgets, checks, flakes, judges, memory, patch, pricing, rag, suite
 from ._version import __version__
 from .capture import agent, child_env, clear_fakes, fake_tool, record, tool, wrap
 from .checks import ChecksConfig, CircuitBreakerError
@@ -51,6 +51,7 @@ from .fuzz import fuzz_agent, fuzz_run
 from .guard import GuardViolation, guard
 from .integrations.instrument import instrument, instrumented, uninstrument
 from .judges import Judge, JudgeError, JudgeResult, judge_run, judge_runs
+from .memory import snapshot
 from .models import (
     CheckResult,
     Diagnosis,
@@ -112,6 +113,7 @@ __all__ = [
     "Fix",
     "Flag",
     "Judge",
+    "snapshot",
     "JudgeError",
     "JudgeResult",
     "ForkError",
@@ -170,6 +172,7 @@ __all__ = [
     "judge_runs",
     "judges",
     "load",
+    "memory",
     "patch",
     "pricing",
     "rag",

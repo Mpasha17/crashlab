@@ -149,6 +149,61 @@ class SystemPromptLeakConfig(_Cfg):
     min_chars: int = 100
 
 
+class MemoryContextTruncationConfig(_Cfg):
+    """Messages an earlier LLM request of the conversation had that a later request
+    silently lost (a sliding window, a bad trim, a history that is not passed on)."""
+
+    min_dropped: int = 1  # dropped messages needed to report
+    reset: bool = True  # also: a turn that carries nothing of the previous turn (simulate)
+
+
+class MemoryForgottenFactConfig(_Cfg):
+    """A fact the user gave (name, email, phone, id, date, amount, count) asked for again
+    or contradicted in a later reply."""
+
+    ask_again: bool = True
+    contradicted: bool = True
+    ignore_kinds: list[str] = Field(default_factory=list)  # email, phone, id, name, ...
+
+
+class MemorySelfContradictionConfig(_Cfg):
+    """The agent states different values (numbers, dates, yes / no) for the same thing in
+    different replies, with nothing in between that explains the change. Heuristic."""
+
+
+class MemoryStaleToolResultConfig(_Cfg):
+    """The agent's reply still uses a value from a tool result that a newer call of the same
+    tool with the same arguments replaced."""
+
+    ignore_tools: list[str] = Field(default_factory=list)  # e.g. tools whose output varies
+
+
+class MemoryUnboundedGrowthConfig(_Cfg):
+    """Prompt (or snapshot) size growing faster each turn: super-linear growth."""
+
+    min_steps: int = 6  # samples (turns / LLM calls / snapshots) needed
+    min_growth_tokens: int = 1000
+    acceleration: float = 1.5  # later per-turn growth / earlier per-turn growth
+
+
+class MemoryConfig(_Cfg):
+    """Memory and state checks for multi-turn agents (``memory.*`` findings)."""
+
+    context_truncation: MemoryContextTruncationConfig = Field(
+        default_factory=MemoryContextTruncationConfig
+    )
+    forgotten_fact: MemoryForgottenFactConfig = Field(default_factory=MemoryForgottenFactConfig)
+    self_contradiction: MemorySelfContradictionConfig = Field(
+        default_factory=MemorySelfContradictionConfig
+    )
+    stale_tool_result: MemoryStaleToolResultConfig = Field(
+        default_factory=MemoryStaleToolResultConfig
+    )
+    unbounded_growth: MemoryUnboundedGrowthConfig = Field(
+        default_factory=MemoryUnboundedGrowthConfig
+    )
+
+
 class ChecksConfig(BaseModel):
     """Which built-in runtime checks run, with what thresholds."""
 
@@ -176,6 +231,7 @@ class ChecksConfig(BaseModel):
     context_bloat: ContextBloatConfig = Field(default_factory=ContextBloatConfig)
     tool_fanout: ToolFanoutConfig = Field(default_factory=ToolFanoutConfig)
     system_prompt_leak: SystemPromptLeakConfig = Field(default_factory=SystemPromptLeakConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -206,6 +262,7 @@ _SECTIONS = (
     "context_bloat",
     "tool_fanout",
     "system_prompt_leak",
+    "memory",
 )
 
 
