@@ -47,7 +47,8 @@ def crashlab_dir(tmp_path, monkeypatch):
         monkeypatch.delenv(fault, raising=False)
     # the README tells users to export these; a developer shell must not leak into tests
     for var in ("CRASHLAB_DIAGNOSER_MODEL", "CRASHLAB_DIAGNOSER_BASE_URL",
-                "CRASHLAB_DIAGNOSER_API_KEY"):  # fmt: skip
+                "CRASHLAB_DIAGNOSER_API_KEY", "CRASHLAB_JUDGE_MODEL",
+                "CRASHLAB_JUDGE_BASE_URL", "CRASHLAB_JUDGE_API_KEY"):  # fmt: skip
         monkeypatch.delenv(var, raising=False)
     redact.reset()
     from examples.refund_bot import agent as refund_agent

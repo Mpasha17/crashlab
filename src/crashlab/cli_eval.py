@@ -107,6 +107,20 @@ def eval_cmd(
     min_score: float | None = typer.Option(
         None, "--min-score", help="Fail a run if its rubric score is below this (0–100)."
     ),
+    judge: list[str] | None = typer.Option(  # noqa: B008
+        None,
+        "--judge",
+        help="LLM-as-judge evaluator: faithfulness, answer_relevance, task_completion, "
+        "tool_choice or safety. Repeatable. Needs $CRASHLAB_JUDGE_MODEL.",
+    ),
+    judge_threshold: float | None = typer.Option(
+        None,
+        "--judge-threshold",
+        help="Fail a run if any --judge scores below this (0–1). Default: each judge's own.",
+    ),
+    no_cache: bool = typer.Option(
+        False, "--no-cache", help="Ignore and do not write the judge verdict cache."
+    ),
 ) -> None:
     """Grade many recorded runs for CI: oracles, runtime checks and optional budgets.
 
@@ -115,7 +129,9 @@ def eval_cmd(
     inputs are invalid. --junit and --markdown write CI reports; when GITHUB_STEP_SUMMARY
     is set the Markdown is also appended there. --rubric PATH (and optional
     --min-score) grades each run 0–100 with a weighted rubric and fails runs
-    that score below the threshold; omitted, behavior is unchanged.
+    that score below the threshold; omitted, behavior is unchanged. --judge NAME
+    (repeatable) adds LLM-as-judge verdicts, cached on disk so CI re-runs are free;
+    --judge-threshold overrides their pass thresholds.
     """
     from .suite import eval_runs
 
@@ -124,6 +140,9 @@ def eval_cmd(
     outcome_val = _outcome(outcome)
     if min_finding_severity not in _SEVERITIES:
         console.print(f"[red]--min-finding-severity must be one of {', '.join(_SEVERITIES)}[/]")
+        raise typer.Exit(code=2)
+    if judge_threshold is not None and not 0.0 <= judge_threshold <= 1.0:
+        console.print("[red]--judge-threshold must be between 0 and 1[/]")
         raise typer.Exit(code=2)
     store = Store()
     try:
@@ -145,6 +164,9 @@ def eval_cmd(
             rules=rules,
             rubric=rubric,
             min_score=min_score,
+            judges=judge or None,
+            judge_threshold=judge_threshold,
+            judge_cache=False if no_cache else None,
         )
     except (FileNotFoundError, ValueError, OSError, ImportError) as exc:
         console.print(f"[red]{_e(exc)}[/]")

@@ -249,6 +249,8 @@ def _judge(
     min_finding_severity: str,
     rule_specs: list[Any] | None = None,
     rubric: Any | None = None,
+    judges: list[Any] | None = None,
+    judge_options: dict[str, Any] | None = None,
 ) -> EvalResult:
     working = run.model_copy()
     _import_entrypoint(working)
@@ -314,6 +316,17 @@ def _judge(
             )
             if status == "pass":
                 status = "fail"
+    judge_dicts: list[dict[str, Any]] = []
+    for judge in judges or []:
+        verdict = judge.evaluate(working, **(judge_options or {}))
+        judge_dicts.append(verdict.to_dict())
+        if not verdict.passed:
+            reasons.append(
+                f"judge {verdict.name} {verdict.score:.2f} < {verdict.threshold:g}: "
+                f"{verdict.reasoning}"
+            )
+            if status == "pass":
+                status = "fail"
     return EvalResult(
         run_id=working.run_id,
         name=working.name,
@@ -328,6 +341,7 @@ def _judge(
         score=score,
         grade=grade,
         rubric_passed=rubric_passed,
+        judges=judge_dicts,
     )
 
 
@@ -352,6 +366,7 @@ class EvalResult:
     score: float | None = None
     grade: str | None = None
     rubric_passed: bool | None = None
+    judges: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -458,9 +473,12 @@ class EvalReport:
             f"Cost ${_fmt_cost(self.total_cost_usd)}, {self.total_tokens:,} tokens.\n"
         )
         has_scores = any(r.score is not None for r in self.results)
+        has_judges = any(r.judges for r in self.results)
         headers = ["run", "agent", "result", "checks", "findings", "cost", "tokens", "duration"]
         if has_scores:
             headers[3:3] = ["score", "grade"]
+        if has_judges:
+            headers.insert(len(headers) - 3, "judges")
         rows = [
             "| " + " | ".join(headers) + " |",
             "| " + " | ".join("---" for _ in headers) + " |",
@@ -482,6 +500,11 @@ class EvalReport:
             if has_scores:
                 score = f"{r.score:.1f}" if r.score is not None else "—"
                 cells[3:3] = [score, r.grade or "—"]
+            if has_judges:
+                verdicts = ", ".join(
+                    f"{j['name']} {j['score']:.2f}{'' if j['passed'] else ' ✗'}" for j in r.judges
+                )
+                cells.insert(len(cells) - 3, _md(verdicts or "—"))
             rows.append("| " + " | ".join(cells) + " |")
         body = "\n".join(rows)
         fails = [r for r in self.results if r.status != "pass"]
@@ -559,6 +582,11 @@ def eval_runs(
     rules: str | Path | Iterable[Any] | bool | None = None,
     rubric: str | Path | Any | None = None,
     min_score: float | None = None,
+    judges: Iterable[str | Any] | None = None,
+    judge_threshold: float | None = None,
+    judge_fn: Any = None,
+    judge_model: str | None = None,
+    judge_cache: bool | None = None,
 ) -> EvalReport:
     """Grade many recorded runs with oracles, runtime checks and optional budgets.
 
@@ -570,8 +598,12 @@ def eval_runs(
     to skip, or an in-memory list of rules. ``rubric`` is a rubric file path or a
     :class:`~crashlab.rubrics.Rubric`; ``min_score`` overrides the rubric's passing
     score. When either is set, each run is also graded 0–100 and fails the suite if
-    it scores below the threshold. With ``replay=True`` each run is replayed
-    offline first; :class:`~crashlab.replay.DivergenceError` and
+    it scores below the threshold. ``judges`` (names of :mod:`crashlab.judges` built-ins
+    or :class:`~crashlab.judges.Judge` objects) add LLM-as-judge verdicts: a run fails if
+    any judge scores below its threshold (``judge_threshold`` overrides every judge's);
+    ``judge_fn`` / ``judge_model`` / ``judge_cache`` configure how they run. With
+    ``replay=True`` each run is replayed offline first;
+    :class:`~crashlab.replay.DivergenceError` and
     :class:`~crashlab.replay.ReplayError` are recorded as failures.
     """
     if min_finding_severity not in SEVERITY_RANK:
@@ -591,6 +623,18 @@ def eval_runs(
     except RuleError as exc:
         raise ValueError(str(exc)) from exc
     rubric_obj = _load_eval_rubric(rubric, min_score=min_score)
+    judge_list: list[Any] = []
+    judge_opts: dict[str, Any] = {"judge_fn": judge_fn, "model": judge_model, "store": store}
+    if judge_cache is not None:
+        judge_opts["cache"] = judge_cache
+    if judges:
+        from .judges import get_judge, resolve_judge_config
+
+        judge_list = [get_judge(j, judge_threshold) for j in judges]
+        if judge_fn is None and not resolve_judge_config(judge_model)[0]:
+            from .judges import _no_model_error
+
+            raise ValueError(str(_no_model_error()))
     runs = _collect_runs(
         store, files, name=name, tag=tag, outcome=outcome, since=since, limit=limit
     )
@@ -610,6 +654,8 @@ def eval_runs(
                 min_finding_severity=min_finding_severity,
                 rule_specs=rule_specs,
                 rubric=rubric_obj,
+                judges=judge_list or None,
+                judge_options=judge_opts,
             )
         except (DivergenceError, ReplayError) as exc:
             cost, tokens, duration = _usage_numbers(run)

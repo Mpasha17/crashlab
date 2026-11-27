@@ -55,6 +55,7 @@ _KIND_ALIASES = {
     "rule": "rule",
     "rules": "rules",
     "check": "check",
+    "judge": "judge",
 }
 _KINDS = frozenset(_KIND_ALIASES.values())
 
@@ -99,6 +100,13 @@ class RubricCriterion:
     target_ms: float | None = None
     max_ms: float | None = None
     rules: Any = None
+    # kind "judge": a built-in judge name (faithfulness, ...) or "custom" with ``criteria``
+    judge: str | None = None
+    criteria: str | None = None
+    judge_rubric: str | None = None
+    threshold: float | None = None
+    judge_fn: Callable[[Any], Any] | None = None
+    judge_options: dict[str, Any] | None = None
 
     def resolved_kind(self) -> str:
         kind = _KIND_ALIASES.get(str(self.kind).strip().lower().replace("-", "_"))
@@ -134,6 +142,7 @@ class Rubric:
                     "kind": c.kind,
                     "target": c.target,
                     "max_value": c.max_value,
+                    **({"judge": c.judge} if c.judge else {}),
                 }
                 for c in self.criteria
             ],
@@ -295,6 +304,27 @@ def _tools_of(value: Any) -> list[str] | None:
     return [str(value)]
 
 
+def _judge_name(item: dict[str, Any], loc: str, kind: str) -> str | None:
+    if kind != "judge":
+        return None
+    name = item.get("judge") or item.get("name")
+    if item.get("criteria") and not item.get("judge"):
+        name = "custom"
+    if not isinstance(name, str) or not name.strip():
+        raise RubricError(f"{loc}: judge kind needs judge: <name> (or criteria: <text>)")
+    from .judges import BUILTIN_JUDGES
+
+    key = name.strip().lower().replace("-", "_")
+    if key != "custom" and key not in BUILTIN_JUDGES:
+        raise RubricError(
+            f"{loc}: unknown judge {name!r} (expected one of "
+            f"{', '.join(sorted(BUILTIN_JUDGES))}, or custom with criteria)"
+        )
+    if key == "custom" and not (isinstance(item.get("criteria"), str) and item["criteria"].strip()):
+        raise RubricError(f"{loc}: a custom judge needs criteria: <text>")
+    return key
+
+
 def _parse_criterion(item: dict[str, Any], *, index: int, source: str) -> RubricCriterion:
     loc = f"{source} criterion {index}"
     name = item.get("name") or item.get("id") or f"criterion_{index}"
@@ -337,6 +367,12 @@ def _parse_criterion(item: dict[str, Any], *, index: int, source: str) -> Rubric
         target_ms=_optional_float(item.get("target_ms"), loc, what="target_ms"),
         max_ms=_optional_float(item.get("max_ms"), loc, what="max_ms"),
         rules=item.get("rules"),
+        judge=_judge_name(item, loc, resolved),
+        criteria=item.get("criteria") if isinstance(item.get("criteria"), str) else None,
+        judge_rubric=item.get("judge_rubric")
+        if isinstance(item.get("judge_rubric"), str)
+        else None,
+        threshold=_optional_float(item.get("threshold"), loc, what="threshold"),
     )
 
 
@@ -603,7 +639,34 @@ def _criterion_score(run: Run, criterion: RubricCriterion) -> tuple[float, str]:
         return _tool_efficiency_score(run, criterion)
     if kind == "check":
         return _check_score(run, criterion)
+    if kind == "judge":
+        return _judge_score(run, criterion)
     raise RubricError(f"unknown criterion kind {kind!r}")
+
+
+def _judge_score(run: Run, criterion: RubricCriterion) -> tuple[float, str]:
+    from . import judges
+
+    name = criterion.judge or criterion.name
+    try:
+        if name == "custom":
+            if not criterion.criteria:
+                raise RubricError(f"criterion {criterion.name!r}: custom judge needs criteria")
+            judge = judges.custom(
+                criteria=criterion.criteria,
+                rubric=criterion.judge_rubric,
+                name=criterion.name,
+                threshold=criterion.threshold if criterion.threshold is not None else 0.7,
+            )
+        else:
+            judge = judges.get_judge(name, criterion.threshold)
+        result = judge.evaluate(run, judge_fn=criterion.judge_fn, **(criterion.judge_options or {}))
+    except judges.JudgeError as exc:
+        raise RubricError(f"criterion {criterion.name!r}: {exc}") from exc
+    except ValueError as exc:
+        raise RubricError(f"criterion {criterion.name!r}: {exc}") from exc
+    tag = "cached " if result.cached else ""
+    return result.score, f"{tag}judge {judge.name} {result.score:.2f}: {result.reasoning}"
 
 
 def _coerce_checks(checks: Iterable[Any]) -> list[Any]:
