@@ -2349,7 +2349,10 @@ _HELP_PANELS = (
     ),  # fmt: skip
     ("Store", ("tag", "rm", "prune", "audit-secrets", "redact-run")),
     ("Ops", ("doctor", "init", "profile")),
-    ("Diagnose and fix", ("triage", "bisect", "diagnose", "fix", "verify", "export-test")),
+    (
+        "Diagnose and fix",
+        ("triage", "bisect", "diagnose", "fix", "verify", "export-test", "guard-report"),
+    ),
     ("Evaluate", ("eval", "sweep", "rules", "score", "judge", "simulate", "baseline")),
     ("Replay and fork", ("replay", "fork", "stress", "fuzz", "proxy")),
     ("Share and benchmark", ("export", "import", "bundle", "unbundle", "dataset", "bench")),
@@ -2404,6 +2407,7 @@ from . import cli_chaos as _cli_chaos  # noqa: E402,F401  registers stress
 from . import cli_debug as _cli_debug  # noqa: E402,F401  registers search / cluster / watch
 from . import cli_eval as _cli_eval  # noqa: E402,F401  registers eval / sweep
 from . import cli_fuzz as _cli_fuzz  # noqa: E402,F401  registers dataset / fuzz
+from . import cli_guard as _cli_guard  # noqa: E402,F401  registers guard-report
 from . import cli_judges as _cli_judges  # noqa: E402,F401  registers judge
 from . import cli_obs as _cli_obs  # noqa: E402,F401  registers stats / timeline / ui
 from . import cli_ops as _cli_ops  # noqa: E402,F401  registers doctor / init / profile

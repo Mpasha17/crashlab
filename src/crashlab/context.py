@@ -37,6 +37,10 @@ SUPPORTED_MODES: tuple[Mode, ...] = ("record", "replay", "fork")
 # would otherwise pile up in a long run)
 _MAX_PENDING_TOOL_CALLS = 64
 _PENDING_AGENT = "_crashlab_agent"  # agent of the chat step that requested a pending call
+# active crashlab.guard scopes (see guard.py); empty tuple when no guard is active
+GUARD_STACK: contextvars.ContextVar[tuple[Any, ...]] = contextvars.ContextVar(
+    "crashlab_guard", default=()
+)
 
 
 @dataclass
@@ -172,6 +176,10 @@ class RunContext:
             if step.error is not None:
                 u.errors += 1
             self.steps.append(step)
+        guards = GUARD_STACK.get()
+        if guards and self.mode != "replay" and step.source != "cassette":
+            for scope in guards:  # crashlab.guard accounting (live calls only)
+                scope.on_step(step)
         self.write(self.store.add_step, step)
         if self.checks is not None:
             self.add_findings(self.checks.on_step(step))

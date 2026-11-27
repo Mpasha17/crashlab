@@ -48,6 +48,7 @@ from .dataset import build_dataset, inspect_dataset
 from .diagnose import DiagnoseError, diagnose, propose_fixes, try_fix
 from .faults import faults
 from .fuzz import fuzz_agent, fuzz_run
+from .guard import GuardViolation, guard
 from .integrations.instrument import instrument, instrumented, uninstrument
 from .judges import Judge, JudgeError, JudgeResult, judge_run, judge_runs
 from .models import (
@@ -114,6 +115,7 @@ __all__ = [
     "JudgeError",
     "JudgeResult",
     "ForkError",
+    "GuardViolation",
     "InjectMessagePatch",
     "MessagePatch",
     "ModelParamPatch",
@@ -155,6 +157,7 @@ __all__ = [
     "diff",
     "fake_tool",
     "faults",
+    "guard",
     "flakes",
     "fork",
     "fuzz_agent",

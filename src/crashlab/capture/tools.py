@@ -11,8 +11,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
-from ..context import _PENDING_AGENT, AGENT_ATTR
+from ..context import _PENDING_AGENT, AGENT_ATTR, GUARD_STACK
 from ..faults import FAULT_ATTR, take_tool_fault
+from ..guard import after_tool, before_tool
 from ..replay.divergence import PatchedToolError, SideEffectBlockedError
 from ..replay.rebuild import rebuild_exception, recancel
 from ._steps import begin_step
@@ -610,6 +611,10 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             if served:
                 return value
             faked = impl is not fn
+            if GUARD_STACK.get():
+                handled, value = before_tool(pending, spec.name, fn)
+                if handled:
+                    return value
             fault = _pre_live_fault(pending, spec.name)
             if fault is not None and fault.replaces_call():
                 result = fault.materialize(None)
@@ -625,6 +630,8 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
                              source="fake" if faked else None)  # fmt: skip
                 raise
             result = _maybe_corrupt(result, fault)
+            if GUARD_STACK.get():
+                result = after_tool(pending, result)
             _done(pending, result, faked)
             return result
 
@@ -640,6 +647,10 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             if served:
                 return value
             faked = impl is not fn
+            if GUARD_STACK.get():
+                handled, value = before_tool(pending, spec.name, fn)
+                if handled:
+                    return value
             fault = _pre_live_fault(pending, spec.name)
             if fault is not None and fault.replaces_call():
                 result = fault.materialize(None)
@@ -657,6 +668,8 @@ def _wrap(fn: Callable[..., Any], spec: ToolSpec) -> Callable[..., Any]:
             if inspect.isasyncgen(result):
                 return _record_agen(pending, result, faked)
             result = _maybe_corrupt(result, fault)
+            if GUARD_STACK.get():
+                result = after_tool(pending, result)
             _done(pending, result, faked)
             return result
 

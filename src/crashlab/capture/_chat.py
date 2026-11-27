@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ..context import current
+from ..context import GUARD_STACK, current
 from ..faults import FAULT_ATTR, take_llm_fault
 from ..models import Step
 from . import normalize as N
@@ -372,6 +372,11 @@ def invoke(
         if is_async is None:
             is_async = inspect.iscoroutinefunction(fn)
         return call.serve_replay(src, is_async=is_async, raw=raw)
+    guards = GUARD_STACK.get()
+    if guards:  # crashlab.guard: checks, retries / fallback, redaction
+        from ..guard import guarded_invoke
+
+        return guarded_invoke(guards, call, fn, args, kwargs, is_async=is_async, wrap=_wrap_result)
     _apply_llm_fault(call)
     try:
         result = fn(*args, **kwargs)
