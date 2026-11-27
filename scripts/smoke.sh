@@ -124,7 +124,7 @@ step 0 "audit-secrets|no secrets found|hit" -- audit-secrets "$GOOD"
 step 0 "exported"              -- export "$BAD" --format otel -o "$TMP/run.otel.json"
 step 0 "exported"              -- export "$BAD" --format chrome-trace -o "$TMP/run.trace.json"
 # Today's features: judges (no model needed for --help), guard-report, trace import
-step 0 "Usage: crashlab judge" -- judge --help
+step 0 "judge model" -- judge --help
 step 0 "no guard interventions" -- guard-report "$GOOD"
 step 0 '"interventions"|no guard interventions' -- guard-report "$GOOD" --json
 CRASHLAB_DIR="$TMP/store4" step 0 "otel, 3 steps" -- import tests/fixtures/ingest/otel_genai.json --format otel
