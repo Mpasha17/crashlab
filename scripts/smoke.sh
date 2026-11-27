@@ -132,4 +132,9 @@ CRASHLAB_DIR="$TMP/store4" step 0 "langsmith, 2 steps" -- import tests/fixtures/
 CRASHLAB_DIR="$TMP/store4" step 0 "langfuse" -- import tests/fixtures/ingest/langfuse_trace.json --format langfuse
 CRASHLAB_DIR="$TMP/store4" step 0 "imported|already there" -- import tests/fixtures/ingest/openinference_phoenix.json --format openinference
 CRASHLAB_DIR="$TMP/store4" step 0 "outcome|steps|rag_chain|llm" -- show last
+# Nov 27 wave 2: repair, prompt versions, memory/state (help only; colour-safe patterns)
+step 0 "candidate patches" -- repair --help
+step 0 "prompt versions" -- prompts --help
+step 0 "lost context" -- memory --help
+step 0 "state snapshots" -- state --help
 echo "SMOKE OK: $n crashlab commands"

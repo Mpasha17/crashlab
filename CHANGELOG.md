@@ -26,6 +26,23 @@
 - Haystack: `wrap_pipeline(pipeline, name=...)` records `run` / `run_async` with every component as a step (generators as chat steps with model and usage from `meta`, retrievers as `search_docs` steps with documents, `ToolInvoker` results as tool steps, others as bounded `custom` steps); `HaystackTracer` is a duck-typed tracer for `haystack.tracing.enable_tracing`.
 - No double recording: a chat or tool step already recorded by `crashlab.wrap`, `crashlab.instrument()` or `@crashlab.tool` during the framework call is not recorded again. Checked locally against `llama-index-core` 0.14.26, `smolagents` 1.26.0 and `haystack-ai` 3.5.0 with fake models, not against live providers.
 
+### Auto-repair (see `docs/repair.md`)
+
+- `crashlab repair` / `crashlab.repair()`: closed-loop auto-repair. Diagnoses a failed run, proposes candidate patches (restores from past passing runs plus LLM-proposed prompt/tool/param edits), verifies each with k patched-vs-control forks (flake-aware, judges/oracle gated), and feeds rejected attempts back for the next round.
+- Returns `RepairResult(status=fixed|partial|not_fixed, patch, attempts, evidence, verified_pass_rate, cost)`; every attempt is a stored verification and each repair is saved under `runs/<id>/repairs/` for audit. Deterministic and offline with a fake `propose_fn` and client.
+- `--write-patch PATH` writes the verified patch and `--export-test DIR` writes an offline pytest regression test; also `--max-iterations`, `--candidates`, `--trials`, `--judge`, `--dry-run`, `--json`. Exit 0 fixed, 1 not fixed, 2 usage error. Docs: docs/repair.md.
+
+### Prompt versions and A/B (see `docs/prompts.md`)
+
+- Prompt versions: every chat step is fingerprinted (`p-3f9a1c`, whitespace/placeholder/date-insensitive), with optional labels via `crashlab.prompt_version(...)` / `record(prompt_version=...)`; old runs are fingerprinted lazily.
+- `crashlab prompts list|show|diff` show each version's runs, pass/error/finding rates, cost, latency and tokens, and a text diff with metric deltas.
+- `crashlab prompts ab A B` compares pass rate, cost, latency or `judge:<name>` with Fisher/z/Mann-Whitney tests (pure Python) and a better/worse/inconclusive verdict; `--fail-on-regression` gates CI.
+
+### Memory and state debugging (see `docs/memory.md`)
+
+- Memory and state debugging for multi-turn agents: five `memory.*` checks (context truncation, forgotten facts, self-contradiction, stale tool results, unbounded growth), configurable under `[tool.crashlab.checks.memory]`.
+- `crashlab.snapshot(name, state)` records redacted, size-capped agent state; `crashlab state` shows the timeline and `--diff` key-level changes, and `crashlab memory` reports findings with turn-level evidence, with optional `--judge` confirmation. Docs: docs/memory.md.
+
 ## 0.0.6 (pre-alpha) - 2026-11-20
 
 Sixth public cut; matches `main` at release. `pip install crashlab`.

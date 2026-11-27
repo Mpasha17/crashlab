@@ -244,7 +244,7 @@ Evidence: [live scoreboard](https://github.com/Mpasha17/crashlab/blob/main/docs/
   `stats`, `timeline`, `ui`, `eval`, `sweep`, `bisect`, `score`, `baseline`, `rules`,
   `doctor`, `init`, `profile`, `context`, `audit-tools`, `dataset`, `fuzz`, `simulate`,
   `proxy`, `bundle`, `unbundle`, `audit-secrets`, `redact-run`, `tag`, `rm`, `prune`,
-  `judge`, `guard-report` (`crashlab --help`); in Python, `crashlab.load("last")`. `scripts/smoke.sh` runs every
+  `judge`, `guard-report`, `repair`, `prompts`, `memory`, `state` (`crashlab --help`); in Python, `crashlab.load("last")`. `scripts/smoke.sh` runs every
   command end to end offline against a fake model server, in CI.
 
 - **Auto-instrumentation:** `crashlab.instrument()` / `uninstrument()` patches OpenAI,
@@ -652,6 +652,9 @@ Samples are small and the intervals are wide; details, all CIs and caveats in
 | Debug bundles and secret audits | [docs/bundles-and-security.md](https://github.com/Mpasha17/crashlab/blob/main/docs/bundles-and-security.md) |
 | LLM-as-judge evaluators | [docs/judges.md](https://github.com/Mpasha17/crashlab/blob/main/docs/judges.md) |
 | Live guardrails | [docs/guardrails.md](https://github.com/Mpasha17/crashlab/blob/main/docs/guardrails.md) |
+| Auto-repair loop | [docs/repair.md](https://github.com/Mpasha17/crashlab/blob/main/docs/repair.md) |
+| Prompt versions and A/B | [docs/prompts.md](https://github.com/Mpasha17/crashlab/blob/main/docs/prompts.md) |
+| Memory and state debugging | [docs/memory.md](https://github.com/Mpasha17/crashlab/blob/main/docs/memory.md) |
 | Importing traces | [docs/importing-traces.md](https://github.com/Mpasha17/crashlab/blob/main/docs/importing-traces.md) |
 | Framework integrations | [docs/integrations.md](https://github.com/Mpasha17/crashlab/blob/main/docs/integrations.md) |
 | Case studies | [docs/case-studies/](https://github.com/Mpasha17/crashlab/blob/main/docs/case-studies/README.md) |
