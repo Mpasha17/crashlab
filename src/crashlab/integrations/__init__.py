@@ -6,9 +6,11 @@ construct a client internally are recorded without a private ``_client`` hook.
 
 ``crashlab.integrations.litellm`` (``patch`` / ``unpatch``), ``.mcp``
 (``wrap_mcp_session``), ``.langchain`` (``CrashlabCallbackHandler``) and
-``.frameworks`` (OpenAI Agents SDK, PydanticAI, CrewAI). Optional packages are
+``.frameworks`` (OpenAI Agents SDK, PydanticAI, CrewAI) and ``.frameworks_extra``
+(LlamaIndex, smolagents, Haystack). Optional packages are
 imported only when the corresponding integration is used — and the frameworks
-adapters never import ``agents``, ``pydantic_ai`` or ``crewai`` at all — so a
+adapters never import ``agents``, ``pydantic_ai``, ``crewai``, ``llama_index``,
+``smolagents`` or ``haystack`` at all — so a
 missing optional package never breaks ``import crashlab``.
 """
 
@@ -24,24 +26,41 @@ from .frameworks import (
     wrap_crew,
     wrap_pydantic_ai_agent,
 )
+from .frameworks_extra import (
+    HaystackTracer,
+    LlamaIndexHandler,
+    crashlab_step_callback,
+    llama_index_handler,
+    wrap_pipeline,
+    wrap_query_engine,
+    wrap_smolagent,
+)
 from .instrument import instrument, instrumented, uninstrument
 
 __all__ = [
     "CrashlabCallbackHandler",
     "CrewAICallback",
+    "HaystackTracer",
+    "LlamaIndexHandler",
     "OpenAIAgentsTracingProcessor",
     "PydanticAIAdapter",
+    "crashlab_step_callback",
     "crashlab_tracing_processor",
     "frameworks",
+    "frameworks_extra",
     "instrument",
     "instrumented",
     "langchain",
     "litellm",
+    "llama_index_handler",
     "mcp",
     "uninstrument",
     "wrap_crew",
     "wrap_mcp_session",
+    "wrap_pipeline",
     "wrap_pydantic_ai_agent",
+    "wrap_query_engine",
+    "wrap_smolagent",
 ]
 
 
