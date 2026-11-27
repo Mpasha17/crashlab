@@ -1,0 +1,162 @@
+[
+  {
+    "name": "agent",
+    "span_kind": "AGENT",
+    "parent_id": null,
+    "start_time": "2026-11-21T10:00:00.000+00:00",
+    "end_time": "2026-11-21T10:00:03.000+00:00",
+    "status_code": "OK",
+    "status_message": "",
+    "context": {
+      "trace_id": "ffeeddccbbaa99887766554433221100",
+      "span_id": "0a00000000000001"
+    },
+    "attributes": {
+      "openinference.span.kind": "AGENT",
+      "input.value": "Weather in Paris?",
+      "output.value": "It is 18C and sunny in Paris."
+    },
+    "events": []
+  },
+  {
+    "name": "ChatCompletion",
+    "span_kind": "LLM",
+    "parent_id": "0a00000000000001",
+    "start_time": "2026-11-21T10:00:00.100+00:00",
+    "end_time": "2026-11-21T10:00:01.000+00:00",
+    "status_code": "OK",
+    "status_message": "",
+    "context": {
+      "trace_id": "ffeeddccbbaa99887766554433221100",
+      "span_id": "0a00000000000002"
+    },
+    "attributes": {
+      "openinference.span.kind": "LLM",
+      "llm.model_name": "gpt-4o-mini",
+      "llm.provider": "openai",
+      "llm.invocation_parameters": "{\"temperature\": 0.1}",
+      "llm.token_count.prompt": 60,
+      "llm.token_count.completion": 15,
+      "llm.token_count.total": 75,
+      "llm.input_messages": [
+        {
+          "message": {
+            "role": "system",
+            "content": "You are a weather bot."
+          }
+        },
+        {
+          "message": {
+            "role": "user",
+            "content": "Weather in Paris?"
+          }
+        }
+      ],
+      "llm.output_messages": [
+        {
+          "message": {
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "tool_call": {
+                  "id": "call_w1",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\": \"Paris\"}"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "llm.tools": [
+        {
+          "tool": {
+            "json_schema": "{\"type\": \"function\", \"function\": {\"name\": \"get_weather\", \"description\": \"Weather\", \"parameters\": {\"type\": \"object\", \"properties\": {\"city\": {\"type\": \"string\"}}}}}"
+          }
+        }
+      ]
+    },
+    "events": []
+  },
+  {
+    "name": "get_weather",
+    "span_kind": "TOOL",
+    "parent_id": "0a00000000000001",
+    "start_time": "2026-11-21T10:00:01.100+00:00",
+    "end_time": "2026-11-21T10:00:01.500+00:00",
+    "status_code": "OK",
+    "status_message": "",
+    "context": {
+      "trace_id": "ffeeddccbbaa99887766554433221100",
+      "span_id": "0a00000000000003"
+    },
+    "attributes": {
+      "openinference.span.kind": "TOOL",
+      "tool.name": "get_weather",
+      "input.value": "{\"city\": \"Paris\"}",
+      "output.value": "{\"temp_c\": 18, \"sky\": \"sunny\"}"
+    },
+    "events": []
+  },
+  {
+    "name": "ChatCompletion",
+    "span_kind": "LLM",
+    "parent_id": "0a00000000000001",
+    "start_time": "2026-11-21T10:00:01.600+00:00",
+    "end_time": "2026-11-21T10:00:02.900+00:00",
+    "status_code": "OK",
+    "status_message": "",
+    "context": {
+      "trace_id": "ffeeddccbbaa99887766554433221100",
+      "span_id": "0a00000000000004"
+    },
+    "attributes": {
+      "openinference.span.kind": "LLM",
+      "llm.model_name": "gpt-4o-mini",
+      "llm.token_count.prompt": 98,
+      "llm.token_count.completion": 12,
+      "llm.input_messages": [
+        {
+          "message": {
+            "role": "user",
+            "content": "Weather in Paris?"
+          }
+        },
+        {
+          "message": {
+            "role": "assistant",
+            "tool_calls": [
+              {
+                "tool_call": {
+                  "id": "call_w1",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\": \"Paris\"}"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "message": {
+            "role": "tool",
+            "content": "{\"temp_c\": 18, \"sky\": \"sunny\"}",
+            "tool_call_id": "call_w1"
+          }
+        }
+      ],
+      "llm.output_messages": [
+        {
+          "message": {
+            "role": "assistant",
+            "content": "It is 18C and sunny in Paris."
+          }
+        }
+      ]
+    },
+    "events": []
+  }
+]

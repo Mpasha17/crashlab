@@ -2265,27 +2265,75 @@ def export_cmd(
     _console().print(f"exported {run_id} ({kind}) -> {_e(dest)}")
 
 
+_IMPORT_FORMATS = ("auto", "jsonl", "otel", "langfuse", "openinference", "langsmith")
+_IMPORT_SUFFIXES = (".json", ".jsonl", ".zip")
+
+
+def _is_crashlab_jsonl(path: Path) -> bool:
+    """The file's first line is a crashlab export header (or is not JSON at all, in which
+    case the JSONL importer gives the error message it always did)."""
+    try:
+        with path.open(encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    head = json.loads(line)
+                    return not isinstance(head, dict) or head.get("type") == "crashlab.run"
+    except (OSError, ValueError):
+        return True
+    return True
+
+
 @app.command("import")
 def import_cmd(
     paths: list[Path] = typer.Argument(  # noqa: B008
-        ..., help="Exported .jsonl files or .crashlab.zip debug bundles."
+        ...,
+        help="Exported .jsonl files, .crashlab.zip bundles, or traces from another tool "
+        "(.json / .jsonl, or a directory of them).",
     ),
     replace: bool = typer.Option(False, "--replace", help="Overwrite runs that already exist."),
+    fmt: str = typer.Option(
+        "auto",
+        "--format",
+        help="auto, jsonl (a crashlab export), otel (OTLP/JSON GenAI), langfuse, "
+        "openinference (Arize Phoenix) or langsmith. auto detects it.",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the imported runs as JSON."),
 ) -> None:
-    """Add exported runs to the store ($CRASHLAB_DIR or ./.crashlab).
+    """Add exported runs, or traces from other tools, to the store ($CRASHLAB_DIR or ./.crashlab).
 
     A ``.zip`` / ``.crashlab.zip`` path is imported as a debug bundle
-    (``crashlab unbundle``). ``--replace`` applies to JSONL exports only.
+    (``crashlab unbundle``). Traces from OpenTelemetry GenAI (OTLP/JSON), Langfuse,
+    OpenInference / Arize Phoenix and LangSmith become runs you can ``show``,
+    ``diagnose``, ``check`` and ``eval`` (see docs/importing-traces.md). ``--replace``
+    overwrites runs that are already there.
     """
+    from .ingest import IngestError, load_path, save_runs
     from .store import import_run
 
     console = _console()
+    if fmt not in _IMPORT_FORMATS:
+        console.print(f"[red]--format must be one of {', '.join(_IMPORT_FORMATS)}[/]")
+        raise typer.Exit(code=2)
     store = Store()
+    files: list[Path] = []
     for path in paths:
-        if not path.is_file():
-            what = "is a directory" if path.is_dir() else "no such file"
-            console.print(f"[red]{_e(path)}: {what}[/]")
+        if path.is_dir():
+            found = sorted(
+                p for p in path.iterdir() if p.is_file() and p.suffix.lower() in _IMPORT_SUFFIXES
+            )
+            if not found:
+                console.print(
+                    f"[red]{_e(path)}: is a directory with no .json, .jsonl or .zip files[/]"
+                )
+                raise typer.Exit(code=2)
+            files.extend(found)
+        elif path.is_file():
+            files.append(path)
+        else:
+            console.print(f"[red]{_e(path)}: no such file[/]")
             raise typer.Exit(code=2)
+    done: list[dict[str, Any]] = []
+    for path in files:
         if path.suffix.lower() == ".zip":
             from .bundle import BundleError, import_bundle
 
@@ -2295,14 +2343,50 @@ def import_cmd(
                 console.print(f"[red]{_e(path)}: {_e(err)}[/]")
                 raise typer.Exit(code=2) from err
             for run_id in ids:
-                console.print(f"imported: {run_id}  ({_e(path)})")
+                done.append(
+                    {"run_id": run_id, "added": True, "path": str(path), "format": "bundle"}
+                )
+                if not as_json:
+                    console.print(f"imported: {run_id}  ({_e(path)})")
+            continue
+        if fmt == "jsonl" or (
+            fmt == "auto" and path.suffix.lower() == ".jsonl" and _is_crashlab_jsonl(path)
+        ):
+            try:
+                run_id, added = import_run(store, path, replace=replace)
+            except (OSError, ValueError) as err:
+                console.print(f"[red]{_e(path)}: {_e(err)}[/]")
+                raise typer.Exit(code=2) from err
+            done.append({"run_id": run_id, "added": added, "path": str(path), "format": "jsonl"})
+            if not as_json:
+                console.print(f"{'imported' if added else 'already there'}: {run_id}  ({_e(path)})")
             continue
         try:
-            run_id, added = import_run(store, path, replace=replace)
-        except (OSError, ValueError) as err:
+            runs = load_path(path, fmt)
+            saved = save_runs(store, runs, replace=replace)
+        except (OSError, ValueError, IngestError) as err:
             console.print(f"[red]{_e(path)}: {_e(err)}[/]")
             raise typer.Exit(code=2) from err
-        console.print(f"{'imported' if added else 'already there'}: {run_id}  ({_e(path)})")
+        for run, (run_id, added) in zip(runs, saved, strict=True):
+            source = (run.env.get("metadata") or {}).get("source")
+            done.append(
+                {
+                    "run_id": run_id,
+                    "added": added,
+                    "path": str(path),
+                    "format": source,
+                    "name": run.name,
+                    "steps": len(run.steps),
+                }  # fmt: skip
+            )
+            if not as_json:
+                console.print(
+                    f"{'imported' if added else 'already there'}: {run_id}  "
+                    f"({_e(path)}, {source}, {len(run.steps)} steps)"
+                )
+    if as_json:
+        typer.echo(json.dumps({"store": str(store.root), "runs": done}, indent=2))
+        return
     console.print(f"store: {_e(store.root)}")
 
 

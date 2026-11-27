@@ -1,0 +1,106 @@
+{
+  "id": "lf-trace-0001",
+  "name": "docs-assistant",
+  "timestamp": "2026-11-20T09:15:00.000Z",
+  "sessionId": "sess-42",
+  "input": {
+    "question": "How do I rotate an API key?"
+  },
+  "output": "Rotate it under Settings > API keys; old keys stop working immediately. [doc-keys]",
+  "tags": [
+    "prod"
+  ],
+  "observations": [
+    {
+      "id": "obs-1",
+      "traceId": "lf-trace-0001",
+      "type": "SPAN",
+      "name": "answer-question",
+      "startTime": "2026-11-20T09:15:00.010Z",
+      "endTime": "2026-11-20T09:15:02.500Z",
+      "parentObservationId": null,
+      "input": {
+        "question": "How do I rotate an API key?"
+      },
+      "output": "..."
+    },
+    {
+      "id": "obs-2",
+      "traceId": "lf-trace-0001",
+      "type": "RETRIEVER",
+      "name": "search_docs",
+      "startTime": "2026-11-20T09:15:00.100Z",
+      "endTime": "2026-11-20T09:15:00.400Z",
+      "parentObservationId": "obs-1",
+      "input": {
+        "query": "rotate API key"
+      },
+      "output": [
+        {
+          "id": "doc-keys",
+          "page_content": "API keys are rotated under Settings > API keys. The old key is revoked immediately.",
+          "metadata": {
+            "source": "keys.md"
+          }
+        },
+        {
+          "id": "doc-billing",
+          "page_content": "Invoices are emailed on the first of each month.",
+          "metadata": {
+            "source": "billing.md"
+          }
+        }
+      ]
+    },
+    {
+      "id": "obs-3",
+      "traceId": "lf-trace-0001",
+      "type": "GENERATION",
+      "name": "ChatOpenAI",
+      "startTime": "2026-11-20T09:15:00.500Z",
+      "endTime": "2026-11-20T09:15:02.400Z",
+      "parentObservationId": "obs-1",
+      "model": "gpt-4o-mini",
+      "modelParameters": {
+        "temperature": 0,
+        "max_tokens": 300
+      },
+      "input": [
+        {
+          "role": "system",
+          "content": "Answer only from the context. Cite doc ids."
+        },
+        {
+          "role": "user",
+          "content": "Context:\n[doc-keys] API keys are rotated under Settings > API keys. The old key is revoked immediately.\n[doc-billing] Invoices are emailed on the first of each month.\n\nQuestion: How do I rotate an API key?"
+        }
+      ],
+      "output": {
+        "role": "assistant",
+        "content": "Rotate it under Settings > API keys; old keys stop working immediately. [doc-keys]"
+      },
+      "usage": {
+        "input": 96,
+        "output": 24,
+        "total": 120,
+        "unit": "TOKENS"
+      },
+      "level": "DEFAULT"
+    },
+    {
+      "id": "obs-4",
+      "traceId": "lf-trace-0001",
+      "type": "EVENT",
+      "name": "feedback-widget",
+      "startTime": "2026-11-20T09:15:02.450Z",
+      "parentObservationId": "obs-1",
+      "level": "DEFAULT"
+    }
+  ],
+  "scores": [
+    {
+      "name": "user-feedback",
+      "value": 1
+    }
+  ]
+}
