@@ -103,6 +103,13 @@ _FINDING_RULES: dict[str, tuple[TaxonomyLabel | None, int]] = {
     # the turn ended with no text and no tool call (a handoff only "thought about"):
     # stronger than a check that only says what is missing at the end
     "empty_reply": (TaxonomyLabel.TASK_SPEC_VIOLATION, 5),
+    # memory / state: the agent lost, ignored or contradicted what the conversation
+    # established (the instruction was in its context, or should have been)
+    "memory.forgotten_fact": (TaxonomyLabel.TASK_SPEC_VIOLATION, 4),
+    "memory.context_truncation": (TaxonomyLabel.TASK_SPEC_VIOLATION, 5),
+    "memory.self_contradiction": (TaxonomyLabel.TASK_SPEC_VIOLATION, 5),
+    "memory.stale_tool_result": (TaxonomyLabel.TOOL_ERROR_MISHANDLED, 5),
+    "memory.unbounded_growth": (None, 8),
 }
 
 

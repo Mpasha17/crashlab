@@ -1376,6 +1376,10 @@ def build(cfg: ChecksConfig) -> list[Detector]:
         out.append(ToolFanout(cfg.tool_fanout))
     if cfg.system_prompt_leak.enabled:
         out.append(SystemPromptLeak(cfg.system_prompt_leak))
+    if cfg.memory.enabled:
+        from ..memory import build_detectors
+
+        out.extend(build_detectors(cfg.memory))
     return out
 
 
@@ -1394,4 +1398,9 @@ KINDS = (
     "context_bloat",
     "tool_fanout",
     "system_prompt_leak",
+    "memory.context_truncation",
+    "memory.forgotten_fact",
+    "memory.self_contradiction",
+    "memory.stale_tool_result",
+    "memory.unbounded_growth",
 )
